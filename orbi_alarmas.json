@@ -1,0 +1,30 @@
+[
+ {
+  "id": "338529",
+  "kind": "recordatorio",
+  "when": "2026-10-21T20:30:00",
+  "texto": "Revisar el error de streaming bidireccional de Gemini.",
+  "repetir": "no"
+ },
+ {
+  "id": "de1812",
+  "kind": "recordatorio",
+  "when": "2026-10-21T20:30:00",
+  "texto": "tokens de claude se han restablecido",
+  "repetir": "no"
+ },
+ {
+  "id": "a3a6a8",
+  "kind": "recordatorio",
+  "when": "2026-10-22T17:00:00",
+  "texto": "Portafolio de evidencias",
+  "repetir": "no"
+ },
+ {
+  "id": "abe9fa",
+  "kind": "recordatorio",
+  "when": "2026-10-23T17:00:00",
+  "texto": "Portafolio de evidencias",
+  "repetir": "no"
+ }
+]

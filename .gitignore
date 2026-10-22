@@ -1,0 +1,13 @@
+.env
+config.json
+orbi.log
+orbi_profile.json
+apps.json
+__pycache__/
+*.pyc
+.venv/
+orbi_voz.json
+models/
+token_google.json
+google_client_secret.json
+.diff
