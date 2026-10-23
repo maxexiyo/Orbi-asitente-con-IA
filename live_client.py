@@ -106,6 +106,12 @@ class LiveSession:
         self.fin_turno_ms = 1100
         self.fin_sensibilidad = "low"        # low = le cuesta más decidir que terminaste · high = responde más rápido
         self.prefijo_ms = 250
+        # filtro por nombre (sin Vosk): te oye siempre, pero solo contesta si te diriges a Orbi
+        self.name_gate = False
+        self.addressed_check = lambda text: True      # live_orb: texto que dijiste -> ¿es para Orbi?
+        self.gate_wait_s = 1.5                        # cuánto retiene la voz de Orbi esperando la transcripción de lo que dijiste
+        self._turn_text, self._gate_decision, self._hold, self._hold_txt = "", None, [], []
+        self._hold_t0, self._gate_pre_until = 0.0, 0.0
         self.mic_stall_s = 4.0               # sin audio del micro por tanto tiempo = se trabó (cambió el dispositivo): reabrir
         self.speaker_stall_s = 3.0           # una escritura a la bocina que tarda tanto = bocina trabada: reabrir
         self.vad = VoiceDetector()           # live_orb lo reconfigura con mic_umbral, mic_min_ms y mic_ruido_factor
@@ -147,6 +153,7 @@ class LiveSession:
     def _enqueue_text(self, text):
         self._waiting = True                 # para que la bolita se vea "pensando"
         self._last_voice = time.time()
+        self._gate_pre_until = time.time() + 20.0   # lo que se manda por texto (tú, alarmas, avisos) siempre es para Orbi
         self._text_q.put_nowait(text)
 
     def stop(self):
@@ -438,9 +445,7 @@ class LiveSession:
                 voiced = self.vad.update(lvl)
                 self.emit("level", ("mic", lvl if voiced else 0.0))      # la bolita solo se mueve con voz, no con ruiditos
                 if voiced:
-                    self._last_voice = now
-                    if not self._speaking:
-                        self._waiting = True
+                    self._last_voice = now                      # (ya no activa «pensando»: eso solo pasa si de verdad se manda algo)
                 await session.send_realtime_input(
                     audio=types.Blob(data=data, mime_type=f"audio/pcm;rate={IN_RATE}"))
 
@@ -452,6 +457,46 @@ class LiveSession:
             except Exception:                                   # noqa: BLE001
                 break
         self._speaking = False
+
+    def _queue_audio(self, data):
+        self._speaking = True
+        self._waiting = False
+        self._last_audio_out = time.time()
+        self._out_q.put_nowait(data)
+
+    def _gate_try(self, final: bool = False):
+        """Filtro por nombre: ¿esta respuesta es para Orbi? Retiene su voz hasta saberlo (o hasta gate_wait_s)."""
+        if not self.name_gate or self._gate_decision is not None:
+            return
+        try:
+            ok = time.time() < self._gate_pre_until or bool(self.addressed_check(self._turn_text))
+        except Exception:                                       # noqa: BLE001
+            ok = True
+        if ok:
+            self._gate_decision = True
+            for d in self._hold:
+                self._queue_audio(d)
+            for t in self._hold_txt:
+                self._emit_model_text(t)
+            self._hold, self._hold_txt = [], []
+        elif final or ((self._hold or self._hold_txt) and time.time() - self._hold_t0 >= self.gate_wait_s):
+            self._gate_decision = False
+            self._hold, self._hold_txt = [], []                 # lo retenido nunca llegó a sonar ni a verse
+            self._suppress_until = time.time() + 10.0           # nada de voz, texto ni herramientas para este turno
+            self._waiting = False
+            print(f"[nombre] no era para Orbi, no contesto: «{self._turn_text.strip()[:70]}»")
+
+    def _emit_model_text(self, text):
+        if es_no_respuesta(text):
+            # dijo «silencio»/«no speech»: que no se vea y corta el audio que falta por sonar
+            while not self._out_q.empty():
+                self._out_q.get_nowait()
+        else:
+            self.emit("model_text", text)
+
+    def _gate_reset(self):
+        self._turn_text, self._gate_decision, self._hold, self._hold_txt = "", None, [], []
+        self._hold_t0 = self._gate_pre_until = 0.0
 
     def suppress_turn(self, utt_start: float) -> bool:
         """La frase que acaba de oírse NO era del dueño: cancela la respuesta de ese turno (voz, texto y herramientas).
@@ -515,10 +560,13 @@ class LiveSession:
                 got_any = True
                 sup = time.time() < self._suppress_until
                 if r.data and not sup:
-                    self._speaking = True
-                    self._waiting = False
-                    self._last_audio_out = time.time()
-                    self._out_q.put_nowait(r.data)
+                    if self.name_gate and self._gate_decision is None:
+                        if not self._hold:
+                            self._hold_t0 = time.time()
+                        self._hold.append(r.data)               # no suena hasta saber si te dirigías a Orbi
+                        self._gate_try()
+                    else:
+                        self._queue_audio(r.data)
                 sc = r.server_content
                 if sc:
                     if sc.interrupted:
@@ -526,19 +574,28 @@ class LiveSession:
                             self._out_q.get_nowait()
                         self._speaking = False
                         self.emit("interrupted", None)
-                    if sc.input_transcription and sc.input_transcription.text and not sup:
-                        self.emit("user_text", sc.input_transcription.text)
+                    if sc.input_transcription and sc.input_transcription.text:
+                        self._turn_text += sc.input_transcription.text
+                        if not self._speaking:                  # Live entendió palabras: ahora sí «piensa» (el ruido no cuenta)
+                            self._waiting = True
+                            self._last_voice = time.time()
+                        if not sup:
+                            self.emit("user_text", sc.input_transcription.text)
+                        self._gate_try()
                     if sc.output_transcription and sc.output_transcription.text and not sup:
-                        if es_no_respuesta(sc.output_transcription.text):
-                            # dijo «silencio»/«no speech»: que no se vea y corta el audio que falta por sonar
-                            while not self._out_q.empty():
-                                self._out_q.get_nowait()
+                        if self.name_gate and self._gate_decision is None:
+                            if not self._hold and not self._hold_txt:
+                                self._hold_t0 = time.time()
+                            self._hold_txt.append(sc.output_transcription.text)      # el texto también espera: ¿era para Orbi?
+                            self._gate_try()
                         else:
-                            self.emit("model_text", sc.output_transcription.text)
+                            self._emit_model_text(sc.output_transcription.text)
                     if sc.turn_complete:
+                        self._gate_try(final=True)              # si quedó voz retenida: suena o se descarta ya
                         self._waiting = False
                         self._turn_done_t = time.time()
                         self._suppress_until = 0.0
+                        self._gate_reset()
                         self.emit("turn_complete", None)
                 if r.tool_call:
                     t = asyncio.create_task(self._handle_tools(session, r.tool_call))
@@ -565,6 +622,8 @@ class LiveSession:
         names = ", ".join(fc.name for fc in (tool_call.function_calls or []))
         if gap < 90:                              # diagnóstico: lo que Live tardó en pedir el siguiente paso (va a orbi.log)
             print(f"[live] el modelo tardó {gap:.1f}s en pedir el siguiente paso: {names}")
+        if self.name_gate and self._gate_decision is None:
+            self._gate_try(final=True)                          # herramientas solo si te dirigías a Orbi
         responses = []
         for fc in tool_call.function_calls or []:
             if time.time() < self._suppress_until:      # lo pidió una voz que no es la del dueño: no se ejecuta nada
