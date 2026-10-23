@@ -5,10 +5,7 @@ Se abre solo la primera vez (cuando no existe orbi_profile.json) y desde el men�
 """
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (QWizard, QWizardPage, QVBoxLayout, QLabel, QLineEdit, QPlainTextEdit,
-                               QRadioButton, QButtonGroup, QCheckBox, QDialog, QDialogButtonBox, QMessageBox)
-
-import keystore
-from config import KEY_PATTERNS
+                               QRadioButton, QButtonGroup, QCheckBox)
 
 from perfil import DEFAULT_PROFILE, PERMISOS_DEFAULT, TONOS, save_profile
 
@@ -40,71 +37,6 @@ def _title(text):
 
 def _hint(text):
     l = QLabel(text); l.setObjectName("hint"); l.setWordWrap(True); return l
-
-
-KEYS_HINT = ("Pégalas aquí, una por línea (o separadas por coma). Se guardan cifradas en esta PC "
-             "(orbi_keys.json): solo tu usuario de Windows las puede leer. Si ya tienes keys en un .env, también se usan. "
-             "Gratis en aistudio.google.com/apikey")
-
-
-def parse_keys(text: str) -> list:
-    return list(dict.fromkeys(KEY_PATTERNS["gemini"].findall(text or "")))
-
-
-def _keys_warning(parent):
-    QMessageBox.warning(parent, "Orbi", "No vi ninguna key válida en ese texto (las de Gemini empiezan con «AIza» o «AQ.»).")
-
-
-class PageKeys(QWizardPage):
-    def __init__(self):
-        super().__init__()
-        lay = QVBoxLayout(self)
-        lay.addWidget(_title("Tus keys de Gemini 🔑"))
-        lay.addWidget(_hint(KEYS_HINT))
-        self.box = QPlainTextEdit("\n".join(keystore.load_keys()))
-        self.box.setPlaceholderText("AIza...")
-        lay.addWidget(self.box)
-        lay.addWidget(_hint("Para quitar una key, bórrala de la lista. Si cambias keys, reinicia Orbi para que apliquen."))
-
-    def validatePage(self):
-        txt = self.box.toPlainText().strip()
-        if txt and not parse_keys(txt):
-            _keys_warning(self)
-            return False
-        return True
-
-    def keys(self) -> list:
-        return parse_keys(self.box.toPlainText())
-
-
-def run_keys_dialog() -> bool:
-    """Ventana para pegar las keys cuando no hay ninguna. Devuelve True si guardó al menos una."""
-    d = QDialog()
-    d.setWindowTitle("Orbi — keys de Gemini")
-    d.setStyleSheet(STYLE + "QDialog { background: #101a36; color: #eaf2ff; font: 14px 'Segoe UI'; }")
-    d.setMinimumSize(560, 360)
-    d.setWindowFlag(Qt.WindowStaysOnTopHint, True)
-    lay = QVBoxLayout(d)
-    lay.addWidget(_title("Necesito una key de Gemini 🔑"))
-    lay.addWidget(_hint(KEYS_HINT))
-    box = QPlainTextEdit(); box.setPlaceholderText("AIza...")
-    lay.addWidget(box)
-    bb = QDialogButtonBox(QDialogButtonBox.Save | QDialogButtonBox.Cancel)
-    bb.button(QDialogButtonBox.Save).setText("Guardar")
-    bb.button(QDialogButtonBox.Cancel).setText("Cancelar")
-    lay.addWidget(bb)
-
-    def save():
-        keys = parse_keys(box.toPlainText())
-        if not keys:
-            _keys_warning(d)
-            return
-        keystore.save_keys(keys)
-        d.accept()
-
-    bb.accepted.connect(save)
-    bb.rejected.connect(d.reject)
-    return d.exec() == QDialog.Accepted
 
 
 class PageNombre(QWizardPage):
@@ -234,7 +166,7 @@ class PagePermisos(QWizardPage):
 
 
 class Wizard(QWizard):
-    def __init__(self, existing=None, show_keys=False):
+    def __init__(self, existing=None):
         super().__init__()
         self.base = {**DEFAULT_PROFILE, **(existing or {})}
         self.setWindowTitle("Orbi — configuración")
@@ -249,10 +181,8 @@ class Wizard(QWizard):
         self.p_nombre, self.p_tono = PageNombre(self.base), PageTono(self.base)
         self.p_sobre, self.p_perm = PageSobreTi(self.base), PagePermisos(self.base)
         self.p_escucha = PageEscucha(self.base)
-        self.p_keys = PageKeys() if show_keys else None
-        for p in (self.p_keys, self.p_nombre, self.p_tono, self.p_sobre, self.p_escucha, self.p_perm):
-            if p is not None:
-                self.addPage(p)
+        for p in (self.p_nombre, self.p_tono, self.p_sobre, self.p_escucha, self.p_perm):
+            self.addPage(p)
 
     def result_profile(self) -> dict:
         prof = dict(self.base)
@@ -273,11 +203,9 @@ class Wizard(QWizard):
 
 def run_onboarding(existing=None):
     """Muestra el asistente (bloquea hasta cerrarlo). Devuelve el perfil guardado o None si cancelaron."""
-    w = Wizard(existing, show_keys=existing is not None)      # la pestaña de keys sale al reconfigurar, no en la 1a vez
+    w = Wizard(existing)
     if w.exec() != QWizard.Accepted:
         return None
-    if w.p_keys is not None:
-        keystore.save_keys(w.p_keys.keys())
     prof = w.result_profile()
     save_profile(prof)
     return prof

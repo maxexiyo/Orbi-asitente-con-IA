@@ -13,7 +13,7 @@ primera vez). Si Vosk o el modelo no están, Orbi avisa y se queda en modo "ataj
 import difflib, json, os, queue, re, threading, time, unicodedata, urllib.request, zipfile
 from pathlib import Path
 
-from paths import APP_DIR as ROOT  # carpeta de Orbi (o del .exe)
+ROOT = Path(__file__).parent
 MODEL_URL = "https://alphacephei.com/vosk/models/vosk-model-small-es-0.42.zip"
 MODEL_DIR = ROOT / "models"
 

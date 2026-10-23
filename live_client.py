@@ -28,6 +28,37 @@ DEFAULT_SYSTEM = (
 )
 
 
+class VoiceDetector:
+    """¿Esto es voz de verdad? Umbral que sube con el ruido de fondo + debe durar un mínimo (clics, golpecitos y ruiditos
+    sueltos NO cuentan; antes cualquier ruido por encima de un nivel fijo ya hacía «brincar» a Orbi)."""
+
+    MAX_FLOOR = 0.12           # tope: aunque haya mucho ruido, tu voz normal siempre tiene que poder pasar (umbral máx ~0.30)
+
+    def __init__(self, umbral=0.15, min_ms=250, factor=2.5, chunk_ms=64):
+        self.umbral, self.factor = float(umbral), float(factor)
+        self.min_chunks = max(1, round(float(min_ms) / chunk_ms))
+        self.floor = 0.03          # ruido de fondo estimado
+        self.run = 0               # cuántos trozos seguidos (con tolerancia) pasaron del umbral
+        self.loud = 0              # cuánto lleva «sonando» sin parar (un ventilador o una tele no es voz)
+
+    @property
+    def threshold(self) -> float:
+        return max(self.umbral, self.floor * self.factor)
+
+    def update(self, lvl: float) -> bool:
+        if lvl > self.threshold:
+            self.run = min(self.run + 1, self.min_chunks + 8)
+        else:
+            self.run = max(0, self.run - 1)
+            if self.run == 0:
+                self.floor = min(self.MAX_FLOOR, self.floor * 0.97 + lvl * 0.03)
+        voiced = self.run >= self.min_chunks
+        self.loud = self.loud + 1 if voiced else 0
+        if self.loud > 190:        # ~12 s sin parar: es ruido constante, no una persona; adáptate
+            self.floor = min(self.MAX_FLOOR, self.floor * 0.995 + lvl * 0.005)
+        return voiced
+
+
 def rms(data: bytes) -> float:
     a = np.frombuffer(data, dtype=np.int16).astype(np.float32)
     if a.size == 0:
@@ -75,6 +106,9 @@ class LiveSession:
         self.fin_turno_ms = 1100
         self.fin_sensibilidad = "low"        # low = le cuesta más decidir que terminaste · high = responde más rápido
         self.prefijo_ms = 250
+        self.mic_stall_s = 4.0               # sin audio del micro por tanto tiempo = se trabó (cambió el dispositivo): reabrir
+        self.speaker_stall_s = 3.0           # una escritura a la bocina que tarda tanto = bocina trabada: reabrir
+        self.vad = VoiceDetector()           # live_orb lo reconfigura con mic_umbral, mic_min_ms y mic_ruido_factor
         self.use_aad = True                  # se apaga solo si el servidor rechaza la configuración
         self._suppress_until = 0.0           # mientras sea futuro: ignora todo lo que Live conteste (voz de otra persona)
         self._turn_done_t = 0.0
@@ -319,15 +353,60 @@ class LiveSession:
         def cb(indata, frames, t, status):
             loop.call_soon_threadsafe(put, bytes(indata))
 
-        try:
-            stream = sd.RawInputStream(samplerate=IN_RATE, channels=1, dtype="int16", blocksize=CHUNK,
-                                       callback=cb, device=self.input_device)
-        except Exception as e:
-            self.emit("info", f"Micrófono {self.input_device!r} no disponible ({e}); uso el predeterminado")
-            stream = sd.RawInputStream(samplerate=IN_RATE, channels=1, dtype="int16", blocksize=CHUNK, callback=cb)
-        with stream:
+        emit = self.emit
+
+        class _Mic:
+            """Micrófono que se puede reabrir si Windows cambia de dispositivo de audio (Bluetooth, driver, otra app...).
+            PortAudio no se recupera solo: el flujo queda «vivo» pero mudo, y Orbi se quedaba sordo sin avisar."""
+            def __init__(m, dev):
+                m.dev, m.stream = dev, None
+                m.open()
+
+            def open(m):
+                try:
+                    m.stream = sd.RawInputStream(samplerate=IN_RATE, channels=1, dtype="int16", blocksize=CHUNK,
+                                                 callback=cb, device=m.dev)
+                except Exception as e:                                  # noqa: BLE001
+                    if m.dev is None:
+                        raise
+                    emit("info", f"Micrófono {m.dev!r} no disponible ({e}); uso el predeterminado")
+                    m.dev = None
+                    m.stream = sd.RawInputStream(samplerate=IN_RATE, channels=1, dtype="int16", blocksize=CHUNK, callback=cb)
+                m.stream.start()
+
+            def close(m):
+                s, m.stream = m.stream, None
+                if s is not None:
+                    for fn in (s.abort, s.close):
+                        try:
+                            fn()
+                        except Exception:                               # noqa: BLE001
+                            pass
+
+            def reopen(m):
+                m.close()
+                m.open()
+
+            def __enter__(m):
+                return m
+
+            def __exit__(m, *a):
+                m.close()
+
+        mic = _Mic(self.input_device)
+        with mic:
             while True:
-                data = await q.get()
+                try:
+                    data = await asyncio.wait_for(q.get(), timeout=self.mic_stall_s)
+                except asyncio.TimeoutError:
+                    # un micro vivo entrega audio cada ~64 ms aunque haya silencio: varios segundos sin nada = se trabó
+                    self.emit("info", "[audio] El micrófono dejó de enviar audio; lo reabro…")
+                    try:
+                        mic.reopen()
+                    except Exception as e:                              # noqa: BLE001
+                        self.emit("info", f"[audio] No pude reabrir el micrófono ({type(e).__name__}); reintento en unos segundos.")
+                        await asyncio.sleep(3.0)
+                    continue
                 if self.muted:
                     continue
                 now = time.time()
@@ -356,13 +435,23 @@ class LiveSession:
                     self._pre.clear()
                 self._gate_was_open = True
                 lvl = rms(data)
-                self.emit("level", ("mic", lvl))
-                if lvl > VOICE_THRESHOLD:
+                voiced = self.vad.update(lvl)
+                self.emit("level", ("mic", lvl if voiced else 0.0))      # la bolita solo se mueve con voz, no con ruiditos
+                if voiced:
                     self._last_voice = now
                     if not self._speaking:
                         self._waiting = True
                 await session.send_realtime_input(
                     audio=types.Blob(data=data, mime_type=f"audio/pcm;rate={IN_RATE}"))
+
+    def _flush_out(self):
+        """Vacía lo que falta por sonar y suelta el estado «hablando» (si no, el micro se queda ignorado por anti-eco)."""
+        while not self._out_q.empty():
+            try:
+                self._out_q.get_nowait()
+            except Exception:                                   # noqa: BLE001
+                break
+        self._speaking = False
 
     def suppress_turn(self, utt_start: float) -> bool:
         """La frase que acaba de oírse NO era del dueño: cancela la respuesta de ese turno (voz, texto y herramientas).
@@ -379,22 +468,44 @@ class LiveSession:
     async def _play_audio(self):
         import sounddevice as sd
         slice_bytes = int(OUT_RATE * 0.05) * 2        # 50 ms
-        try:
-            out_stream = sd.RawOutputStream(samplerate=OUT_RATE, channels=1, dtype="int16", device=self.output_device, latency="low")
-        except Exception as e:
-            self.emit("info", f"Bocina {self.output_device!r} no disponible ({e}); uso la predeterminada")
-            out_stream = sd.RawOutputStream(samplerate=OUT_RATE, channels=1, dtype="int16", latency="low")
-        with out_stream as out:
-            while True:
-                data = await self._out_q.get()
-                for i in range(0, len(data), slice_bytes):
-                    part = data[i:i + slice_bytes]
-                    self.emit("level", ("out", rms(part)))
-                    if self.mute_output:
-                        await asyncio.sleep(len(part) / (2 * OUT_RATE))
-                    else:
-                        await asyncio.to_thread(out.write, part)
-                    self._last_audio_out = time.time()
+        device, fails = self.output_device, 0
+        while True:
+            out = None
+            try:
+                try:
+                    out = sd.RawOutputStream(samplerate=OUT_RATE, channels=1, dtype="int16", device=device, latency="low")
+                except Exception as e:                              # noqa: BLE001
+                    if device is None:
+                        raise
+                    self.emit("info", f"Bocina {device!r} no disponible ({e}); uso la predeterminada")
+                    device = None
+                    out = sd.RawOutputStream(samplerate=OUT_RATE, channels=1, dtype="int16", latency="low")
+                out.start()
+                fails = 0
+                while True:
+                    data = await self._out_q.get()
+                    for i in range(0, len(data), slice_bytes):
+                        part = data[i:i + slice_bytes]
+                        self.emit("level", ("out", rms(part)))
+                        if self.mute_output:
+                            await asyncio.sleep(len(part) / (2 * OUT_RATE))
+                        else:
+                            # con timeout: si Windows cambia de dispositivo de audio, write() se queda colgado para siempre
+                            await asyncio.wait_for(asyncio.to_thread(out.write, part), timeout=self.speaker_stall_s)
+                        self._last_audio_out = time.time()
+            except Exception as e:                                  # noqa: BLE001
+                fails += 1
+                if fails in (1, 5) or fails % 20 == 0:
+                    self.emit("info", f"[audio] La bocina falló o se trabó ({type(e).__name__}); la reabro…")
+                self._flush_out()
+            finally:
+                if out is not None:
+                    for fn in (out.abort, out.close):               # abort() suelta una escritura que quedó colgada
+                        try:
+                            fn()
+                        except Exception:                           # noqa: BLE001
+                            pass
+            await asyncio.sleep(1.0)
 
     async def _receive(self, session):
         empty = 0
@@ -490,6 +601,9 @@ class LiveSession:
             now = time.time()
             if self._speaking and self._out_q.empty() and now - self._last_audio_out > 0.7:
                 self._speaking = False
+            elif self._speaking and now - self._last_audio_out > 8.0:        # la reproducción no avanza: no te quedes sordo
+                self._flush_out()
+                self.emit("info", "[audio] La reproducción se trabó; reinicio el estado de voz.")
             if self._speaking:
                 st = "speaking"
             elif now - self._last_voice < 0.5:

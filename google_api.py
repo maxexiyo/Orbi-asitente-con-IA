@@ -15,7 +15,7 @@ from datetime import datetime, timedelta
 from email.mime.text import MIMEText
 from pathlib import Path
 
-from paths import APP_DIR as ROOT  # carpeta de Orbi (o del .exe)
+ROOT = Path(__file__).parent
 SC_CAL = "https://www.googleapis.com/auth/calendar"
 SC_MAIL = "https://www.googleapis.com/auth/gmail.modify"
 SC_SEND = "https://www.googleapis.com/auth/gmail.send"

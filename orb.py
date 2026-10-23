@@ -1,19 +1,19 @@
 """La bolita: widget PySide6 con estados, emociones, burbuja y esconderse en el borde."""
 import json, math, os, random, re, sys, time
 from pathlib import Path
-from paths import APP_DIR
 
 from PySide6.QtCore import Qt, QTimer, QPointF, QRectF, Signal, QPropertyAnimation, QEasingCurve, QPoint
 from PySide6.QtGui import (QPainter, QRadialGradient, QLinearGradient, QColor, QBrush, QPen,
                            QPainterPath, QCursor, QFont, QGuiApplication)
 from PySide6.QtWidgets import QApplication, QWidget, QMenu, QLabel, QVBoxLayout
+import orb_dodge
 
 def _cfg_value(key, default):
     """ORBI_<KEY> en el entorno/.env o la clave en config.json (así se ajusta sin tocar el código)."""
     v = os.environ.get("ORBI_" + key.upper())
     if v is None:
         try:
-            v = json.loads((APP_DIR / "config.json").read_text(encoding="utf-8")).get(key)
+            v = json.loads((Path(__file__).parent / "config.json").read_text(encoding="utf-8")).get(key)
         except Exception:
             v = None
     return default if v is None else v
@@ -62,6 +62,8 @@ FACES = {
     "angry":     dict(eye_h=0.8, eye_w=1.05, arc=0, curve=-0.5, open=0, blush=0, brow=-0.9, lx=0, ly=0, tr=130, tg=-85, tb=-100),
     "excited":   dict(eye_h=1.3, eye_w=1.2, arc=1, curve=1.3, open=0.35, blush=0.3, brow=0, lx=0, ly=0, tr=95, tg=45, tb=-95),
     "sleepy":    dict(eye_h=0.06, eye_w=1.3, arc=0, curve=0.25, open=0, blush=0, brow=0, lx=0, ly=0.3, tr=-10, tg=-10, tb=0),
+    # trabajando: ojos entrecerrados, cejas concentradas y mirada que va y viene como leyendo (ver _face_target)
+    "working":   dict(eye_h=0.8, eye_w=1.05, arc=0, curve=0.1, open=0, blush=0, brow=-0.35, lx=0, ly=0.55, tr=0, tg=18, tb=25),
 }
 def _mix(a, b, t):
     return tuple(int(a[i] + (b[i] - a[i]) * t) for i in range(3))
@@ -384,6 +386,8 @@ class Orb(QWidget):
         if self.state == "sleeping": return FACES["sleepy"]
         if self._look and time.time() < self._look_until:
             return {**FACES[self.emotion if self.emotion != "neutral" else "attentive"], "lx": self._look[0], "ly": self._look[1]}
+        if self.emotion == "working":
+            return {**FACES["working"], "lx": math.sin(self.t * 2.4) * 0.85}       # mira de lado a lado, como leyendo
         if self.emotion == "neutral":
             if self.state == "thinking": return FACES["thinking"]
             if self.state == "listening": return FACES["attentive"]
@@ -639,6 +643,33 @@ class Orb(QWidget):
         self._move_anim.setEndValue(QPoint(cx - W // 2, cy - H // 2))
         self._move_anim.start()
 
+    def dodge(self, danger) -> bool:
+        """Se aparta (esquina o borde) si estorba en la zona `danger` (x0,y0,x1,y1 globales); no se mueve si no hace falta."""
+        now = time.time()
+        if danger is None or self.state == "sleeping" or self.edge or self._drag is not None:
+            return False
+        if now < getattr(self, "_no_dodge_until", 0.0) or now - getattr(self, "_last_dodge", 0.0) < 3.0:
+            return False
+        c = self._center_global()
+        center = (c.x(), c.y())
+        half = int(R0 * 1.6)
+        bub = None
+        if self.bubble.isVisible():
+            g = self.bubble.frameGeometry()
+            bub = (g.left(), g.top(), g.right(), g.bottom())
+        if not orb_dodge.needs_dodge(center, half, bub, danger):
+            return False
+        screen = QGuiApplication.screenAt(c) or QGuiApplication.primaryScreen()
+        g = screen.availableGeometry()
+        m = int(R0 * 1.3) + 40
+        xs = (g.left() + m, g.center().x(), g.right() - m)
+        ys = (g.top() + m, g.center().y(), g.bottom() - m)
+        spots = [(x, y) for x in xs for y in ys if not (x == xs[1] and y == ys[1])]
+        sx, sy = orb_dodge.pick_spot(center, spots, half, bub, danger)
+        self._last_dodge = now
+        self.move_to_global(sx, sy, 800)
+        return True
+
     def wander(self):
         """Se pasea a otro lugar de la pantalla (esquinas o mitad de los bordes), lejos de donde está ahora."""
         c = self._center_global()
@@ -658,6 +689,7 @@ class Orb(QWidget):
         g = screen.availableGeometry()
         side = -1 if gx > g.center().x() else 1                    # donde haya más espacio
         ox, oy = int(gx + side * (R0 * 2.4 + 60)), int(gy - R0 * 0.6)
+        self._no_dodge_until = time.time() + seconds + 1.5          # señalando: aquí SÍ tiene que estar cerca
         self.move_to_global(ox, oy, 650)
         self._look = (-side * 1.6, max(-1.0, min(1.0, (gy - oy) / 200.0))); self._look_until = time.time() + seconds + 1.0
         self.set_emotion("attentive" if "attentive" in FACES else "happy", seconds)

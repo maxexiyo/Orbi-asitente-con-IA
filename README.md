@@ -218,3 +218,26 @@ Con la sesión de Google Orbi puede, por voz: ver tu agenda (de TODOS tus calend
 - **Enviar correos** viene apagado. Para activarlo: `"google": {"enviar_correo": true}` en `config.json`, cierra la sesión de Google en el menú y vuelve a iniciarla (pide un permiso más). Cada envío siempre pide tu OK, aunque desactives «confirmar acciones».
 - `token_google.json` y `google_client_secret.json` son secretos: están en `.gitignore`, no los compartas.
 - Lo que digan correos y eventos es dato, no instrucciones: Orbi no obedece lo que lean ahí.
+
+## Modo todo con visión (parte 4)
+Con `live_todo.bat` (o `"live_hace_todo": true`), Live ahora **ve lo que hace**: la pantalla continua se enciende sola (hasta 1 imagen/s, solo si algo cambia) y, además, tras cada acción de mouse, teclado o ventanas recibe una **captura nueva** para comprobar qué pasó antes del siguiente paso. Si escribe exactamente el mismo texto dos veces seguidas, se frena. Para quitar la captura extra: `"todo_captura_tras_accion": false`. Cuesta más tokens y añade ~1 s por acción.
+
+## Búsqueda en internet (parte 5)
+Orbi tiene la herramienta `investigar_web`: busca con Gemini + Google Search y **lee** la respuesta (antes solo podía abrirte Google en el navegador con `buscar_en_web`, sin ver los resultados). La usa cuando le preguntas algo reciente o que no sabe, y cuando duda de cómo hacer algo en una app o en Windows. La consulta sale a Google, así que el prompt le pide no meter datos privados. Se apaga con `"busqueda_web": false`. Usa la misma cuota que tus análisis (`analysis_models`).
+
+## Mouse y capturas (parte 6)
+- **Orbi ya no se ve a sí mismo**: su bolita, burbuja y chat se excluyen de las capturas (si estaban encima de lo que escribías, tapaban ese texto y la IA no lo veía). Requiere Windows 10 versión 2004 o más nueva. Efecto secundario: tampoco sale en tus capturas ni al compartir pantalla; se apaga en el menú de la bolita («Ocultar a Orbi en capturas…») o con `"ocultar_orbi_en_capturas": false`.
+- **Mouse**: por diseño Orbi prefiere herramientas sin mouse (abrir_app, escribir_texto con `ventana`, cerrar_ventana...), porque son más rápidas y fiables. Con `"preferir_mouse": true` maneja las apps con mouse y teclado como una persona. Si le pides expresamente «usa el mouse», lo hace. Cuando hace clic, el cursor ahora se desliza (`"mouse_suave_s": 0.3`) en vez de saltar, para que se note.
+
+## Micro menos sensible, emote de trabajo y esquivar (parte 7)
+- **Micro**: antes cualquier ruido por encima de un nivel fijo hacía «brincar» a Orbi (y lo ponía a pensar hasta 8 s). Ahora el umbral se adapta al ruido de fondo (se sube solo si hay ventilador o tele) y el sonido debe durar al menos `mic_min_ms` (250 ms): los clics y golpecitos ya no cuentan, y la bolita solo se mueve con voz real. Si aún brinca, sube `mic_umbral` (0.20, 0.25) o `mic_min_ms` (350). Si no te oye bien, bájalos.
+- **Emote «trabajando»**: mientras usa herramientas o el agente trabaja, pone cara concentrada (ojos entrecerrados, cejas serias, mirada de lado a lado como leyendo). Se quita al empezar a hablar o al terminar.
+- **Esquivar**: mientras trabaja, si la bolita (o su burbuja) queda sobre el cursor de texto o el mouse, se pasa a una esquina o borde libre. Se apaga con `"esquivar_al_trabajar": false`. Ya NO se oculta de las capturas por defecto (`"ocultar_orbi_en_capturas": false`; sigue disponible en el menú).
+
+## Si Orbi se queda sordo o mudo (parte 8)
+Cuando Windows cambia o reinicia un dispositivo de audio (audífonos Bluetooth, driver, otra app que lo toma), PortAudio no se recupera solo: el micrófono quedaba «vivo» pero mudo y la bocina colgada, y Orbi se quedaba sordo sin avisar (y el anti-eco se quedaba pegado en «hablando»). Ahora:
+- si el micrófono no entrega audio por ~4 s, se reabre solo (`[audio] El micrófono dejó de enviar audio; lo reabro…`);
+- si la bocina se traba más de ~3 s, se reabre y se suelta el estado «hablando»; si la reproducción no avanza 8 s, también se reinicia;
+- el modo baile deja de reintentar el loopback tras 3 fallos (puede estorbar al micrófono): se reactiva desde el menú;
+- `cerrar_ventana` ya no cierra la consola donde corre Orbi ni las ventanas de Orbi.
+Si vuelve a pasar, busca líneas `[audio]` en el log y mándamelas.

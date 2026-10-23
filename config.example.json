@@ -19,6 +19,7 @@
   "agent_shot_quality": 60,
   "agent_thinking": "low",
   "live_hace_todo": false,
+  "todo_captura_tras_accion": true,
   "bailar_sensibilidad": 1.7,
   "bailar_min_golpes": 8,
   "bailar_espera_s": 3.0,
@@ -81,5 +82,13 @@
   "google": {
     "client_secret": "google_client_secret.json",
     "enviar_correo": false
-  }
+  },
+  "busqueda_web": true,
+  "ocultar_orbi_en_capturas": false,
+  "preferir_mouse": false,
+  "mouse_suave_s": 0.3,
+  "esquivar_al_trabajar": true,
+  "mic_umbral": 0.15,
+  "mic_min_ms": 250,
+  "mic_ruido_factor": 2.5
 }

@@ -9,8 +9,7 @@ import json, socket, time, unicodedata
 from pathlib import Path
 
 PORT = 38899
-from paths import APP_DIR
-NAMES_PATH = APP_DIR / "wiz_nombres.json"
+NAMES_PATH = Path(__file__).parent / "wiz_nombres.json"
 
 COLORS = {"rojo": (255, 0, 0), "verde": (0, 200, 0), "azul": (0, 90, 255), "amarillo": (255, 210, 0),
           "naranja": (255, 120, 0), "morado": (150, 0, 255), "rosa": (255, 60, 160), "blanco": (255, 255, 255),

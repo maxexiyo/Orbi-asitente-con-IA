@@ -13,11 +13,11 @@ Opcionales en el .env:  LIVE_MODEL, LIVE_VOICE, HEADPHONES=true
 import json, os, re
 from pathlib import Path
 
-from paths import APP_DIR as ROOT  # carpeta de Orbi (o del .exe)
+ROOT = Path(__file__).parent
 
 DEFAULT_TEXT_MODELS = {
     "groq": "llama-3.3-70b-versatile",
-    "gemini": ["gemini-3.8-live", "gemini-2.5-live"],
+    "gemini": ["gemini-3.8-flash", "gemini-2.5-flash"],
     "openrouter": "meta-llama/llama-3.3-70b-instruct:free",
 }
 PROVIDER_PREFIXES = {
@@ -60,7 +60,7 @@ def _natural(name: str):
 
 
 KEY_PATTERNS = {
-    "gemini": re.compile(r"(?:AIza[\w\-]{30,}|AQ\.[\w\-.]{20,})"),   # formatos AIza... y AQ....
+    "gemini": re.compile(r"AIza[\w\-]{30,}"),
     "groq": re.compile(r"gsk_[\w]{20,}"),
     "openrouter": re.compile(r"sk-or-[\w\-]{20,}"),
 }
@@ -128,14 +128,6 @@ def load_config() -> dict:
         cfg[f"{prov}_keys"] = keys
         cfg["_key_vars"][prov] = names
 
-    try:                                                  # keys guardadas desde la ventana de configuración (orbi_keys.json)
-        import keystore
-        for k in keystore.load_keys():
-            if k not in cfg["gemini_keys"]:
-                cfg["gemini_keys"].append(k)
-    except Exception as e:
-        print("[keystore]", e)
-
     cfg["_agenda_env"] = {k: v for k, v in env.items() if k.upper().startswith(("ORBI_MAIL_PASS_", "ORBI_CAL_"))}
     cfg["text_models"] = {**DEFAULT_TEXT_MODELS, **cfg.get("text_models", {})}
     if env.get("LIVE_MODEL"):
@@ -147,9 +139,9 @@ def load_config() -> dict:
     cfg.setdefault("live_model", "gemini-3.8-live")
     # Modelos en orden de preferencia: si el primero se queda sin cuota (la cuota es POR MODELO) o no existe, se usa el siguiente.
     cfg["live_models"] = _unique([cfg["live_model"], "gemini-3.8-live", "gemini-3.1-flash-live-preview"])
-    cfg["agent_models"] = _unique([cfg.get("agent_model"), "gemini-3.8-live"])
-    cfg["analysis_models"] = _unique([cfg.get("analysis_model"),"gemini-3.8-live"])
-    cfg["observer_models"] = _unique([cfg.get("observer_model"), "gemini-3.8-live"])
+    cfg["agent_models"] = _unique([cfg.get("agent_model"), "gemini-3.8-flash", "gemini-3.5-flash", "gemini-2.5-flash"])
+    cfg["analysis_models"] = _unique([cfg.get("analysis_model"), "gemini-3.8-flash", "gemini-3.5-flash", "gemini-2.5-flash"])
+    cfg["observer_models"] = _unique([cfg.get("observer_model"), "gemini-3.5-flash-lite", "gemini-3.8-flash", "gemini-2.5-flash"])
     # Home Assistant (casa inteligente)
     ha = dict(cfg.get("home_assistant") or {})
     ha["url"] = env.get("HA_URL") or env.get("HOMEASSISTANT_URL") or ha.get("url") or ""

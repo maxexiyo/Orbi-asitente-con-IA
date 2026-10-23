@@ -10,12 +10,16 @@ import threading, time
 from collections import deque
 
 RATE = 44100
-BLOCK = 1024                       # ~23 ms por bloque
+BLOCK = 1024                       # ~23 ms por bloque que se analiza
+BUFFER = 16384                     # ~370 ms de colchón de WASAPI. soundcard usa blocksize/samplerate como duración del buffer:
+                                   # con 1024 eran 23 ms y cualquier tironcito de la CPU perdía audio («data discontinuity»)
 BASS = (30.0, 180.0)               # banda donde viven el bombo y el bajo
 SILENCE_RMS = 0.0015               # por debajo de esto no hay nada sonando
 
 
 class AudioReact:
+    CHECK_S = 5.0                      # cada cuánto revisa si cambiaste de bocinas/audífonos
+
     def __init__(self, on_beat, on_dance, on_error=None, sensibilidad: float = 1.7, debug: bool = False,
                  min_golpes: int = 8, mantener_s: float = 3.0):
         """on_beat(fuerza 0..1) por cada golpe de ritmo · on_dance(True/False) cuando empieza/termina la música.
@@ -110,6 +114,9 @@ class AudioReact:
 
     # ------------------------------------------------------------------ hilo de captura
     def _run(self):
+        import warnings
+        # Aviso inofensivo de soundcard (pierde unos paquetes) que, además, llenaba la consola y empeoraba el atasco
+        warnings.filterwarnings("ignore", message="data discontinuity in recording")
         errores = 0
         while not self._stop.is_set():
             try:
@@ -119,15 +126,27 @@ class AudioReact:
                 mic = loopback_mic(sc)
                 self._reset()
                 chequeo = time.monotonic()
-                with mic.recorder(samplerate=RATE, channels=1, blocksize=BLOCK) as rec:
+                rec_cm = mic.recorder(samplerate=RATE, channels=1, blocksize=BUFFER)
+                rec = rec_cm.__enter__()
+                try:
                     errores = 0
+                    t0, frames = time.monotonic(), 0
                     while not self._stop.is_set():
                         data = rec.record(numframes=BLOCK)
-                        self.process(data[:, 0] if getattr(data, "ndim", 1) > 1 else data)
-                        if time.monotonic() - chequeo > 5.0:          # ¿cambiaste de bocinas/audífonos? reabrir
+                        frames += BLOCK
+                        # reloj por muestras: si el hilo se atrasa y recupera de golpe, los golpes no se «apelotonan»
+                        self.process(data[:, 0] if getattr(data, "ndim", 1) > 1 else data, now=t0 + frames / RATE)
+                        if time.monotonic() - chequeo > self.CHECK_S:      # ¿cambiaste de bocinas/audífonos? reabrir
                             chequeo = time.monotonic()
                             if sc.default_speaker().id != spk.id:
                                 break
+                finally:
+                    try:
+                        rec_cm.__exit__(None, None, None)
+                    except Exception:                                 # noqa: BLE001
+                        # Stop() devuelve S_FALSE (=1) si el flujo ya estaba detenido (cambió el dispositivo) y soundcard
+                        # lo toma por error: «Error 0x100000001». No es un fallo real, no cuenta.
+                        pass
             except ImportError as e:
                 import sys
                 self.on_error(f"No se pudo importar ({e}). Orbi corre con: {sys.executable}  → instala ahí: "
@@ -135,8 +154,12 @@ class AudioReact:
                 return
             except Exception as e:                                # noqa: BLE001
                 errores += 1
-                if errores in (1, 5):
+                if errores == 1:
                     self.on_error(f"No pude escuchar el audio de la PC ({type(e).__name__}: {str(e)[:120]}).")
-                self._stop.wait(min(30.0, 2.0 * errores))
+                if errores >= 3:     # insistir abriendo el loopback una y otra vez puede estorbar al micrófono de Orbi: mejor rendirse
+                    self.on_error("Apagué el baile tras varios fallos para no estorbar al micrófono. Vuelve a activarlo "
+                                  "desde el menú cuando quieras.")
+                    break
+                self._stop.wait(2.0 * errores)
         if self.dancing:
             self.dancing = False; self.on_dance(False)

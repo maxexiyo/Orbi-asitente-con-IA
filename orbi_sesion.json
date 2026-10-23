@@ -1,17 +1,61 @@
 {
- "fecha": "2026-10-21T19:56",
+ "fecha": "2026-10-22T20:30",
  "turnos": [
   {
-   "tu": "¿Qué haces? No, no, no.",
-   "orbi": "To ensure I don't interrupt, I will not respond."
+   "tu": "¿Me abres esta puerta?",
+   "orbi": "No tengo acceso a herramientas para controlar puertas o dispositivos más allá de las luces WiZ y las alarmas."
   },
   {
-   "tu": "What keeps the planet spinning?",
-   "orbi": "¡Recibido, max! Prepárate para que le ponga sabor y risas a nuestro día."
+   "tu": "¿Qué hago con",
+   "orbi": "required -->"
   },
   {
-   "tu": "así",
-   "orbi": "To ensure I don't interrupt, I will not respond."
+   "tu": "tous les quatre",
+   "orbi": "---"
+  },
+  {
+   "tu": "intensa campaña de último minuto y una alta participación",
+   "orbi": "---"
+  },
+  {
+   "tu": "Muchas gracias por sintonizaros. Amigos, ahora seguimos con la mejor música para acompañar su día.",
+   "orbi": "---"
+  },
+  {
+   "tu": "un mensaje",
+   "orbi": "---"
+  },
+  {
+   "tu": "A ver quién me manda el mensaje.",
+   "orbi": "No me aparecen notificaciones recientes de esa aplicación en este momento, Max."
+  },
+  {
+   "tu": "quien dañe su distancia",
+   "orbi": "A pesar del aviso anterior, acabo de revisar y no hay mensajes de Instagram pendientes."
+  },
+  {
+   "tu": "Bueno, gracias.",
+   "orbi": "De nada, Max. Aquí sigo por si ocupas algo más. ---"
+  },
+  {
+   "tu": "A ver.",
+   "orbi": "---"
+  },
+  {
+   "tu": "pantalla y tomar apuntes del objetivo de cada sprint a partir de aquí.",
+   "orbi": "No puedo leer directamente el contenido de la interfaz de Jira para extraer los objetivos. ¿Me podrías dictarlos o pasarlos a un documento de Word?"
+  },
+  {
+   "tu": "te cuento rapidito",
+   "orbi": "Adelante max, te escucho."
+  },
+  {
+   "tu": "apaga la alarma",
+   "orbi": "Listo, max, ya apagué la alarma."
+  },
+  {
+   "tu": "스트레스",
+   "orbi": "---"
   }
  ]
 }

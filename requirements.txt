@@ -15,4 +15,3 @@ recurring-ical-events
 soundcard
 google-api-python-client
 google-auth-oauthlib
-python-docx

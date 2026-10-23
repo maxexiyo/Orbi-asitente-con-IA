@@ -10,6 +10,8 @@ Cómo funciona (no usa la sesión de voz de Gemini Live, así no gasta sus token
 
 El AUDIO NO SE GUARDA: solo el texto. Cada bloque viaja a Gemini mientras se procesa.
 """
+import warnings
+warnings.filterwarnings("ignore", message="data discontinuity in recording")   # aviso inofensivo de soundcard (llena el log)
 import io, queue, re, threading, time, wave
 from datetime import datetime
 from pathlib import Path

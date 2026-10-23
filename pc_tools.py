@@ -6,7 +6,7 @@ DOS alcances (scope):
   "agent" = lo que ve el agente (agent.py): además mouse, teclado, ventanas, cerrar/minimizar, copiar texto de una ventana...
 
 Los PERMISOS del asistente de configuración deciden qué tools existen:
-  siempre ........ obtener_hora, recordar, abrir_app (lista blanca), abrir_url, buscar_en_web, poner_recordatorio
+  siempre ........ obtener_hora, recordar, abrir_app (lista blanca), abrir_url, buscar_en_web, investigar_web, poner_recordatorio
   ver_pantalla ... ver_pantalla
   controlar_pc ... tarea_pc (voz) · hacer_clic, scroll, escribir_texto, presionar_teclas, esperar, listar_ventanas,
                    enfocar_ventana, cerrar_ventana, minimizar_ventana, copiar_texto_de_ventana (agente) · volumen, multimedia
@@ -15,7 +15,6 @@ Los PERMISOS del asistente de configuración deciden qué tools existen:
   notificaciones . leer_notificaciones
   audio_pc ....... escuchar_audio_pc (lo que suena en la PC: video, llamada...)
   siempre ........ también: mover_bolita, senalar, set_emotion, modo_interprete
-                   iniciar_apuntes, detener_apuntes, apuntar, ver_apuntes, exportar_apuntes (apuntes de lo que se oye)
   agenda ......... ver_agenda (calendario ICS) · correo_no_leidos, correo_buscar, correo_leer (Gmail IMAP, solo lectura)
                    con la cuenta de Google conectada: también crear/editar/borrar_evento, correo_marcar_leido/archivar/papelera/enviar
 
@@ -33,7 +32,7 @@ from urllib.parse import quote_plus, urlparse
 
 import docs_reader as DR
 
-from paths import APP_DIR as ROOT  # carpeta de Orbi (o del .exe)
+ROOT = Path(__file__).parent
 
 # --------------------------------------------------------------------------- apps (lista blanca)
 APPS = {
@@ -82,8 +81,7 @@ class ToolContext:
     translate_screen: Callable[[str, str], dict] = lambda idioma, accion: {"error": "El traductor de pantalla no está disponible."}
     listen_pc: Callable[[float, str], dict] = lambda s, i: {"error": "El audio de la PC no está disponible."}
     agenda: object = None                                    # agenda.Agenda (calendario ICS + correo IMAP, solo lectura)
-    ultimo_dicho: Callable[[], str] = lambda: ""            # lo último que se transcribió del micro en este turno (para confirmar órdenes)
-    apuntes: object = None                                   # apuntes.Apuntes (apuntes por micro o audio de la PC)
+    research: Callable[[str], dict] = lambda q: {"error": "La búsqueda en internet no está disponible."}   # -> {...}
     _acciones: list = field(default_factory=list)            # marcas de tiempo (freno de velocidad)
     _clip_cache: str = ""
 
@@ -120,20 +118,6 @@ BORRAR = {"shift+delete", "ctrl+shift+delete"}
 def _in_chat() -> bool:
     from windows import foreground_title
     return any(w in foreground_title().lower() for w in MENSAJERIA)
-
-
-_VERBO_FUERTE = re.compile(r"\b(det[eé]n\w*|termin\w*|finaliz\w*|acab\w*|cancel\w*|cierra\w*)\b|ya no", re.I)
-_OBJ_PARAR = re.compile(r"apunt|orb", re.I)
-_PARA_EXPLICITO = re.compile(r"orb\w*[\s,.:;!¡¿?]+par[ae]\b|^[\W_]*par[ae]\s+(?:con\s+)?(?:los\s+|las\s+)?apunt", re.I)
-
-
-def _pidio_parar(texto: str) -> bool:
-    """¿Lo último que se oyó es el dueño pidiendo parar los apuntes? Exige nombrar los apuntes o a Orbi junto con el verbo,
-    así lo que diga el audio de la clase/video («gracias, es todo», «el sprint termina el viernes») no cuenta."""
-    t = (texto or "").strip()
-    if not t:
-        return False
-    return bool((_VERBO_FUERTE.search(t) and _OBJ_PARAR.search(t)) or _PARA_EXPLICITO.search(t))
 
 
 def _delicada(ctx, name: str, args: dict, keys=None):
@@ -230,24 +214,6 @@ _tool("escuchar_audio_pc", "Escucha unos segundos el AUDIO QUE SUENA EN LA PC (v
       dict(segundos=N("Cuántos segundos escuchar (3 a 30, por defecto 10)"),
            instruccion=S("Qué hacer: transcribir, resumir, traducir al español, decir qué canción/tema es...")),
       scopes=("live",), perm="audio_pc")
-_tool("iniciar_apuntes", "Empieza a TOMAR APUNTES de lo que se oye: una clase, reunión, conferencia, video, llamada o cualquier "
-      "plática. Escuchas y vas armando un archivo con las ideas, definiciones, pendientes y fechas. fuente='microfono' si es "
-      "en persona (habla alguien en el cuarto) o fuente='pc' si el audio sale por la PC (clase en línea, Meet, Zoom, Teams, "
-      "un video; requiere el permiso de audio de la PC). NO preguntes nada por costumbre: el `tema` es opcional, úsalo solo "
-      "si el usuario lo dijo. Se guarda solo el texto, nunca el audio.",
-      dict(tema=S("Opcional: de qué es (ej. «Métodos y modelos», «junta del equipo»). Déjalo vacío si no lo dijeron"),
-           fuente={"type": "STRING", "enum": ["microfono", "pc"]}), [], scopes=("live",))
-_tool("detener_apuntes", "Termina los apuntes en curso y ordena todo en notas limpias. Con exportar_word=true también genera el "
-      ".docx. SOLO cuando tu DUEÑO (quien te llama «Orbi») lo pida con palabras claras: «para los apuntes», «ya no apuntes», "
-      "«termina los apuntes». NUNCA la llames porque haya una pausa o silencio, porque el audio parezca terminar, o porque en él "
-      "alguien se despida o diga «gracias»: eso es contenido que se está apuntando, no una orden.",
-      dict(exportar_word=B("true para dejar además un archivo de Word")), scopes=("live",))
-_tool("apuntar", "Agrega UNA nota que te dicta el usuario al archivo de apuntes (ej. «apunta que la tarea es para el viernes»). "
-      "Si no hay apuntes en curso, va a «notas sueltas».", dict(texto=S("Lo que hay que anotar")), ["texto"], scopes=("live",))
-_tool("ver_apuntes", "Lee las últimas líneas de los apuntes actuales (o los últimos) y dice si siguen en curso. "
-      "Úsala para «¿qué llevas apuntado?» o «¿qué dijeron de la tarea?».",
-      dict(lineas=N("Cuántas líneas leer del final (por defecto 40)")), scopes=("live",))
-_tool("exportar_apuntes", "Convierte los últimos apuntes a Word (.docx), en la misma carpeta.", scopes=("live",))
 _tool("fin_de_conversacion", "Llámala cuando el usuario se despida o diga que ya no necesita nada («gracias, es todo», «adiós», "
                              "«ya no te necesito»): Orbi deja de escuchar hasta que lo llamen otra vez por su nombre.",
       scopes=("live",))
@@ -270,7 +236,14 @@ _tool("abrir_app", "Abre CUALQUIER aplicación instalada (Word, Chrome, Discord,
       "si ya estaba abierta la pone al frente. Úsala SIEMPRE que pidan abrir una app: es un solo paso, no uses tarea_pc para eso.",
       dict(nombre=S("Nombre de la app")), ["nombre"])
 _tool("abrir_url", "Abre una página web (http/https) en el navegador.", dict(url=S()), ["url"])
-_tool("buscar_en_web", "Busca algo en Google en el navegador del usuario.", dict(consulta=S()), ["consulta"])
+_tool("buscar_en_web", "Abre una búsqueda de Google en el navegador del USUARIO para que él la vea (tú NO lees los resultados). "
+                       "Para saber algo tú, usa investigar_web.", dict(consulta=S()), ["consulta"])
+_tool("investigar_web", "Busca en internet y te devuelve la respuesta (tú sí la lees). Úsala cuando te pregunten algo que no sabes "
+                        "con seguridad o que puede haber cambiado (noticias, precios, versiones, datos recientes) y cuando no sepas "
+                        "CÓMO hacer algo en una app o en Windows (un atajo, un menú, un ajuste): investígalo ANTES de adivinar o "
+                        "tocar la PC. No metas datos privados (contraseñas, correos, direcciones) en la consulta.",
+      dict(consulta=S("Qué buscar, claro y específico, con el nombre y versión de la app si aplica. "
+                      "Ej.: «Excel cómo multiplicar dos columnas y fijar una celda con $»")), ["consulta"])
 # --- pantalla
 _tool("ver_pantalla", "Toma una captura de la pantalla principal del usuario y te la muestra. Úsala cuando pregunte "
                       "qué hay en pantalla o necesites ubicar algo.", perm="ver_pantalla")
@@ -589,12 +562,40 @@ def _log(name, args, res, dt):
 
 
 # --------------------------------------------------------------------------- ejecución
+# Modo todo (Live hace todo): tras cada acción de mouse/teclado/ventanas la IA recibe una captura NUEVA para comprobar
+# qué pasó de verdad (antes iba a ciegas y adivinaba teclas).
+MOUSE_GLIDE_S = 0.3        # segundos que tarda el cursor en llegar al clic (visible); 0 = salto instantáneo. Config: mouse_suave_s
+TODO_CAPTURA = True        # lo ajusta live_orb con "todo_captura_tras_accion" en config.json
+_GUI_ACTIONS = {"hacer_clic", "scroll", "escribir_texto", "presionar_teclas", "enfocar_ventana", "cerrar_ventana",
+                "minimizar_ventana", "abrir_app", "abrir_url", "ejecutar_plan"}
+_SLOW_ACTIONS = {"abrir_app", "abrir_url", "ejecutar_plan"}      # tardan en cargar: espera un poco más antes de la captura
+_last_gui = {"key": None}
+
+
 def run_tool(name: str, args: dict, ctx: ToolContext) -> dict:
     t0 = time.time()
+    gui = LIVE_TODO and name in _GUI_ACTIONS
+    key = (name + json.dumps(args or {}, sort_keys=True, ensure_ascii=False, default=str)) if gui else None
+    if gui and name == "escribir_texto" and key == _last_gui["key"]:
+        # escribir EXACTAMENTE lo mismo dos veces seguidas = el modelo se perdió (pasó: texto triplicado en Word)
+        res = {"error": "Acabas de escribir exactamente ese mismo texto y salió ok. No lo repitas: mira la captura, "
+                        "comprueba qué quedó en la ventana y decide otro paso, o dile al usuario qué no entiendes."}
+        _log(name, args, res, time.time() - t0)
+        return res
     try:
         res = _run(name, args or {}, ctx)
     except Exception as e:                                  # noqa: BLE001
         res = {"error": f"{type(e).__name__}: {e}"}
+    if gui:
+        _last_gui["key"] = key
+        if TODO_CAPTURA and isinstance(res, dict) and not res.get("error") and "_image" not in res:
+            try:
+                time.sleep(1.5 if name in _SLOW_ACTIONS else 0.7)        # deja que la ventana reaccione
+                from screen import capture
+                res["_image"] = capture()[0]
+                res["captura"] = "Te mandé una captura nueva de cómo quedó la pantalla: mírala antes del siguiente paso."
+            except Exception as e:                          # noqa: BLE001
+                res["aviso_captura"] = f"No pude tomar la captura ({type(e).__name__}); usa ver_pantalla."
     _log(name, args, res, time.time() - t0)
     return res
 
@@ -664,52 +665,6 @@ def _run(name: str, args: dict, ctx: ToolContext) -> dict:
     if name == "regla_notificacion":
         o = ctx.set_rule(str(args.get("origen", "")), str(args.get("modo", "")), list(args.get("palabras") or []))
         return {"resultado": f"Listo, regla guardada para «{o}»."} if o else {"error": "Dime el origen y un modo válido (ignorar, baja, solo_menciones, normal)."}
-    if name in ("iniciar_apuntes", "detener_apuntes", "apuntar", "ver_apuntes", "exportar_apuntes"):
-        ap = ctx.apuntes
-        if ap is None:
-            return {"error": "Los apuntes no están disponibles."}
-        from apuntes import ApuntesError
-        try:
-            if name == "iniciar_apuntes":
-                fuente = str(args.get("fuente", "microfono") or "microfono").lower()
-                if fuente == "pc" and not perm("audio_pc"):
-                    return {"error": "Para apuntes de una clase en línea necesito el permiso de audio de la PC («Configurar a Orbi…»)."}
-                tema = str(args.get("tema", "") or args.get("materia", "") or "").strip()
-                donde = "el audio de la PC" if fuente == "pc" else "el micrófono"
-                que = f"de «{tema}» " if tema else ""
-                if not ctx.confirm(f"Orbi quiere tomar apuntes {que}escuchando {donde}.\n\n"
-                                   "El audio NO se guarda: cada tramo se manda a Gemini para sacar apuntes y solo queda el texto. "
-                                   "Avisa a quien corresponda si grabas a otras personas."):
-                    return {"error": "El usuario no autorizó los apuntes."}
-                path = ap.iniciar(tema, fuente)
-                return {"resultado": f"Listo, voy tomando apuntes desde {donde}. Se guardan en {path.name}. Dile al usuario, en una "
-                                     "frase, que para terminar te diga «para los apuntes»."}
-            if name == "detener_apuntes":
-                if not ap.activo:
-                    return {"resultado": "No hay apuntes en curso."}
-                dicho = ctx.ultimo_dicho()
-                if dicho and not _pidio_parar(dicho):
-                    print(f"[apuntes] ignoré detener_apuntes: lo último oído no es una orden de parar ({_short(dicho, 80)!r})")
-                    return {"error": "NO detuve los apuntes: una pausa, un silencio o una despedida en el audio no significan que "
-                                     "terminó. Sigo apuntando. Solo paro si tu dueño lo pide con claridad («para los apuntes»); "
-                                     "no vuelvas a llamar esta función por tu cuenta."}
-                word = args.get("exportar_word") is True
-                path = ap.detener(word=word, motivo=_short(dicho, 80))
-                return {"resultado": f"Dejé de escuchar. Estoy ordenando los apuntes en {path.name}"
-                                     + (" y haciendo el Word" if word else "") + "; te aviso cuando estén."}
-            if name == "apuntar":
-                path = ap.apuntar(str(args.get("texto", "")))
-                return {"resultado": f"Anotado en {path.name}."}
-            if name == "ver_apuntes":
-                est = ap.estado()
-                texto = ap.leer(args.get("lineas", 40) or 40)
-                if not texto:
-                    return {"resultado": "Todavía no hay apuntes."}
-                return {"resultado": texto, "en_curso": est["activo"], "materia": est["materia"], "archivo": est["archivo"]}
-            out = ap.exportar_word()
-            return {"resultado": f"Listo, el Word quedó en {out}."}
-        except ApuntesError as e:
-            return {"error": str(e)}
     if name == "recordar":
         return {"resultado": "Anotado."} if ctx.remember(str(args.get("dato", ""))) else {"error": "No pude anotarlo."}
     if name in ("poner_recordatorio", "poner_alarma"):
@@ -774,6 +729,11 @@ def _run(name: str, args: dict, ctx: ToolContext) -> dict:
             return {"error": "Solo puedo abrir páginas http/https."}
         webbrowser.open(url)
         return {"resultado": f"Abrí {u.netloc}."}
+    if name == "investigar_web":
+        q = str(args.get("consulta", "")).strip()[:300]
+        if not q:
+            return {"error": "falta la consulta"}
+        return ctx.research(q)
     if name == "buscar_en_web":
         q = str(args.get("consulta", "")).strip()[:200]
         if not q:
@@ -1070,6 +1030,8 @@ def _control(name: str, args: dict, ctx: ToolContext) -> dict:
         motivo = _delicada(ctx, "hacer_clic", args)
         if motivo and not _confirm_delicada(ctx, motivo, f"Clic en ({px}, {py})."):
             return {"error": "El usuario NO autorizó esta acción. No la intentes de otra forma; avísale."}
+        if MOUSE_GLIDE_S > 0:
+            pg.moveTo(px, py, duration=MOUSE_GLIDE_S)           # que se vea cómo el cursor va al sitio
         pg.click(px, py, button=boton, clicks=2 if doble else 1, interval=0.08)
         return {"resultado": f"Clic en ({px}, {py}).", "ventana_activa": _fg_title()}
 

@@ -8,8 +8,7 @@ import json, os, re, threading, time, uuid
 from datetime import datetime, timedelta
 from pathlib import Path
 
-from paths import APP_DIR
-PATH = APP_DIR / "orbi_alarmas.json"
+PATH = Path(__file__).parent / "orbi_alarmas.json"
 DIAS = {"lunes": 0, "martes": 1, "miercoles": 2, "miércoles": 2, "jueves": 3, "viernes": 4, "sabado": 5, "sábado": 5,
         "domingo": 6}
 

@@ -14,7 +14,7 @@ import json, math, threading, queue, time, urllib.request, zipfile
 from datetime import datetime
 from pathlib import Path
 
-from paths import APP_DIR as ROOT  # carpeta de Orbi (o del .exe)
+ROOT = Path(__file__).parent
 MODEL_DIR = ROOT / "models"
 SPK_URL = "https://alphacephei.com/vosk/models/vosk-model-spk-0.4.zip"
 VOICE_PATH = ROOT / "orbi_voz.json"

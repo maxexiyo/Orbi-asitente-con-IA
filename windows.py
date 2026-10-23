@@ -117,7 +117,18 @@ def close_window(hwnd: int) -> bool:
     """Pide cerrar la ventana (WM_CLOSE) SIN enfocarla. Si tiene cambios sin guardar, la app preguntará como siempre."""
     if sys.platform != "win32":
         return False
-    ctypes, wintypes, u, _k = _api()
+    ctypes, wintypes, u, k = _api()
+    try:                                                # nunca cierres lo que mantiene vivo a Orbi
+        import os as _os
+        k.GetConsoleWindow.restype = wintypes.HWND
+        if hwnd and hwnd == (k.GetConsoleWindow() or 0):
+            return False                                # la consola donde corre Orbi
+        pid = wintypes.DWORD(0)
+        u.GetWindowThreadProcessId(wintypes.HWND(hwnd), ctypes.byref(pid))
+        if pid.value == _os.getpid():
+            return False                                # ventanas de Orbi (bolita, chat...)
+    except Exception:                                   # noqa: BLE001
+        pass
     return bool(u.PostMessageW(wintypes.HWND(hwnd), 0x0010, 0, 0))
 
 
