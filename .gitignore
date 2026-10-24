@@ -10,3 +10,8 @@ orbi_voz.json
 models/
 token_google.json
 google_client_secret.json
+orbi_*.json 
+orbi_*.json.gz 
+orbi_pestanas_token.txt 
+organizacion_log.json 
+memoria/ 
