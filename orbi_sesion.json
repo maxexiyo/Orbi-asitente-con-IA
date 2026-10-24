@@ -1,33 +1,29 @@
 {
- "fecha": "2026-10-24T16:46",
+ "fecha": "2026-10-24T17:13",
  "turnos": [
   {
-   "tu": "to Tokyo",
-   "orbi": "---"
-  },
-  {
-   "tu": "Añade una nueva regla. Todo archivo que tú generes guárdalo en descargas.",
-   "orbi": "Hecho, todos los archivos que genere irán directito a tu carpeta de Descargas."
-  },
-  {
-   "tu": "camión",
-   "orbi": "---"
-  },
-  {
-   "tu": "das ist",
-   "orbi": "---"
-  },
-  {
-   "tu": "apunta en la pantalla lo que tengo en la fecha",
-   "orbi": "Ahí te lo marco."
-  },
-  {
-   "tu": "¿Por qué no está en Roblox?",
-   "orbi": "No sé bien a qué te refieres con \"Yatta\", pero ¿te gustaría que investigue si hay algún juego o personaje similar en Roblox?"
-  },
-  {
    "tu": "Ahí voy.",
-   "orbi": "Me dejaste con la duda, Max. ¿A qué personaje o a qué te refieres con \"Yatta\" en Roblox?"
+   "orbi": "¿Qué traes en mente, Max?"
+  },
+  {
+   "tu": "Ayúdame a corregir ortografía. Por favor.",
+   "orbi": "¿Qué texto te gustaría que revisemos? Pásamelo para darle una checada."
+  },
+  {
+   "tu": "Hasta que seleccione solamente",
+   "orbi": "Entendido, cuando tengas el texto seleccionado me avisas. ¿Listo? Quedo a la espera de lo que selecciones."
+  },
+  {
+   "tu": "Ya, míralo.",
+   "orbi": "No veo el texto seleccionado. Por favor, selecciónalo para poder corregir la ortografía."
+  },
+  {
+   "tu": "terminado, gracias.",
+   "orbi": "De nada, Max. Aquí sigo por si algo más se te ofrece."
+  },
+  {
+   "tu": "pinche madre, este no le salió el login o una cosa así.",
+   "orbi": "---"
   }
  ]
 }
