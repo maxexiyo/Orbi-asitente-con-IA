@@ -15,8 +15,11 @@
   "seguimiento_s": 12,
   "live_proactive_audio": false,
   "screen_interval_s": 1.0,
-  "agent_shot_side": 1024,
-  "agent_shot_quality": 60,
+  "pantalla_max_side": 1600,
+  "pantalla_quality": 78,
+  "live_media_resolution": "",
+  "agent_shot_side": 1366,
+  "agent_shot_quality": 72,
   "agent_thinking": "low",
   "live_hace_todo": false,
   "todo_captura_tras_accion": true,
@@ -71,6 +74,7 @@
       "mamá"
     ],
     "silenciar_apps": [],
+    "cuentas_correo": {},
     "horas_silencio": [
       "23:00",
       "07:00"

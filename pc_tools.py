@@ -1234,7 +1234,7 @@ def _run(name: str, args: dict, ctx: ToolContext) -> dict:
     # ---------------- pantalla / agente
     if name == "ver_pantalla":
         from screen import capture
-        jpeg, _mon = capture(mark=True)
+        jpeg, _mon = capture(max_side=1920, quality=82, mark=True)      # a demanda: que se lea bien el texto chico
         return {"resultado": "Captura NUEVA (recién tomada) de la pantalla principal enviada; ya puedes verla. "
                              "Si ves un círculo rojo con cruz, ahí cayó el último clic.", "_image": jpeg}
     if name in ("acercar_pantalla", "leer_pantalla"):
@@ -1317,7 +1317,8 @@ def _run(name: str, args: dict, ctx: ToolContext) -> dict:
         items = ctx.notif.recent(n, str(args.get("app", "")))
         if not items:
             return {"resultado": "No hay notificaciones recientes."}
-        return {"resultado": [f"{i['hora']} · {i['app']} · {i['titulo']}: {i['texto']}".strip(": ") for i in items]}
+        return {"resultado": [f"{i['hora']} · {i['app']}" + (f" ({i['cuenta']})" if i.get("cuenta") else "")
+                              + f" · {i['titulo']}: {i['texto']}".strip(": ") for i in items]}
 
     return {"error": f"Tool desconocida: {name}"}
 
@@ -1406,7 +1407,7 @@ def _plan_image(ctx):
         if not (ctx.get_profile().get("permisos") or {}).get("ver_pantalla"):
             return None
         from screen import capture
-        return capture(max_side=1024, quality=60, mark=True)[0]
+        return capture(max_side=1600, quality=75, mark=True)[0]
     except Exception:                                   # noqa: BLE001
         return None
 

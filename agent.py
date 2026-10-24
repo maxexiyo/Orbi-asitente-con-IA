@@ -20,8 +20,8 @@ KEEP_IMAGES = 2                      # solo las últimas N capturas viajan en el
 
 # SETTLE / SETTLE_FLOOR / SLOW_ACTIONS (esperas tras cada acción) viven en pc_tools: las comparten el agente y ejecutar_plan
 # tamaño de las capturas de VERIFICACIÓN (la inicial sigue a 1280 px). live_orb las ajusta con config.json
-SHOT_SIDE = 1024
-SHOT_QUALITY = 60
+SHOT_SIDE = 1366
+SHOT_QUALITY = 72
 PLAN_THINKING = "default"   # el PRIMER paso piensa más (planea toda la tarea); los demás usan THINKING. config.json: agent_plan_thinking
 THINKING = "low"          # cuánto "piensa" el modelo en cada paso ("low" = rápido; "default" = el del modelo). Ver config.json: agent_thinking
 

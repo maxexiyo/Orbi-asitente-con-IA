@@ -134,6 +134,7 @@ class LiveSession:
         self.mute_output = False      # True = no reproduce la voz (solo texto en burbuja)
         self.screen_watch = False     # True = manda la pantalla cada ~2 s si cambió (modo "ver todo")
         self.screen_interval = 2.0
+        self.media_resolution = ""       # "", "low", "medium" o "high": cuánto detalle saca Gemini de cada frame (config: live_media_resolution)
         self.frame_max_age_s = 2.0     # guardia de captura vieja: un frame que esperó más que esto en la cola se descarta
         self._tool_img_t = 0.0         # cuándo se mandó la última captura pedida por una tool (los frames anteriores ya no sirven)
         self._handle = None            # handle para reanudar la sesión al reconectar
@@ -333,7 +334,15 @@ class LiveSession:
         tools = self._tools_for(model)
         if tools:
             cfg["tools"] = tools
-        config = types.LiveConnectConfig(**cfg)
+        mr = str(self.media_resolution or "").strip().lower()
+        if mr in ("low", "medium", "high") and hasattr(types, "MediaResolution"):
+            cfg["media_resolution"] = getattr(types.MediaResolution, "MEDIA_RESOLUTION_" + mr.upper(), None)
+        try:
+            config = types.LiveConnectConfig(**{k: v for k, v in cfg.items() if v is not None})
+        except Exception as e:                                       # noqa: BLE001  (SDK viejo sin ese campo)
+            print(f"[live] media_resolution no soportado por este SDK ({type(e).__name__}); sigo sin él")
+            cfg.pop("media_resolution", None)
+            config = types.LiveConnectConfig(**cfg)
 
         async with client.aio.live.connect(model=model, config=config) as session:
             self.emit("connected", model)

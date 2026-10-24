@@ -48,8 +48,20 @@ def classify(app: str) -> str:
     return "otras"
 
 
+# fragmentos del id de la app (en minúsculas) -> nombre que Orbi dice en voz alta. Los de correo traen ids largos y raros:
+#   Outlook nuevo   Microsoft.OutlookForWindows_8wekyb3d8bbwe!Microsoft.OutlookForWindows
+#   Outlook clásico Microsoft.Office.OUTLOOK.EXE.15
+#   Correo (viejo)  microsoft.windowscommunicationsapps_8wekyb3d8bbwe!microsoft.windowslive.mail
+APP_NAMES = (("outlook", "Outlook"), ("windowscommunicationsapps", "Correo de Windows"), ("windowslive.mail", "Correo de Windows"),
+             ("windowslive.calendar", "Calendario de Windows"))
+
+
 def pretty_app(app_id: str) -> str:
     """'5319275A.WhatsAppDesktop_cv1g1gvanyjgm!App' -> 'WhatsApp'."""
+    low = (app_id or "").lower()
+    for frag, nombre in APP_NAMES:
+        if frag in low:
+            return nombre
     base = re.split(r"[!_]", app_id)[0]
     base = base.split(".")[-1] if "." in base else base
     base = re.sub(r"(?i)desktop|app$", "", base).strip(" .-") or app_id
@@ -65,6 +77,29 @@ def parse_payload(xml: str) -> tuple:
     if not texts:
         return "", ""
     return texts[0], " ".join(texts[1:])
+
+
+_EMAIL = r"[\w.+-]+(?:@|%40)[\w-]+(?:\.[\w-]+)+"
+
+
+def parse_cuenta(xml: str) -> str:
+    """Correo de la CUENTA a la que llegó un toast de correo (mejor esfuerzo: depende de lo que ponga la app).
+    Busca primero en el texto de «atribución» (Outlook suele poner ahí la cuenta), luego en un texto que sea solo un correo y
+    al final en los argumentos de lanzamiento. Devuelve '' si no se ve. Nunca toma un correo suelto del cuerpo del mensaje."""
+    xml = xml or ""
+    for m in re.finditer(r"<text[^>]*placement=[\"']attribution[\"'][^>]*>(.*?)</text>", xml, flags=re.S | re.I):
+        e = re.search(_EMAIL, html.unescape(m.group(1)))
+        if e:
+            return e.group(0).replace("%40", "@").lower()
+    for m in re.finditer(r"<text[^>]*>(.*?)</text>", xml, flags=re.S | re.I):
+        t = html.unescape(m.group(1)).strip()
+        if re.fullmatch(_EMAIL, t):
+            return t.replace("%40", "@").lower()
+    for m in re.finditer(r"(?:launch|arguments)=[\"']([^\"']*)[\"']", xml, flags=re.I):
+        e = re.search(_EMAIL, html.unescape(m.group(1)))
+        if e:
+            return e.group(0).replace("%40", "@").lower()
+    return ""
 
 
 class NotificationWatcher:
@@ -145,7 +180,9 @@ class NotificationWatcher:
                 payload = payload.decode("utf-8", "replace")
             title, text = parse_payload(payload or "")
             app = pretty_app(app_id or "desconocida")
-            out.append(dict(id=rid, app=app, titulo=title, texto=text, categoria=classify((app_id or "") + " " + app),
+            cat = classify((app_id or "") + " " + app)
+            out.append(dict(id=rid, app=app, titulo=title, texto=text, categoria=cat,
+                            cuenta=parse_cuenta(payload or "") if cat == "correo" else "",
                             hora=datetime.datetime.now().strftime("%H:%M")))
         return out
 
@@ -172,8 +209,15 @@ class NotificationWatcher:
             con = sqlite3.connect(f"file:{snap}?mode=ro", uri=True)
             n = con.execute("SELECT COUNT(*) FROM Notification").fetchone()[0]
             hs = con.execute("SELECT COUNT(*) FROM NotificationHandler").fetchone()[0]
-            con.close(); shutil.rmtree(snap.parent, ignore_errors=True)
             lines.append(f"Notificaciones en la base: {n} · apps: {hs}")
+            try:
+                ids = [r[0] for r in con.execute("SELECT PrimaryId FROM NotificationHandler").fetchall() if r[0]]
+                correo = [i for i in ids if classify(i) == "correo"]
+                lines.append("Apps de correo con notificaciones registradas: " + (", ".join(f"{i} -> «{pretty_app(i)}»" for i in correo) or
+                             "ninguna (abre Outlook y revisa Configuración > Sistema > Notificaciones)"))
+            except sqlite3.Error:
+                pass
+            con.close(); shutil.rmtree(snap.parent, ignore_errors=True)
         except Exception as e:                             # noqa: BLE001
             lines.append(f"Error al leer: {type(e).__name__}: {e}")
         return "\n".join(lines)
@@ -192,6 +236,8 @@ class Announcer:
         self.read_content = bool(c.get("leer_contenido", False))
         self.max_per_min = int(c.get("max_por_minuto", 3))
         self.group_window = float(c.get("agrupar_segundos", 2.5))      # antes 8 s: avisaba cuando ya la habías leído
+        # {"tu@hotmail.com": "tu correo personal", "tu@ceti.mx": "el de la escuela"}: cómo los dice Orbi en voz alta
+        self.cuentas = {str(k).lower(): str(v) for k, v in (c.get("cuentas_correo") or {}).items()}
         self.get_rules, self.my_names = get_rules, my_names
         self.speak, self.is_busy, self.is_fullscreen, self.now = speak, is_busy, is_fullscreen, now
         self._pending = []                   # notificaciones esperando para agruparse
@@ -271,7 +317,7 @@ class Announcer:
     def summarize(self, batch: list) -> str:
         groups = {}
         for n in batch:
-            key = (n["app"], n["titulo"] if n["categoria"] == "mensajes" else n["app"])
+            key = (n["app"], n["titulo"] if n["categoria"] == "mensajes" else (n["app"] + "|" + n.get("cuenta", "")))
             groups.setdefault(key, []).append(n)
         parts = []
         for (app, who), items in groups.items():
@@ -282,8 +328,12 @@ class Announcer:
                 if self.read_content and k == 1 and items[0]["texto"]:
                     parts[-1] += f": {items[0]['texto'][:140]}"
             elif items[0]["categoria"] == "correo":
-                parts.append(f"{'llegó un correo' if k == 1 else f'llegaron {k} correos'} en {app}"
+                cta = items[0].get("cuenta", "")
+                donde = f"a {self.cuentas.get(cta, cta)}" if cta else f"en {app}"         # «a tu correo personal» / «a tu@hotmail.com»
+                parts.append(f"{'llegó un correo' if k == 1 else f'llegaron {k} correos'} {donde}"
                              + (f" de {items[0]['titulo']}" if items[0]["titulo"] and k == 1 else ""))
+                if self.read_content and k == 1 and items[0]["texto"]:
+                    parts[-1] += f": {items[0]['texto'][:140]}"
             elif items[0]["categoria"] == "calendario":
                 parts.append(f"recordatorio de {app}: {items[0]['titulo'] or items[0]['texto']}"[:160])
             else:

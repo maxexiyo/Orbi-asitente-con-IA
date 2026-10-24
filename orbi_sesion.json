@@ -1,57 +1,33 @@
 {
- "fecha": "2026-10-24T16:10",
+ "fecha": "2026-10-24T16:46",
  "turnos": [
   {
-   "tu": "C'est la carte.",
+   "tu": "to Tokyo",
    "orbi": "---"
   },
   {
-   "tu": "K",
+   "tu": "Añade una nueva regla. Todo archivo que tú generes guárdalo en descargas.",
+   "orbi": "Hecho, todos los archivos que genere irán directito a tu carpeta de Descargas."
+  },
+  {
+   "tu": "camión",
    "orbi": "---"
   },
   {
-   "tu": "Orbe",
-   "orbi": "Dime Max, ¿qué seguimos haciendo?"
-  },
-  {
-   "tu": "ventana SQL",
-   "orbi": "Aquí estoy en la ventana del proyecto."
-  },
-  {
-   "tu": "¿Cómo se comenta en SQL?",
-   "orbi": "En SQL, los comentarios de una sola línea se ponen con dos guiones seguidos."
-  },
-  {
-   "tu": "olvidar las",
-   "orbi": "Si ya pusiste el comentario, adelante con el código."
-  },
-  {
-   "tu": "¿Qué dice?",
-   "orbi": "Max, no pude revisar tu correo porque falta la contraseña de aplicación en el archivo de configuración."
-  },
-  {
-   "tu": "違うね。",
-   "orbi": "Disculpa la confusión, ahora mismo corrijo el error y abro el archivo en el Bloc de notas."
-  },
-  {
-   "tu": "5",
-   "orbi": "No generate response."
-  },
-  {
-   "tu": "sinha",
-   "orbi": "No generate response."
-  },
-  {
-   "tu": "Mande.",
-   "orbi": "Max, revisa el fetch en registro js para asegurarte de que todo maneje bien el cambio de quitar la sesión express."
-  },
-  {
-   "tu": "A",
-   "orbi": "No generate response."
-  },
-  {
-   "tu": "Okay.",
+   "tu": "das ist",
    "orbi": "---"
+  },
+  {
+   "tu": "apunta en la pantalla lo que tengo en la fecha",
+   "orbi": "Ahí te lo marco."
+  },
+  {
+   "tu": "¿Por qué no está en Roblox?",
+   "orbi": "No sé bien a qué te refieres con \"Yatta\", pero ¿te gustaría que investigue si hay algún juego o personaje similar en Roblox?"
+  },
+  {
+   "tu": "Ahí voy.",
+   "orbi": "Me dejaste con la duda, Max. ¿A qué personaje o a qué te refieres con \"Yatta\" en Roblox?"
   }
  ]
 }

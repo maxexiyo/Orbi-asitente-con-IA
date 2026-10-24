@@ -5,13 +5,43 @@ changed()  -> True si la pantalla cambió lo suficiente respecto a la captura an
 """
 import io, time
 
-MAX_SIDE = 1280      # lado más largo del JPEG que se manda (menos tokens, más rápido)
-QUALITY = 65
+MAX_SIDE = 1600      # lado más largo del JPEG que se manda (antes 1280: en pantallas grandes el texto chico no se leía)
+QUALITY = 78         # config.json: pantalla_max_side / pantalla_quality (ver configure())
+info = {}            # datos de la ÚLTIMA captura: monitor, tamaño enviado, escala, KB (para diagnóstico y logs)
+_warned = set()
 
 
 _click = {"t": 0.0, "x": 0, "y": 0}      # último clic de Orbi (píxeles de pantalla) para dibujarlo en las capturas
 MARK_TTL_S = 25.0                          # cuánto tiempo se sigue dibujando la marca del último clic
 last_capture_t = 0.0                       # instante (time.time()) de la última captura tomada
+
+
+def configure(max_side=None, quality=None) -> None:
+    """live_orb lo llama con lo que diga config.json (pantalla_max_side / pantalla_quality)."""
+    global MAX_SIDE, QUALITY
+    if max_side:
+        MAX_SIDE = max(640, min(4096, int(max_side)))
+    if quality:
+        QUALITY = max(40, min(95, int(quality)))
+
+
+def resumen() -> str:
+    """Una línea: qué ve Orbi en la última captura (monitor real -> tamaño enviado)."""
+    if not info:
+        return "(todavía no hay capturas)"
+    m, e = info["monitor"], info["enviado"]
+    return (f"monitor {m[0]}x{m[1]} -> Orbi recibe {e[0]}x{e[1]} ({info['escala'] * 100:.0f}% del tamaño real, "
+            f"{info['kb']:.0f} KB, calidad JPEG {info['calidad']})")
+
+
+def _anotar(kind: str, mon: dict, img, nbytes: int, quality: int) -> None:
+    esc = img.width / max(1, mon["width"])
+    info.update(tipo=kind, monitor=(mon["width"], mon["height"]), enviado=(img.width, img.height), escala=esc,
+                kb=nbytes / 1024, calidad=quality)
+    if esc < 0.5 and kind not in _warned:                  # menos de la mitad de los píxeles de cada lado: el texto chico se mancha
+        _warned.add(kind)
+        print(f"[pantalla] OJO ({kind}): {resumen()}. Si Orbi no lee texto chico sube pantalla_max_side en config.json "
+              "o usa acercar_pantalla / leer_pantalla.")
 
 
 def note_click(px: int, py: int) -> None:
@@ -46,10 +76,11 @@ def _grab_full():
     return img, mon
 
 
-def capture(max_side: int = MAX_SIDE, quality: int = QUALITY, mark: bool = False):
+def capture(max_side: int | None = None, quality: int | None = None, mark: bool = False):
     """Captura NUEVA de la pantalla completa. `mark=True` dibuja el último clic de Orbi (círculo rojo)."""
     global last_capture_t
     from PIL import Image
+    max_side, quality = max_side or MAX_SIDE, quality or QUALITY
     img, mon = _grab_full()
     last_capture_t = time.time()
     scale = min(1.0, max_side / max(img.size))
@@ -59,6 +90,7 @@ def capture(max_side: int = MAX_SIDE, quality: int = QUALITY, mark: bool = False
         img = _draw_click_mark(img, mon, img.width / mon["width"], img.height / mon["height"])
     buf = io.BytesIO()
     img.save(buf, "JPEG", quality=quality)
+    _anotar("pantalla", mon, img, buf.tell(), quality)
     return buf.getvalue(), mon
 
 

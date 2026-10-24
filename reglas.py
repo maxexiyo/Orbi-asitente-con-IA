@@ -22,7 +22,7 @@ RUTINAS (estilo Alexa): además de lo de arriba, un disparador cualquiera + una 
   frase           tú dices la frase/nombre de la rutina («modo estudio», «buenas noches»)       -> `filtro` = frases, coma
 Acciones: {tipo:"decir", texto} · {tipo:"herramienta", herramienta, argumentos(JSON)} (solo herramientas seguras: SEGURAS) ·
 {tipo:"orbi", texto} (le pide a Orbi algo en libre; usa cualquier herramienta con sus permisos y confirmaciones).
-En `texto` se pueden usar {app} {titulo} {texto} {ventana} {bateria} {hora}.
+En `texto` se pueden usar {app} {cuenta} {titulo} {texto} {ventana} {bateria} {hora}.
 
 Los avisos previos son recordatorios normales (se ven en la mini ventana, avisan aunque Orbi estuviera cerrada, etc.).
 """
@@ -363,8 +363,9 @@ class Reglas:
     def on_notificacion(self, n: dict):
         """Una notificación de Windows acaba de llegar (dict app, titulo, texto)."""
         for r in self._activas("notificacion"):
-            if self._match(r["filtro"], f"{n.get('app', '')} {n.get('titulo', '')} {n.get('texto', '')}"):
-                self._fire(r, dict(app=n.get("app", ""), titulo=n.get("titulo", ""), texto=n.get("texto", "")), 0.5)
+            if self._match(r["filtro"], f"{n.get('app', '')} {n.get('cuenta', '')} {n.get('titulo', '')} {n.get('texto', '')}"):
+                self._fire(r, dict(app=n.get("app", ""), cuenta=n.get("cuenta", ""), titulo=n.get("titulo", ""),
+                                   texto=n.get("texto", "")), 0.5)
 
     def listing(self) -> list:
         with self._lock:

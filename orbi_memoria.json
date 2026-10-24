@@ -1,34 +1,6 @@
 {
  "episodios": [
   {
-   "fecha": "2026-10-23 18:25",
-   "resumen": "El usuario se llama Max. Solicitó encender las luces y dejó una consulta a medias («¿Qué se...»)."
-  },
-  {
-   "fecha": "2026-10-23 19:15",
-   "resumen": "El usuario (Max) tiene un mensaje nuevo pendiente de revisar. Quedó sin resolver el acceso a la aplicación de Spotify, la cual el usuario afirma tener instalada pero el asistente solo detecta abierta como sitio web en Microsoft Edge."
-  },
-  {
-   "fecha": "2026-10-23 23:11",
-   "resumen": "El usuario (Max) configuró una regla de notificaciones para todos los grupos de CETI, incluidos CETI Colomos y CETI general. Estableció como preferencia que solo se le notifique cuando se mencione \"Colomos virtual\"."
-  },
-  {
-   "fecha": "2026-10-23 20:34",
-   "resumen": "El usuario (Max) consultó conceptos matemáticos sobre teoría de probabilidad, específicamente la definición de kernel de probabilidad y árboles de probabilidad. Además, solicitó imágenes sobre los árboles de probabilidad para visualizar el concepto."
-  },
-  {
-   "fecha": "2026-10-23 21:12",
-   "resumen": "El usuario decidió que no se realicen más cambios ni modificaciones en el documento o resumen en el que estaban trabajando. Orbi confirmó que dejará el archivo tal como está y no hará más ediciones."
-  },
-  {
-   "fecha": "2026-10-23 23:20",
-   "resumen": "El usuario buscaba sus capturas de pantalla, las cuales se localizan en la carpeta «Screenshots» dentro de la ruta de «Emulated Gamepads». Quedó pendiente confirmar si el asistente debe mover tres capturas recientes a la carpeta de Descargas."
-  },
-  {
-   "fecha": "2026-10-23 23:50",
-   "resumen": "A petición del usuario (Max), el asistente cerró Microsoft Edge para liberar más de 1 GB de RAM sin cerrar Chrome. Quedó pendiente un reclamo del usuario sobre una notificación no recibida respecto a un mensaje de David, ya que la comunicación al final fue confusa e incompleta."
-  },
-  {
    "fecha": "2026-10-23 23:58",
    "resumen": "El usuario (llamado Max) autorizó gestionar sus documentos de Word abiertos. Orbi guardó la lista de las ventanas abiertas en un archivo para que el usuario las vuelva a abrir después. Se procedió a cerrar todas las aplicaciones del equipo, dejando abiertas únicamente Spotify y Discord."
   },
@@ -55,7 +27,11 @@
   {
    "fecha": "2026-10-24 16:15",
    "resumen": "El usuario (llamado Max) tiene pendiente revisar el `fetch` en el archivo `registro.js`. Debe comprobar que todo funcione correctamente tras el cambio de eliminar la sesión de Express."
+  },
+  {
+   "fecha": "2026-10-24 16:42",
+   "resumen": "El usuario estableció una nueva regla de configuración: todos los archivos que genere el asistente deben guardarse automáticamente en su carpeta de Descargas. También solicitó marcar o mostrar en la pantalla los elementos que tiene asignados para una fecha específica."
   }
  ],
- "resumen_general": ""
+ "resumen_general": "**Perfil y Escuela**\n* **Usuario:** Max.\n* **Institución:** Estudiante de CETI (grupos CETI Colomos y CETI general).\n* **Filtro escolar:** Configurada regla para recibir notificaciones de grupos de CETI únicamente cuando se mencione \"Colomos virtual\".\n* **Estudios recientes:** Teoría de probabilidad (conceptos de kernel y árboles de probabilidad con diagramas visuales).\n\n**Proyectos**\n* **Edición de documentos:** Finalizó la revisión de su documento/resumen activo; se estableció no realizarle más cambios.\n\n**Gustos y Entorno del Sistema**\n* **Música / Aplicaciones:** Usuario habitual de Spotify (prefiere la app de escritorio, aunque se detectó activa en navegador Edge).\n* **Rutas del sistema:** Guarda capturas de pantalla en la ruta de «Emulated Gamepads» dentro de la carpeta «Screenshots».\n* **Domótica:** Cuenta con control de luces inteligentes vinculado al asistente.\n* **Navegadores:** Utiliza Google Chrome y Microsoft Edge.\n\n**Pendientes**\n* Resolver la detección de la aplicación nativa de Spotify en su equipo.\n* Confirmar si se deben trasladar tres capturas recientes a la carpeta de Descargas.\n* Revisar el fallo en el aviso de notificación del mensaje enviado por David.\n* Mensaje nuevo pendiente de revisión."
 }

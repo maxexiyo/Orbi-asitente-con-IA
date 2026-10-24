@@ -780,6 +780,16 @@ def main():
         st["watch"] = True                      # modo todo: Live tiene que VER lo que hace (no se guarda en ajustes)
     session.screen_watch = st["watch"]
     session.screen_interval = max(1.0, float(cfg.get("screen_interval_s", 1.0)))   # Live acepta como máximo 1 frame/s
+    import screen as _scr
+    _scr.configure(cfg.get("pantalla_max_side"), cfg.get("pantalla_quality"))
+    session.media_resolution = str(cfg.get("live_media_resolution", "") or "")
+    try:
+        _m = _scr.primary_monitor()
+        _s = min(1.0, _scr.MAX_SIDE / max(_m["width"], _m["height"]))
+        print(f"[pantalla] monitor {_m['width']}x{_m['height']} -> Orbi recibe {round(_m['width'] * _s)}x{round(_m['height'] * _s)} "
+              f"({_s * 100:.0f}%, JPEG q{_scr.QUALITY}); lupa: acercar_pantalla / leer_pantalla")
+    except Exception as e:                                        # noqa: BLE001
+        print("[pantalla] no pude medir el monitor:", type(e).__name__, str(e)[:80])
     import agent as _ag
     _ag.SHOT_SIDE = int(cfg.get("agent_shot_side", _ag.SHOT_SIDE))
     _ag.SHOT_QUALITY = int(cfg.get("agent_shot_quality", _ag.SHOT_QUALITY))
