@@ -65,6 +65,34 @@ FACES = {
     # trabajando: ojos entrecerrados, cejas concentradas y mirada que va y viene como leyendo (ver _face_target)
     "working":   dict(eye_h=0.8, eye_w=1.05, arc=0, curve=0.1, open=0, blush=0, brow=-0.35, lx=0, ly=0.55, tr=0, tg=18, tb=25),
 }
+# Color propio de CADA emoción (r, g, b, peso 0-1): se mezcla con el color del estado. Antes solo se sumaba un tinte
+# pequeño y varias caras (thinking, surprised, sleepy, attentive, working) casi no cambiaban de color.
+EMO_COLOR = {
+    "neutral":   (0, 0, 0, 0.0),
+    "attentive": (120, 215, 255, 0.35),
+    "happy":     (110, 220, 130, 0.55),
+    "love":      (255, 100, 160, 0.72),
+    "sad":       (60, 80, 150, 0.65),
+    "surprised": (255, 225, 80, 0.62),
+    "thinking":  (165, 120, 255, 0.58),
+    "angry":     (240, 45, 40, 0.78),
+    "excited":   (255, 130, 40, 0.68),
+    "sleepy":    (70, 70, 120, 0.55),
+    "working":   (60, 200, 190, 0.45),
+}
+for _n, _f in FACES.items():
+    _c = EMO_COLOR.get(_n, (0, 0, 0, 0.0))
+    _f.update(er=_c[0], eg=_c[1], eb=_c[2], ew=_c[3], tr=0, tg=0, tb=0)
+# sinónimos: si la IA manda una emoción que no existe, se usa la más parecida (antes caía en neutral = sin color)
+EMO_ALIAS = {"curious": "attentive", "curioso": "attentive", "focused": "working", "concentrated": "working",
+             "proud": "happy", "grateful": "love", "affectionate": "love", "tired": "sleepy", "bored": "sleepy",
+             "worried": "sad", "disappointed": "sad", "confused": "thinking", "embarrassed": "surprised",
+             "shocked": "surprised", "playful": "excited", "joyful": "happy", "calm": "attentive", "mad": "angry",
+             "frustrated": "angry", "scared": "surprised", "nervous": "surprised", "alegre": "happy", "triste": "sad",
+             "enojado": "angry", "emocionado": "excited", "sorprendido": "surprised", "pensando": "thinking",
+             "cansado": "sleepy", "amor": "love", "feliz": "happy"}
+
+
 def _mix(a, b, t):
     return tuple(int(a[i] + (b[i] - a[i]) * t) for i in range(3))
 
@@ -292,6 +320,7 @@ class Orb(QWidget):
         if s != "idle": self.last_active = time.time()
 
     def set_emotion(self, name, hold=4.0):
+        name = EMO_ALIAS.get(str(name).lower().strip(), str(name).lower().strip())
         self.emotion = name if name in FACES else "neutral"
         self._emotion_until = time.time() + hold if (hold and self.emotion != "neutral") else None
         self.last_active = time.time()
@@ -449,8 +478,9 @@ class Orb(QWidget):
 
     # ----------------------------------------------------------------- dibujo
     def _color(self):
-        tint = (self.p["tr"], self.p["tg"], self.p["tb"])
-        return QColor(*[int(max(0, min(255, self.col[i] + tint[i]))) for i in range(3)])
+        w = max(0.0, min(1.0, self.p.get("ew", 0.0)))
+        tgt = (self.p.get("er", 0), self.p.get("eg", 0), self.p.get("eb", 0))
+        return QColor(*[int(max(0, min(255, self.col[i] + (tgt[i] - self.col[i]) * w))) for i in range(3)])
 
     def paintEvent(self, _):
         p = QPainter(self)

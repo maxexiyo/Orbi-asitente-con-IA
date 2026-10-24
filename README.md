@@ -139,7 +139,8 @@ mientras platicas o corre una tarea, y **ni captura** ventanas de banco/contrase
 
 Lo que aparece en pantalla (páginas, chats, documentos) puede traer texto que intente darle órdenes a la IA (*prompt injection*): los prompts
 lo prohíben, las acciones delicadas piden tu OK con un respaldo que no depende de la IA, y las tools usan listas blancas (apps, carpetas,
-extensiones). No hay shell, ni se borran/mueven archivos. Aun así, cuida el control activo con sitios desconocidos abiertos.
+extensiones). No hay shell y **nunca se borra ni se sobrescribe** un archivo (mover/organizar/escribir solo dentro de Documentos, Escritorio y
+Descargas, con registro para deshacer). Aun así, cuida el control activo con sitios desconocidos abiertos.
 
 ## Expresividad, intérprete y audio de la PC
 
@@ -241,3 +242,20 @@ Cuando Windows cambia o reinicia un dispositivo de audio (audífonos Bluetooth, 
 - el modo baile deja de reintentar el loopback tras 3 fallos (puede estorbar al micrófono): se reactiva desde el menú;
 - `cerrar_ventana` ya no cierra la consola donde corre Orbi ni las ventanas de Orbi.
 Si vuelve a pasar, busca líneas `[audio]` en el log y mándamelas.
+
+## Organizar y escribir archivos, Word y mini ventana (parte 9)
+**Archivos sin pantalla** (permiso «archivos»; ahora su casilla dice «Buscar, leer, organizar y escribir…»): `crear_carpeta`, `mover_archivo`,
+`copiar_archivo`, `renombrar_archivo`, `organizar_carpeta` (por `tipo`, `fecha` o `inicial`; `vista_previa` solo cuenta qué haría),
+`deshacer_organizacion` y `escribir_archivo` (txt/md/csv). Solo dentro de Documentos, Escritorio y Descargas; **nunca borra ni sobrescribe**
+(si el nombre ya existe pone « (2)»), no toca subcarpetas, salta archivos abiertos o recién modificados y deja el registro en
+`organizacion_log.json` para «deshaz eso». Si son más de 25 archivos pide tu OK (según tu modo de acciones delicadas). Los prompts ahora le
+prohíben decir «no puedo» a ciegas: si falta el permiso dice cuál activar, y si algo falla dice el motivo real.
+
+**Word:** `redactar_documento` crea un `.docx` completo (títulos, viñetas, negritas) sin abrir Word ni teclear; lo redacta un modelo de texto
+(`analysis_model`) y la voz solo recibe «listo, quedó en…». Para escribir en un Word que YA está abierto: `escribir_texto` con `redactar`
+(se redacta aparte y se teclea en texto plano). Antes `escribir_texto` recortaba en silencio a 2000 caracteres y la voz armaba el texto
+largo ella misma (se cortaba o se le colaba lo que pensaba); ahora el tope es 20 000 y avisa si recortó. Si el Word está abierto, no se
+puede modificar por detrás (Windows lo bloquea): lo dice y se escribe en la ventana.
+
+**Mini ventana:** ya no se abre por lo que el modo compañero nota (ortografía, detalles de la pantalla): eso sale por la burbuja y la voz.
+La tool `mini_ventana` también tiene prohibido usarse para eso.

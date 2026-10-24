@@ -1,0 +1,29 @@
+{
+ "episodios": [
+  {
+   "fecha": "2026-10-23 18:25",
+   "resumen": "El usuario se llama Max. Solicitó encender las luces y dejó una consulta a medias («¿Qué se...»)."
+  },
+  {
+   "fecha": "2026-10-23 19:15",
+   "resumen": "El usuario (Max) tiene un mensaje nuevo pendiente de revisar. Quedó sin resolver el acceso a la aplicación de Spotify, la cual el usuario afirma tener instalada pero el asistente solo detecta abierta como sitio web en Microsoft Edge."
+  },
+  {
+   "fecha": "2026-10-23 23:11",
+   "resumen": "El usuario (Max) configuró una regla de notificaciones para todos los grupos de CETI, incluidos CETI Colomos y CETI general. Estableció como preferencia que solo se le notifique cuando se mencione \"Colomos virtual\"."
+  },
+  {
+   "fecha": "2026-10-23 20:34",
+   "resumen": "El usuario (Max) consultó conceptos matemáticos sobre teoría de probabilidad, específicamente la definición de kernel de probabilidad y árboles de probabilidad. Además, solicitó imágenes sobre los árboles de probabilidad para visualizar el concepto."
+  },
+  {
+   "fecha": "2026-10-23 21:12",
+   "resumen": "El usuario decidió que no se realicen más cambios ni modificaciones en el documento o resumen en el que estaban trabajando. Orbi confirmó que dejará el archivo tal como está y no hará más ediciones."
+  },
+  {
+   "fecha": "2026-10-23 23:20",
+   "resumen": "El usuario buscaba sus capturas de pantalla, las cuales se localizan en la carpeta «Screenshots» dentro de la ruta de «Emulated Gamepads». Quedó pendiente confirmar si el asistente debe mover tres capturas recientes a la carpeta de Descargas."
+  }
+ ],
+ "resumen_general": ""
+}

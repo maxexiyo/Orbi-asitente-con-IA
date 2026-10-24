@@ -126,7 +126,7 @@ def _xlsx(path: Path) -> str:
     return "\n".join(out)
 
 
-def _pdf(path: Path) -> str:
+def _pdf(path: Path, limit: int = MAX_CHARS) -> str:
     try:
         from pypdf import PdfReader
     except ImportError:
@@ -135,7 +135,7 @@ def _pdf(path: Path) -> str:
     out = []
     for i, page in enumerate(rd.pages, 1):
         out.append(f"--- página {i} ---\n" + (page.extract_text() or ""))
-        if sum(len(x) for x in out) > MAX_CHARS:
+        if sum(len(x) for x in out) > limit:
             break
     text = "\n".join(out)
     if len(text.strip()) < 40:
@@ -156,7 +156,7 @@ def _plain(path: Path) -> str:
     return text
 
 
-def extract(path) -> tuple:
+def extract(path, limit: int = None) -> tuple:
     """(texto, tipo). Lanza ReadError con un mensaje claro si no se puede."""
     p = Path(path)
     if not p.is_file():
@@ -172,7 +172,7 @@ def extract(path) -> tuple:
         elif ext == ".xlsx":
             text, kind = _xlsx(p), "Excel"
         elif ext == ".pdf":
-            text, kind = _pdf(p), "PDF"
+            text, kind = _pdf(p, limit or MAX_CHARS), "PDF"
         elif ext in TEXT_EXT or ext == "":
             text, kind = _plain(p), "texto"
         else:
@@ -295,29 +295,171 @@ def list_dir(path: Path, limit: int = 40) -> dict:
     return res
 
 
-def search_content(query: str, limit: int = 6, budget_s: float = 10.0, roots=None) -> list:
-    """[(ruta, fragmento)] de archivos de texto/docx/pptx cuyo contenido contiene todas las palabras de `query`."""
-    toks = _tokens(query)
+# --- búsqueda por contenido: índice que se va llenando (sobrevive entre búsquedas y reinicios) ------------------------------
+import gzip, json, math, unicodedata
+
+INDEX_CHARS = 20_000          # cuánto texto de cada archivo se guarda en el índice (el inicio: título, índice, primeras páginas)
+INDEX_MAX = 2_000             # archivos máximos en el índice (se tiran los más viejos)
+STOPWORDS = {"de", "la", "el", "en", "y", "a", "los", "las", "un", "una", "que", "del", "se", "por", "con", "para", "al", "lo",
+             "su", "es", "mi", "como", "mas", "o", "pero", "sus", "le", "ya", "este", "esta", "ese", "esa", "unos", "unas", "sobre",
+             "archivo", "documento", "word", "pdf", "donde", "dice", "tiene", "habla", "hay", "tengo", "mis", "me", "te"}
+LAST_INFO = {}                # resumen de la última búsqueda (completa o no, qué faltó) para que Orbi se lo diga al dueño
+
+
+class _Fold(dict):
+    """Minúsculas y sin acentos, un carácter por carácter (así las posiciones coinciden con el texto original)."""
+    def __missing__(self, k):
+        v = ord(unicodedata.normalize("NFD", chr(k).lower())[0])
+        self[k] = v
+        return v
+
+
+_FOLD = _Fold()
+
+
+def fold(t: str) -> str:
+    return t.translate(_FOLD)
+
+
+def _stem(t: str) -> str:
+    if len(t) > 5 and t.endswith("es"):
+        return t[:-2]
+    if len(t) > 4 and t.endswith("s"):
+        return t[:-1]
+    return t
+
+
+def _query_tokens(q: str) -> list:
+    out = []
+    for t in re.split(r"\W+", fold(q)):
+        if t and t not in STOPWORDS and (len(t) > 1 or t.isdigit()):
+            st = _stem(t)
+            if st not in out:
+                out.append(st)
+    return out
+
+
+_idx = {"loaded": False, "data": {}, "dirty": False}
+
+
+def _index_path() -> Path:
+    try:
+        from paths import APP_DIR
+        return Path(APP_DIR) / "orbi_indice_docs.json.gz"
+    except Exception:                                      # noqa: BLE001
+        return Path(__file__).parent / "orbi_indice_docs.json.gz"
+
+
+def _index_load() -> dict:
+    if not _idx["loaded"]:
+        _idx["loaded"] = True
+        try:
+            with gzip.open(_index_path(), "rt", encoding="utf-8") as fh:
+                _idx["data"] = json.load(fh)
+        except Exception:                                  # noqa: BLE001
+            _idx["data"] = {}
+    return _idx["data"]
+
+
+def _index_save():
+    if not _idx["dirty"]:
+        return
+    d = _idx["data"]
+    if len(d) > INDEX_MAX:
+        for k, _v in sorted(d.items(), key=lambda kv: kv[1][0])[: len(d) - INDEX_MAX]:
+            d.pop(k, None)
+    try:
+        tmp = _index_path().with_suffix(".tmp")
+        with gzip.open(tmp, "wt", encoding="utf-8") as fh:
+            json.dump(d, fh, ensure_ascii=False)
+        tmp.replace(_index_path())
+        _idx["dirty"] = False
+    except Exception:                                      # noqa: BLE001
+        pass
+
+
+def index_clear():
+    _idx.update(loaded=True, data={}, dirty=True)
+    _index_save()
+
+
+def _content_exts() -> tuple:
+    exts, faltan = set(TEXT_EXT) | {".docx", ".pptx"}, []
+    for mod, ext, pipname in (("pypdf", ".pdf", "pypdf"), ("openpyxl", ".xlsx", "openpyxl")):
+        try:
+            __import__(mod)
+            exts.add(ext)
+        except ImportError:
+            faltan.append(pipname)
+    return exts, faltan
+
+
+def search_content(query: str, limit: int = 6, budget_s: float = 15.0, roots=None) -> list:
+    """[(ruta, fragmento)] de los archivos cuyo CONTENIDO se parece más a `query` (Word, PowerPoint, PDF, Excel, texto, código).
+
+    - No hace falta acordarse de las palabras exactas: puntúa cuántas de las palabras (sin acentos ni plurales) aparecen,
+      más el nombre del archivo, y devuelve los mejores. Pide al menos el 60 % de las palabras.
+    - Revisa primero lo MÁS RECIENTE y guarda lo leído en un índice: si no alcanza el tiempo, la siguiente búsqueda sigue donde
+      se quedó (y las repetidas son casi instantáneas).
+    Deja en LAST_INFO: completo (revisó todo), revisados, pendientes, faltan (librerías), escaneados (PDF sin texto).
+    """
+    toks = _query_tokens(query)
+    LAST_INFO.clear()
     if not toks:
         return []
-    t0, out = time.time(), []
-    exts = TEXT_EXT | {".docx", ".pptx"}
+    exts, faltan = _content_exts()
+    data = _index_load()
+    cand = []
     for f in walk_files(roots):
-        if time.time() - t0 > budget_s or len(out) >= limit:
-            break
-        if f.suffix.lower() not in exts:
-            continue
-        try:
-            if f.stat().st_size > 5_000_000:
+        if f.suffix.lower() in exts:
+            try:
+                st = f.stat()
+            except OSError:
                 continue
-            text, _ = extract(f)
-        except (ReadError, OSError):
-            continue
-        low = text.lower()
-        if all(t in low for t in toks):
-            i = low.find(toks[0])
-            frag = " ".join(text[max(0, i - 80): i + 160].split())
-            out.append((f, frag))
+            if st.st_size <= (30_000_000 if f.suffix.lower() == ".pdf" else 8_000_000):
+                cand.append((st.st_mtime, st.st_size, f))
+    cand.sort(key=lambda c: c[0], reverse=True)
+    t0, hits, pendientes, escaneados, revisados = time.time(), [], 0, 0, 0
+    need = max(1, math.ceil(0.6 * len(toks)))
+    for mtime, size, f in cand:
+        key = str(f)
+        ent = data.get(key)
+        if not ent or ent[0] != mtime or ent[1] != size:                 # no está indexado (o cambió): léelo ahora
+            if time.time() - t0 > budget_s:
+                pendientes += 1
+                continue
+            try:
+                text, _ = extract(f, limit=INDEX_CHARS * 2)
+                ent = [mtime, size, fold(text[:INDEX_CHARS]), 0]
+            except ReadError as e:
+                ent = [mtime, size, "", 1 if "escaneado" in str(e) else 0]
+            except Exception:                                            # noqa: BLE001
+                ent = [mtime, size, "", 0]
+            data[key] = ent
+            _idx["dirty"] = True
+        revisados += 1
+        if ent[3]:
+            escaneados += 1
+        name = fold(f.stem)
+        body = ent[2]
+        got = [t for t in toks if t in body or t in name]
+        if len(got) >= need:
+            score = len(got) / len(toks) + 0.3 * sum(1 for t in toks if t in name) / len(toks)
+            hits.append((score, mtime, f, got, body))
+    _index_save()
+    hits.sort(key=lambda h: (h[0], h[1]), reverse=True)
+    out = []
+    for score, _m, f, got, body in hits[:limit]:
+        frag = ""
+        try:                                                             # fragmento con el texto original (con acentos y mayúsculas)
+            text, _ = extract(f, limit=INDEX_CHARS * 2)
+            pos = [body.find(t) for t in got if body.find(t) >= 0]
+            i = min(pos) if pos else 0
+            frag = " ".join(text[max(0, i - 80): i + 200].split())
+        except Exception:                                                # noqa: BLE001
+            pass
+        out.append((f, f"[{len(got)}/{len(toks)} palabras] " + frag))
+    LAST_INFO.update(completo=pendientes == 0, revisados=revisados, pendientes=pendientes, faltan=faltan, escaneados=escaneados)
     return out
 
 

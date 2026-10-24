@@ -136,7 +136,7 @@ class PagePermisos(QWizardPage):
         self.obs.setChecked(perm["observar"])
         self.ctrl = QCheckBox("Controlar la PC: mouse, teclado, escribir texto, volumen y música")
         self.ctrl.setChecked(perm["controlar_pc"])
-        self.arch = QCheckBox("Buscar, leer y abrir archivos de Documentos, Escritorio y Descargas")
+        self.arch = QCheckBox("Buscar, leer, organizar y escribir archivos (y Word) en Documentos, Escritorio y Descargas")
         self.arch.setChecked(perm["archivos"])
         self.casa = QCheckBox("Controlar mi casa inteligente (luces, enchufes) vía Home Assistant")
         self.casa.setChecked(perm["casa"])

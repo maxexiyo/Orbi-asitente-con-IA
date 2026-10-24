@@ -193,3 +193,52 @@ def generate(pool: KeyPool, models, contents, config=None, retries_per_model=Non
 
 
 _BAD_MODELS: set = set()
+
+
+# --------------------------------------------------------------------------- qué modelos EXISTEN para tu key
+_AVAIL = {"t": 0.0, "names": None}
+
+
+def available_models(pool, ttl: float = 3600.0) -> list:
+    """Modelos que tu key puede usar con generateContent (se consulta a Google y se guarda 1 h). [] si no se pudo saber.
+
+    Sirve para no insistir con nombres que ya no existen (el 404 NOT_FOUND de gemini-2.5-flash): se usan los que de verdad hay."""
+    now = time.time()
+    if _AVAIL["names"] is not None and now - _AVAIL["t"] < ttl:
+        return _AVAIL["names"]
+    key = pool.pick() if pool else None
+    if not key:
+        return _AVAIL["names"] or []
+    try:
+        out = []
+        for m in client_for(key).models.list():
+            acts = getattr(m, "supported_actions", None) or []
+            if not acts or "generateContent" in acts:
+                out.append(str(m.name).split("/")[-1])
+        _AVAIL.update(t=now, names=out)
+        print(f"[llm] {len(out)} modelos disponibles para tu key")
+        return out
+    except Exception as e:                                   # noqa: BLE001
+        print(f"[llm] no pude listar modelos ({str(e)[:90]})")
+        _AVAIL["t"] = now - ttl + 120                        # reintenta en 2 min, no en cada búsqueda
+        return _AVAIL["names"] or []
+
+
+def _ver(name: str) -> tuple:
+    m = re.search(r"gemini-(\d+(?:\.\d+)?)", name)
+    return (float(m.group(1)) if m else 0.0, "flash" in name, "lite" not in name)
+
+
+def usable(pool, preferred, extra: int = 2) -> list:
+    """Tu lista de preferidos filtrada a los que existen, + hasta `extra` flash más nuevos que sí existen (por si todos los
+    nombres de tu config ya no existen). Si no se pudo consultar a Google, devuelve tu lista tal cual."""
+    pref = [preferred] if isinstance(preferred, str) else list(preferred)
+    av = available_models(pool)
+    if not av:
+        return pref
+    out = [m for m in pref if m in av]
+    skip = ("image", "tts", "live", "audio", "embedding", "robotics", "computer-use", "native")
+    nuevos = sorted((m for m in av if m.startswith("gemini") and "flash" in m and "lite" not in m
+                     and not any(s in m for s in skip) and m not in out and m not in _BAD_MODELS), key=_ver, reverse=True)
+    return out + nuevos[:extra]
+

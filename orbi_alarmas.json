@@ -1,12 +1,5 @@
 [
  {
-  "id": "abe9fa",
-  "kind": "recordatorio",
-  "when": "2026-10-23T17:00:00",
-  "texto": "Portafolio de evidencias",
-  "repetir": "no"
- },
- {
   "id": "1ae50e",
   "kind": "recordatorio",
   "when": "2026-10-24T17:00:00",

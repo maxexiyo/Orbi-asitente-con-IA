@@ -10,7 +10,9 @@ Los PERMISOS del asistente de configuración deciden qué tools existen:
   ver_pantalla ... ver_pantalla
   controlar_pc ... tarea_pc (voz) · hacer_clic, scroll, escribir_texto, presionar_teclas, esperar, listar_ventanas,
                    enfocar_ventana, cerrar_ventana, minimizar_ventana, copiar_texto_de_ventana (agente) · volumen, multimedia
-  archivos ....... buscar_archivos, buscar_en_archivos, leer_archivo, analizar_documento, abrir_archivo
+  archivos ....... buscar_archivos, buscar_en_archivos, leer_archivo, analizar_documento, abrir_archivo, abrir_carpeta, listar_carpeta,
+                   crear_carpeta, mover_archivo, copiar_archivo, renombrar_archivo, organizar_carpeta, deshacer_organizacion,
+                   escribir_archivo, redactar_documento (Word .docx directo, sin teclear)
   casa ........... casa_listar, casa_estado, casa_controlar (Home Assistant)
   notificaciones . leer_notificaciones
   audio_pc ....... escuchar_audio_pc (lo que suena en la PC: video, llamada...)
@@ -18,7 +20,8 @@ Los PERMISOS del asistente de configuración deciden qué tools existen:
   agenda ......... ver_agenda (calendario ICS) · correo_no_leidos, correo_buscar, correo_leer (Gmail IMAP, solo lectura)
                    con la cuenta de Google conectada: también crear/editar/borrar_evento, correo_marcar_leido/archivar/papelera/enviar
 
-Seguridad (a propósito): no hay shell, no se borran ni mueven archivos, no se abren ejecutables/scripts, el texto de la
+Seguridad (a propósito): no hay shell, NUNCA se borran ni sobrescriben archivos (mover/copiar/renombrar/organizar/escribir solo dentro de
+Documentos, Escritorio y Descargas, con registro para deshacer), no se abren ni crean ejecutables/scripts, el texto de la
 pantalla no da órdenes (system prompt). Las acciones normales NO piden OK; las DELICADAS (enviar mensajes, pagar, borrar,
 abrir cocheras) sí, y lo decide la IA (`delicada=true`) MÁS un respaldo propio que mira la ventana activa.
 Cada llamada queda en orbi.log (nombre, argumentos resumidos y resultado) para poder ver qué pasó.
@@ -72,6 +75,8 @@ class ToolContext:
     start_task: Callable[[str], str] = lambda t: "El agente no está disponible."
     cancelled: Callable[[], bool] = lambda: False            # el usuario canceló la tarea en curso
     analyze: Callable[[str, str], str] = lambda texto, instr: "El análisis de documentos no está disponible."
+    write: Callable[[str, str, str], dict] = lambda instr, formato, contexto: {"error": "La redacción de textos largos no está disponible."}
+                                                       # (instrucción, 'documento'|'plano', contexto) -> {texto} | {error}
     before_input: Callable[[], None] = lambda: None          # p. ej. esconder el chat de Orbi antes de escribir
     alarms: object = None                                    # alarmas.Alarmas
     wiz: object = None                                       # wiz.Wiz (luces WiZ por red local)
@@ -80,8 +85,12 @@ class ToolContext:
     locate: Callable[[str], dict] = lambda que: {"error": "Ubicar elementos en la pantalla no está disponible."}   # -> {x, y, etiqueta} (0..1000)
     translate_screen: Callable[[str, str], dict] = lambda idioma, accion: {"error": "El traductor de pantalla no está disponible."}
     listen_pc: Callable[[float, str], dict] = lambda s, i: {"error": "El audio de la PC no está disponible."}
+    reglas: object = None                                    # reglas.Reglas («si pasa X, haz Y»)
     agenda: object = None                                    # agenda.Agenda (calendario ICS + correo IMAP, solo lectura)
     research: Callable[[str], dict] = lambda q: {"error": "La búsqueda en internet no está disponible."}   # -> {...}
+    recall: Callable[[str], list] = lambda q: []               # busca en la memoria larga
+    alarm_tone: Callable[[str], dict] = lambda nombre: {"error": "Los tonos de alarma no están disponibles."}   # "" = listar
+    read_screen: Callable[[str, object], dict] = lambda instr, box: {"error": "Leer la pantalla (OCR) no está disponible."}   # -> {resultado}
     _acciones: list = field(default_factory=list)            # marcas de tiempo (freno de velocidad)
     _clip_cache: str = ""
 
@@ -93,8 +102,52 @@ def _perm(ctx, name: str) -> bool:
     return bool(ctx.get_profile().get("permisos", {}).get(name))
 
 
+MODOS_OK = ("preguntar", "permitir", "auto")
+CRITICAS = ("pago", "pagar", "banco", "transferencia", "permanente", "borrar", "eliminar", "correo", "cochera", "portón", "puerta",
+            "compra", "comprar")                        # lo que «automático» sigue preguntando aunque sea delicado
+SENSIBLES = ("administrador de tareas", "task manager", "regedit", "editor del registro", "powershell", "símbolo del sistema",
+             "cmd.exe", "terminal", "configuración", "settings", "panel de control", "control de cuentas", "seguridad de windows")
+
+
+def _modo_delicadas(ctx) -> str:
+    """«preguntar» (pide OK en cada acción delicada) · «permitir» (todo sin preguntar) · «auto» (solo pregunta lo más grave:
+    pagos, borrado permanente, correos, cocheras). Compatible con el viejo `confirmar_acciones`."""
+    perm = ctx.get_profile().get("permisos", {})
+    m = perm.get("modo_delicadas")
+    if m in MODOS_OK:
+        return m
+    return "preguntar" if perm.get("confirmar_acciones", True) else "permitir"
+
+
+def _modo_normales(ctx) -> str:
+    """Acciones NO delicadas (clics, escribir, teclas normales): «permitir» (por defecto) · «preguntar» (cada una) ·
+    «auto» (solo si la ventana activa es sensible: terminal, registro, configuración...)."""
+    m = ctx.get_profile().get("permisos", {}).get("modo_normales")
+    return m if m in MODOS_OK else "permitir"
+
+
 def _needs_ok(ctx) -> bool:
-    return bool(ctx.get_profile().get("permisos", {}).get("confirmar_acciones", True))
+    return _modo_delicadas(ctx) == "preguntar"
+
+
+def _ok_normal(ctx, detalle: str) -> bool:
+    """OK para una acción NO delicada según el modo elegido en Ajustes."""
+    m = _modo_normales(ctx)
+    if m == "permitir":
+        return True
+    from windows import foreground_title
+    title = foreground_title() or "—"
+    if m == "auto" and not any(w in title.lower() for w in SENSIBLES):
+        return True
+    return ctx.confirm(f"Orbi quiere hacer esto en tu PC:\n\n{detalle}\nVentana: {title}")
+
+
+def _autoriza(ctx, name: str, args: dict, detalle: str, keys=None) -> bool:
+    """Delicada -> modo de delicadas; normal -> modo de normales."""
+    motivo = _delicada(ctx, name, args, keys)
+    if motivo:
+        return _confirm_delicada(ctx, motivo, detalle)
+    return _ok_normal(ctx, detalle)
 
 
 def _brake(ctx):
@@ -140,7 +193,10 @@ def _delicada(ctx, name: str, args: dict, keys=None):
 
 
 def _confirm_delicada(ctx, motivo: str, detalle: str) -> bool:
-    if not _needs_ok(ctx):
+    modo = _modo_delicadas(ctx)
+    if modo == "permitir":
+        return True
+    if modo == "auto" and not any(k in f"{motivo} {detalle}".lower() for k in CRITICAS):
         return True
     from windows import foreground_title
     return ctx.confirm(f"Esto es delicado: Orbi quiere {motivo}.\n\n{detalle}\nVentana: {foreground_title() or '—'}")
@@ -179,6 +235,9 @@ _tool("regla_notificacion", "Guarda una regla PERMANENTE sobre notificaciones de
            modo=S("ignorar | baja | solo_menciones | normal"),
            palabras={"type": "ARRAY", "items": {"type": "STRING"}, "description": "Palabras que cuentan como mención"}),
       ["origen", "modo"])
+_tool("buscar_recuerdos", "Busca en TODA tu memoria (notas, lecciones, resúmenes de conversaciones viejas) por palabras clave. Úsala cuando "
+                          "te pregunten por algo del pasado que no tienes presente, antes de decir que no lo sabes.",
+      dict(consulta=S("Palabras clave, ej. «proyecto de matemáticas»")), ["consulta"])
 _tool("recordar", "Anota un dato duradero sobre el usuario (gustos, rutinas, proyectos) para recordarlo en el futuro. "
                   "No guardes contraseñas ni datos sensibles.", dict(dato=S()), ["dato"])
 _tool("set_emotion", "Cambia la expresión de la bolita para reflejar tu emoción.",
@@ -222,12 +281,36 @@ _tool("poner_recordatorio", "Recordatorio por voz/pantalla (sin sonar). Pasa `ho
       "usa el reloj de la PC y elige la próxima vez que dé esa hora.",
       dict(texto=S("Qué recordar"), hora=S("Hora tal como la dijo el usuario"), minutos=N("Solo si dijo 'en X minutos'"),
            fecha=S("Opcional: 'mañana', un día de la semana o AAAA-MM-DD")), ["texto"])
+_tool("definir_regla", "Guarda una REGLA permanente del dueño («si llega un correo de Classroom con tarea, recuérdame 6 horas antes», "
+      "«avísame un día antes de cualquier recordatorio de tarea», «cuando regrese a la PC recuérdame X», «avísame cuando haya una "
+      "reunión de Meet/Zoom»). cuando=correo: `filtro` = palabras del remitente o asunto (ej. 'classroom'); antes_horas>0 busca la fecha de "
+      "entrega dentro del correo y pone el recordatorio esa cantidad de horas antes (0 = solo avisar que llegó). cuando=recordatorio: "
+      "`filtro` = palabras del texto del recordatorio (ej. 'tarea'; vacío = todos) y antes_horas = anticipación (un día = 24); también se "
+      "aplica a los que ya existen. cuando=sesion_activa: dice `texto` cuando el dueño vuelve a usar la PC. cuando=ventana: `filtro` = "
+      "título o programa de la ventana (Meet, Zoom, Teams…) y dice `texto` cuando aparece. NUNCA inventes datos: si falta la anticipación "
+      "o qué decir, pregúntalo.",
+      dict(cuando={"type": "STRING", "enum": ["correo", "recordatorio", "sesion_activa", "ventana"]},
+           filtro=S("Palabras clave separadas por coma"), antes_horas=N("Horas de anticipación (1 día = 24)"),
+           texto=S("Qué recordar o decir"), una_vez=B("true si solo debe pasar una vez"), nombre=S("Nombre corto opcional")),
+      ["cuando"], scopes=("live",))
+_tool("listar_reglas", "Lista las reglas permanentes que el dueño definió.", scopes=("live",))
+_tool("quitar_regla", "Borra una regla por su id, palabra clave o «todas».", dict(cual=S("id, palabra o 'todas'")), ["cual"], scopes=("live",))
 _tool("poner_alarma", "Pone una ALARMA que suena (Orbi hace de despertador) a la hora dicha. Pasa `hora` tal como la dijo el "
       "usuario (ej. '7:30 am', '6 de la mañana'); no calcules nada tú.",
       dict(hora=S("Hora tal como la dijo el usuario"), texto=S("Etiqueta opcional"),
            fecha=S("Opcional: 'mañana', un día de la semana o AAAA-MM-DD"),
            repetir={"type": "STRING", "enum": ["no", "diaria", "laborales"]}), ["hora"])
+_tool("tono_alarma", "Cambia el SONIDO de las alarmas o lista los tonos disponibles (Campana, Arpegio suave, Marimba, Digital, "
+                     "Amanecer, Jingle alegre, Clásico…). Sin `nombre` solo los lista. Al elegir uno, suena unos segundos de muestra.",
+      dict(nombre=S("Nombre del tono; vacío = listar")), [])
 _tool("listar_alarmas", "Lista las alarmas y recordatorios pendientes.")
+_tool("mini_ventana", "Abre la MINI VENTANA que se despliega junto a ti para mostrarle algo breve a tu dueño mientras se lo dices: "
+      "una lista, un resumen de 3 a 5 líneas, horarios, pasos. Úsala cuando ver el dato ayude más que oírlo; no para charla. "
+      "Se cierra sola (accion='ocultar' la quita ya). Alarmas, timers, tareas, notificaciones y búsquedas ya se muestran solas: "
+      "no las repitas. NUNCA la abras para correcciones de ortografía, errores que notaste en la pantalla ni comentarios sobre lo que el usuario está haciendo: eso se dice con voz y ya.",
+      dict(titulo=S("Título corto"), lineas=S("Las líneas a mostrar, separadas por saltos de línea (máx. 6, cortas)"),
+           segundos=N("Cuánto tiempo mostrarla (por defecto 45)"), icono=S("Un emoji opcional"),
+           accion={"type": "STRING", "enum": ["mostrar", "ocultar"]}), [], scopes=("live",))
 _tool("cancelar_alarma", "Cancela alarmas/recordatorios: por texto, por hora (ej. '07:30'), por id o 'todas'.",
       dict(cual=S("texto, hora, id o 'todas'")), ["cual"])
 _tool("detener_alarma", "Apaga la alarma que está sonando; con posponer_minutos la vuelve a sonar después (ej. 10).",
@@ -245,8 +328,21 @@ _tool("investigar_web", "Busca en internet y te devuelve la respuesta (tú sí l
       dict(consulta=S("Qué buscar, claro y específico, con el nombre y versión de la app si aplica. "
                       "Ej.: «Excel cómo multiplicar dos columnas y fijar una celda con $»")), ["consulta"])
 # --- pantalla
-_tool("ver_pantalla", "Toma una captura de la pantalla principal del usuario y te la muestra. Úsala cuando pregunte "
-                      "qué hay en pantalla o necesites ubicar algo.", perm="ver_pantalla")
+_tool("ver_pantalla", "Toma una captura NUEVA de la pantalla principal del usuario y te la muestra (la marca roja, si hay, es "
+                      "donde cayó el último clic). Úsala cuando pregunte qué hay en pantalla o necesites ubicar algo. "
+                      "Si el texto se ve chico o borroso, NO adivines: usa acercar_pantalla o leer_pantalla.", perm="ver_pantalla")
+_tool("acercar_pantalla", "ZOOM: te muestra una zona de la pantalla a resolución completa y agrandada, para leer texto pequeño "
+                          "o ubicar un botón con precisión (Jira, tablas, menús diminutos). Las coordenadas van de 0 a 1000 "
+                          "sobre la pantalla completa. Sin zona, muestra la pantalla entera en alta resolución.",
+      dict(x1=N("Izquierda 0-1000"), y1=N("Arriba 0-1000"), x2=N("Derecha 0-1000"), y2=N("Abajo 0-1000")),
+      [], perm="ver_pantalla")
+_tool("leer_pantalla", "OCR: LEE el texto de la pantalla (o de una zona) con un modelo de visión y te lo devuelve escrito: botones, "
+                       "menús, tablas, tickets, mensajes de error. Úsala cuando necesites el contenido exacto de una interfaz "
+                       "(Jira, Outlook, un formulario) en vez de leerla a ojo. Opcional: `instruccion` (qué buscar o resumir) "
+                       "y una zona x1,y1,x2,y2 (0-1000).",
+      dict(instruccion=S("Qué quieres saber o extraer. Vacío = transcribe todo lo visible, ordenado por zonas"),
+           x1=N("Izquierda 0-1000"), y1=N("Arriba 0-1000"), x2=N("Derecha 0-1000"), y2=N("Abajo 0-1000")),
+      [], perm="ver_pantalla")
 # --- delegar al agente (voz)
 _tool("tarea_pc", "Delega al AGENTE cualquier tarea en la PC que necesite varios pasos o usar mouse, teclado o ventanas: "
                   "manejar el contenido de una app, escribir en Discord/WhatsApp, cerrar ventanas, etc. NO la uses solo para abrir "
@@ -256,17 +352,26 @@ _tool("tarea_pc", "Delega al AGENTE cualquier tarea en la PC que necesite varios
       scopes=("live",), perm="controlar_pc", flag="agent")
 # --- control (agente)
 _A = ("agent",)
-_tool("hacer_clic", "Hace clic en un punto de la pantalla principal. Primero usa ver_pantalla para ubicar el punto.",
-      dict(x=N(XY), y=N(XY), boton={"type": "STRING", "enum": ["izquierdo", "derecho"]}, doble=B(), **DELICADA),
-      ["x", "y"], scopes=_A, perm="controlar_pc")
+_tool("hacer_clic", "Hace clic en la pantalla principal. LO MÁS PRECISO: pasa `que` (descripción del elemento, ej. «botón azul "
+                    "Crear», «pestaña Backlog», «campo Resumen») y Orbi lo ubica con una captura nueva y un modelo de visión; así "
+                    "no dependes de adivinar coordenadas. Solo usa x,y si ya los tienes de una captura reciente.",
+      dict(que=S("Descripción del elemento donde hacer clic (recomendado). Si lo pasas, se ignoran x e y"),
+           x=N(XY), y=N(XY), boton={"type": "STRING", "enum": ["izquierdo", "derecho"]}, doble=B(), **DELICADA),
+      [], scopes=_A, perm="controlar_pc")
 _tool("scroll", "Desplaza la rueda del mouse. Positivo = arriba, negativo = abajo.", dict(cantidad=I("Entre -20 y 20")),
       ["cantidad"], scopes=_A, perm="controlar_pc")
 _tool("escribir_texto", "Escribe texto donde esté el cursor. Con `ventana` primero cambia a esa ventana (parte del título o "
       "del programa, ej. 'word') y escribe SIN hacer clic: sirve para dictado (Word, Bloc de notas, Docs). Sin `ventana`, "
-      "escribe en la ventana en foco.",
-      dict(texto=S(), ventana=S("Opcional: programa o título de la ventana donde escribir"),
+      "escribe en la ventana en foco. `texto` es EXACTAMENTE lo que quedará escrito (nunca tus ideas, planes ni comentarios). "
+      "Si hay que ESCRIBIR o REDACTAR algo largo o de tu cosecha (ensayo, resumen, carta, tarea, explicación, más de 2 o 3 frases), "
+      "NO lo armes tú por voz: pasa `redactar` con QUÉ hay que escribir (tema, extensión, tono, datos del usuario) y Orbi lo "
+      "redacta completo con otro modelo y lo teclea; así no se corta ni se mezcla con lo que piensas. Usa `texto` solo para "
+      "dictado literal o frases cortas.",
+      dict(texto=S("Texto literal a escribir (dictado o frase corta)"),
+           redactar=S("Alternativa a `texto`: instrucciones de lo que hay que redactar y escribir (tema, extensión, tono)"),
+           ventana=S("Opcional: programa o título de la ventana donde escribir"),
            enter=B("Presionar Enter al final"), nueva_linea=B("Empezar en una línea nueva (Enter antes del texto)"),
-           **DELICADA), ["texto"], scopes=("live", "agent"), perm="controlar_pc")
+           **DELICADA), [], scopes=("live", "agent"), perm="controlar_pc")
 _tool("presionar_teclas", "Presiona una tecla o combinación, por ejemplo 'enter', 'esc', 'ctrl+c', 'alt+tab'.",
       dict(teclas=S(), **DELICADA), ["teclas"], scopes=_A, perm="controlar_pc")
 _tool("esperar", "Espera unos segundos (a que cargue una página o abra una app).", dict(segundos=N("1 a 8")),
@@ -279,7 +384,8 @@ _PASO = {
                                                 "minimizar_ventana", "esperar", "volumen", "multimedia"]},
         nombre=S("abrir_app: nombre de la app"), url=S("abrir_url"), consulta=S("buscar_en_web"),
         app=S("enfocar/cerrar/minimizar_ventana: programa"), titulo=S("enfocar/cerrar/minimizar_ventana: parte del título"),
-        todas=B(), texto=S("escribir_texto"), ventana=S("escribir_texto: ventana donde escribir (sin clics)"),
+        todas=B(), texto=S("escribir_texto"), redactar=S("escribir_texto: instrucciones para redactar un texto largo y escribirlo"),
+        ventana=S("escribir_texto: ventana donde escribir (sin clics)"),
         enter=B("escribir_texto: Enter al final"), nueva_linea=B("escribir_texto: línea nueva antes"),
         teclas=S("presionar_teclas, ej. 'ctrl+u'"), x=N(XY), y=N(XY), boton={"type": "STRING", "enum": ["izquierdo", "derecho"]},
         doble=B(), cantidad=I("scroll"), segundos=N("esperar: 1 a 8"),
@@ -324,9 +430,11 @@ _tool("multimedia", "Controla la música/video que esté sonando.",
 _tool("buscar_archivos", "Busca archivos por NOMBRE en Documentos, Escritorio y Descargas (sin abrirlos). "
                          "Devuelve las rutas, los más recientes primero.", dict(texto=S("Palabras del nombre")),
       ["texto"], perm="archivos")
-_tool("buscar_en_archivos", "Busca por CONTENIDO dentro de tus archivos de texto, código, Word y PowerPoint, y dice en "
-                            "cuáles aparece, con un fragmento. Úsalo cuando no recuerda el nombre del archivo.",
-      dict(texto=S("Palabras que aparecen dentro del archivo")), ["texto"], perm="archivos")
+_tool("buscar_en_archivos", "Busca por CONTENIDO dentro de tus archivos de texto, código, Word, PowerPoint, PDF y Excel, y dice en "
+                            "cuáles aparece (los mejores primero), con la ruta exacta y un fragmento. Úsalo cuando no recuerda el nombre "
+                            "del archivo (ej. un Word llamado «documento5»): describe de qué trata con 3 a 6 palabras clave, no hace falta "
+                            "que sean exactas.",
+      dict(texto=S("Palabras clave de lo que dice el archivo (sin acentos ni plurales exactos)")), ["texto"], perm="archivos")
 _tool("leer_archivo", "Lee el contenido de un archivo (Word, PowerPoint, Excel, PDF, texto o código) SIN abrirlo. "
                       "Devuelve un trozo; si hay 'siguiente_desde', llámala otra vez con ese valor para seguir.",
       dict(ruta=S("Ruta o solo el nombre del archivo (ej. 'reporte final'); no hace falta abrirlo ni verlo en pantalla"),
@@ -345,6 +453,47 @@ _tool("listar_carpeta", "Dice qué hay dentro de una carpeta (archivos y subcarp
 _tool("abrir_archivo", "Abre un archivo con su programa por defecto. Acepta la ruta o solo el nombre (si hay uno claro "
                        "lo abre; si hay varios, te los lista).", dict(ruta=S("Ruta o nombre del archivo")), ["ruta"],
       perm="archivos")
+_tool("crear_carpeta", "Crea una carpeta (y las que falten en la ruta) dentro de Documentos, Escritorio o Descargas, SIN abrir el "
+                       "Explorador ni mirar la pantalla. Ej.: «Documentos/CETI/Prácticas». Si ya existe, lo dice.",
+      dict(carpeta=S("Nombre o ruta de la carpeta, ej. 'Documentos/CETI/Prácticas'")), ["carpeta"], perm="archivos")
+_tool("mover_archivo", "MUEVE un archivo o carpeta a otra carpeta SIN usar el Explorador ni la pantalla (acepta solo el nombre del "
+                       "archivo). Crea la carpeta destino si no existe. Nunca borra ni sobrescribe (si ya existe uno igual le pone «(2)»). "
+                       "Queda registrado: se puede deshacer con deshacer_organizacion.",
+      dict(archivo=S("Nombre o ruta del archivo/carpeta a mover"), carpeta_destino=S("Carpeta destino, ej. 'Documentos/CETI'"),
+           nuevo_nombre=S("Opcional: nombre nuevo al moverlo")), ["archivo", "carpeta_destino"], perm="archivos")
+_tool("copiar_archivo", "COPIA un archivo o carpeta a otra carpeta sin usar la pantalla. No sobrescribe.",
+      dict(archivo=S("Nombre o ruta"), carpeta_destino=S("Carpeta destino"), nuevo_nombre=S("Opcional: nombre de la copia")),
+      ["archivo", "carpeta_destino"], perm="archivos")
+_tool("renombrar_archivo", "Cambia el NOMBRE de un archivo o carpeta sin usar la pantalla (conserva la extensión si no la pones).",
+      dict(archivo=S("Nombre o ruta actual"), nuevo_nombre=S("Nombre nuevo")), ["archivo", "nuevo_nombre"], perm="archivos")
+_tool("organizar_carpeta", "ORGANIZA una carpeta (Descargas, Escritorio, una carpeta tuya) metiendo sus archivos sueltos en subcarpetas "
+                           "SIN abrir nada ni mirar la pantalla. criterio: 'tipo' (Documentos, Imágenes, Videos, Música, Comprimidos, "
+                           "Programas, Código, Hojas de cálculo, Presentaciones, Otros), 'fecha' (año/mes) o 'inicial' (letra del nombre). "
+                           "No toca las subcarpetas ni borra nada, y todo se puede deshacer con deshacer_organizacion. Con "
+                           "vista_previa=true solo cuenta qué haría. Si el usuario quiere un orden propio (por materia, por proyecto), "
+                           "usa mover_archivo archivo por archivo con las carpetas que él diga (primero listar_carpeta).",
+      dict(carpeta=S("Carpeta a organizar, ej. 'Descargas'"), criterio=S("tipo (por defecto) | fecha | inicial"),
+           solo_tipos={"type": "ARRAY", "items": {"type": "STRING"}, "description": "Opcional: solo estas extensiones, ej. ['pdf','docx']"},
+           vista_previa=B("true = solo mostrar el plan sin mover nada")), ["carpeta"], perm="archivos")
+_tool("deshacer_organizacion", "Deshace el último lote de movimientos o renombres que hizo Orbi (mover, renombrar, organizar): "
+                               "regresa los archivos a donde estaban.", perm="archivos")
+_tool("escribir_archivo", "Crea un archivo de TEXTO (.txt, .md, .csv, .json...) con el contenido exacto que le pases, o agrega al final de "
+                          "uno existente (agregar=true), sin abrir ningún programa. Nunca sobrescribe. Para Word usa redactar_documento.",
+      dict(ruta=S("Nombre o ruta, ej. 'notas.txt' o 'Documentos/CETI/lista.md'"), contenido=S("Texto completo del archivo"),
+           agregar=B("true = agregar al final de un archivo que ya existe")), ["ruta", "contenido"], perm="archivos")
+_tool("redactar_documento", "CREA un documento de WORD (.docx) completo y lo guarda, SIN abrir Word ni teclear nada (es instantáneo y no "
+                            "se corta). Úsala SIEMPRE que pidan hacer/escribir/redactar un documento, tarea, ensayo, resumen, carta, "
+                            "reporte, informe o similar. Pasa `instrucciones` con TODO lo que pidió el usuario (tema, extensión, tono, "
+                            "puntos, datos, formato, nombre del archivo); otro modelo lo redacta completo, con títulos y listas. Solo si "
+                            "el usuario te dictó el texto exacto, pásalo en `contenido` y se guarda tal cual. `agregar_a` añade al "
+                            "final de un .docx existente que NO esté abierto. Si el documento ya está abierto en Word y hay que "
+                            "escribir ahí, usa escribir_texto con `redactar`.",
+      dict(archivo=S("Nombre del archivo, ej. 'Tarea de probabilidad' (va a Documentos) o 'Documentos/CETI/ensayo'"),
+           instrucciones=S("Qué debe decir el documento: tema, extensión, tono, secciones, datos del usuario"),
+           contenido=S("Opcional: texto exacto ya dictado, en vez de redactarlo"),
+           agregar_a=S("Opcional: nombre/ruta de un .docx existente al que añadir el texto en lugar de crear uno nuevo"),
+           abrir=B("true = abrirlo en Word al terminar")),
+      ["archivo"], perm="archivos")
 # --- casa
 _tool("casa_listar", "Lista tus dispositivos de casa inteligente (luces, enchufes, ventiladores, persianas, escenas...).",
       dict(dominio={"type": "STRING", "enum": ["light", "switch", "fan", "cover", "scene", "climate"]}),
@@ -447,6 +596,14 @@ def _google_tool(name: str, args: dict, ctx, g) -> dict:
 
 
 LIVE_TODO = False          # modo prueba: la voz (Live) hace TODO ella sola (mouse, teclado, ventanas) sin delegar a `tarea_pc`
+
+
+_tool("recursos", "Dice cuánto CPU y RAM usa la PC ahora y qué procesos consumen más. Úsala si el dueño dice que la compu va lenta "
+                  "o pregunta qué está gastando recursos.", scopes=("live", "agent"))
+_tool("proceso_control", "Cierra un proceso o le baja la prioridad para aligerar la PC (por nombre, ej. 'chrome', 'onedrive'). "
+                         "SIEMPRE pide el OK del dueño; no toca procesos del sistema.",
+      dict(accion={"type": "STRING", "enum": ["cerrar", "bajar_prioridad"]}, nombre=S("Nombre del proceso (de la lista de `recursos`)")),
+      ["accion", "nombre"], scopes=("live", "agent"))
 
 
 def build_tools(profile: dict, scope: str = "live", flags=()) -> list:
@@ -572,6 +729,20 @@ _SLOW_ACTIONS = {"abrir_app", "abrir_url", "ejecutar_plan"}      # tardan en car
 _last_gui = {"key": None}
 
 
+def _zona(args: dict):
+    """x1,y1,x2,y2 (0..1000) -> [ymin, xmin, ymax, xmax]; None si no hay zona; False si es inválida."""
+    vals = [args.get(k) for k in ("x1", "y1", "x2", "y2")]
+    if all(v in (None, "") for v in vals):
+        return None
+    try:
+        x1, y1, x2, y2 = (float(v) for v in vals)
+    except (TypeError, ValueError):
+        return False
+    if not all(0 <= v <= 1000 for v in (x1, y1, x2, y2)) or abs(x2 - x1) < 5 or abs(y2 - y1) < 5:
+        return False
+    return [min(y1, y2), min(x1, x2), max(y1, y2), max(x1, x2)]
+
+
 def run_tool(name: str, args: dict, ctx: ToolContext) -> dict:
     t0 = time.time()
     gui = LIVE_TODO and name in _GUI_ACTIONS
@@ -592,8 +763,9 @@ def run_tool(name: str, args: dict, ctx: ToolContext) -> dict:
             try:
                 time.sleep(1.5 if name in _SLOW_ACTIONS else 0.7)        # deja que la ventana reaccione
                 from screen import capture
-                res["_image"] = capture()[0]
-                res["captura"] = "Te mandé una captura nueva de cómo quedó la pantalla: mírala antes del siguiente paso."
+                res["_image"] = capture(mark=True)[0]
+                res["captura"] = ("Te mandé una captura nueva de cómo quedó la pantalla (el círculo rojo, si sale, es donde hice clic): "
+                                  "mírala antes del siguiente paso.")
             except Exception as e:                          # noqa: BLE001
                 res["aviso_captura"] = f"No pude tomar la captura ({type(e).__name__}); usa ver_pantalla."
     _log(name, args, res, time.time() - t0)
@@ -665,6 +837,9 @@ def _run(name: str, args: dict, ctx: ToolContext) -> dict:
     if name == "regla_notificacion":
         o = ctx.set_rule(str(args.get("origen", "")), str(args.get("modo", "")), list(args.get("palabras") or []))
         return {"resultado": f"Listo, regla guardada para «{o}»."} if o else {"error": "Dime el origen y un modo válido (ignorar, baja, solo_menciones, normal)."}
+    if name == "buscar_recuerdos":
+        res = ctx.recall(str(args.get("consulta", "")))
+        return {"resultado": "\n".join(f"- {r}" for r in res)} if res else {"resultado": "No encontré nada sobre eso en mi memoria."}
     if name == "recordar":
         return {"resultado": "Anotado."} if ctx.remember(str(args.get("dato", ""))) else {"error": "No pude anotarlo."}
     if name in ("poner_recordatorio", "poner_alarma"):
@@ -682,6 +857,56 @@ def _run(name: str, args: dict, ctx: ToolContext) -> dict:
         w = datetime.fromisoformat(it["when"])
         cuando = f"{_DIAS[w.weekday()]} {w.day} a las {w:%H:%M}" if w.date() != datetime.now().date() else f"hoy a las {w:%H:%M}"
         return {"resultado": f"Listo: {kind} «{it['texto']}» {cuando}" + (f" (se repite: {it['repetir']})" if it["repetir"] != "no" else "")}
+    if name in ("definir_regla", "listar_reglas", "quitar_regla"):
+        if ctx.reglas is None:
+            return {"error": "Las reglas no están disponibles."}
+        if name == "listar_reglas":
+            lst = ctx.reglas.listing()
+            return {"resultado": [ctx.reglas.describe(r) for r in lst] or "No hay reglas definidas."}
+        if name == "quitar_regla":
+            n = ctx.reglas.remove(str(args.get("cual", "")))
+            return {"resultado": f"Quité {n} regla(s)."} if n else {"error": "No encontré ninguna regla que coincida."}
+        if str(args.get("cuando", "")) == "correo" and not (ctx.get_profile().get("permisos") or {}).get("agenda"):
+            return {"error": "Para vigilar el correo hay que activar el permiso «agenda» en Configurar a Orbi."}
+        r, err = ctx.reglas.add(str(args.get("cuando", "")), str(args.get("filtro", "")), args.get("antes_horas") or 0,
+                                str(args.get("texto", "")), bool(args.get("una_vez")), str(args.get("nombre", "")))
+        return {"resultado": "Regla guardada: " + ctx.reglas.describe(r)} if r else {"error": err}
+    if name == "mini_ventana":
+        accion = str(args.get("accion", "mostrar") or "mostrar").lower()
+        if accion.startswith(("ocult", "cerr")):
+            ctx.emit("panel_mostrar", dict(accion="ocultar"))
+            return {"resultado": "Mini ventana cerrada."}
+        titulo, lineas = str(args.get("titulo", "") or "").strip()[:60], str(args.get("lineas", "") or "").strip()
+        if not titulo and not lineas:
+            return {"error": "Dime qué mostrar (un título y las líneas)."}
+        try:
+            seg = float(args.get("segundos") or 45)
+        except (TypeError, ValueError):
+            seg = 45.0
+        ctx.emit("panel_mostrar", dict(accion="mostrar", titulo=titulo or "Orbi", lineas=lineas, segundos=seg,
+                                       icono=str(args.get("icono", "") or "📌")[:4]))
+        return {"resultado": "Listo: lo puse en la mini ventana, junto a mí."}
+    if name == "recursos":
+        try:
+            import recursos
+            e = recursos.estado(5)
+        except ImportError:
+            return {"error": "Falta instalar psutil (pip install psutil)."}
+        return {"resultado": recursos.resumen(e), "detalle": e}
+    if name == "proceso_control":
+        import recursos
+        nombre, acc = str(args.get("nombre", "")).strip(), str(args.get("accion", "")).strip()
+        if not nombre or acc not in ("cerrar", "bajar_prioridad"):
+            return {"error": "Dime qué proceso y si lo cierro o le bajo la prioridad."}
+        procs, err = recursos.validar(nombre)
+        if err:
+            return {"error": err}
+        if not ctx.confirm(f"Orbi quiere {'CERRAR' if acc == 'cerrar' else 'bajar la prioridad de'} «{procs[0].info['name']}» "
+                           f"({len(procs)} proceso/s). Lo que no hayas guardado ahí se pierde."):
+            return {"error": "El dueño no lo autorizó."}
+        return recursos.cerrar(nombre) if acc == "cerrar" else recursos.bajar_prioridad(nombre)
+    if name == "tono_alarma":
+        return ctx.alarm_tone(str(args.get("nombre", "") or "").strip())
     if name == "listar_alarmas":
         lst = ctx.alarms.listing() if ctx.alarms else []
         return {"resultado": [f"[{i['id']}] {i['kind']} {i['when'][:16].replace('T', ' ')} — {i['texto']}"
@@ -744,8 +969,22 @@ def _run(name: str, args: dict, ctx: ToolContext) -> dict:
     # ---------------- pantalla / agente
     if name == "ver_pantalla":
         from screen import capture
-        jpeg, _mon = capture()
-        return {"resultado": "Captura de la pantalla principal enviada; ya puedes verla.", "_image": jpeg}
+        jpeg, _mon = capture(mark=True)
+        return {"resultado": "Captura NUEVA (recién tomada) de la pantalla principal enviada; ya puedes verla. "
+                             "Si ves un círculo rojo con cruz, ahí cayó el último clic.", "_image": jpeg}
+    if name in ("acercar_pantalla", "leer_pantalla"):
+        box = _zona(args)
+        if box is False:
+            return {"error": "La zona debe ser x1,y1,x2,y2 entre 0 y 1000 (o no pases zona)."}
+        if name == "leer_pantalla":
+            return ctx.read_screen(str(args.get("instruccion", "") or "")[:300], box)
+        from screen import capture, capture_region
+        if box is None:
+            jpeg, _mon = capture(max_side=2000, quality=85, mark=True)
+            return {"resultado": "Pantalla completa en alta resolución.", "_image": jpeg}
+        jpeg, _mon, _px = capture_region(box)
+        return {"resultado": "Zoom de esa zona a resolución completa (la imagen es SOLO ese recorte, no la pantalla entera).",
+                "_image": jpeg}
     if name == "tarea_pc":
         t = str(args.get("tarea", "")).strip()
         if not t:
@@ -839,7 +1078,7 @@ def _plan_image(ctx):
         if not (ctx.get_profile().get("permisos") or {}).get("ver_pantalla"):
             return None
         from screen import capture
-        return capture(max_side=1024, quality=60)[0]
+        return capture(max_side=1024, quality=60, mark=True)[0]
     except Exception:                                   # noqa: BLE001
         return None
 
@@ -1019,7 +1258,18 @@ def _control(name: str, args: dict, ctx: ToolContext) -> dict:
 
     if name == "hacer_clic":
         from screen import primary_monitor
-        x, y = float(args["x"]), float(args["y"])
+        etiqueta = ""
+        que = str(args.get("que", "") or "").strip()
+        if que:                                             # ubicación precisa: captura NUEVA + modelo de visión
+            found = ctx.locate(que)
+            if "error" in found:
+                return {"error": found["error"] + " Prueba con acercar_pantalla o describe el elemento de otra forma."}
+            x, y, etiqueta = float(found["x"]), float(found["y"]), found.get("etiqueta", "")
+        else:
+            try:
+                x, y = float(args["x"]), float(args["y"])
+            except (KeyError, TypeError, ValueError):
+                return {"error": "Pasa `que` (qué elemento) o las coordenadas x e y."}
         if not (0 <= x <= 1000 and 0 <= y <= 1000):
             return {"error": "x e y deben estar entre 0 y 1000"}
         mon = primary_monitor()
@@ -1027,21 +1277,35 @@ def _control(name: str, args: dict, ctx: ToolContext) -> dict:
         py = mon["top"] + round(y / 1000 * (mon["height"] - 1))
         boton = "right" if args.get("boton") == "derecho" else "left"
         doble = bool(args.get("doble"))
-        motivo = _delicada(ctx, "hacer_clic", args)
-        if motivo and not _confirm_delicada(ctx, motivo, f"Clic en ({px}, {py})."):
+        if not _autoriza(ctx, "hacer_clic", args, f"Clic en ({px}, {py})" + (f" sobre «{etiqueta}»" if etiqueta else "") + "."):
             return {"error": "El usuario NO autorizó esta acción. No la intentes de otra forma; avísale."}
         if MOUSE_GLIDE_S > 0:
             pg.moveTo(px, py, duration=MOUSE_GLIDE_S)           # que se vea cómo el cursor va al sitio
         pg.click(px, py, button=boton, clicks=2 if doble else 1, interval=0.08)
-        return {"resultado": f"Clic en ({px}, {py}).", "ventana_activa": _fg_title()}
+        try:
+            from screen import note_click
+            note_click(px, py)                              # las siguientes capturas dibujan dónde cayó
+        except Exception:                                   # noqa: BLE001
+            pass
+        return {"resultado": f"Clic en ({px}, {py})" + (f" sobre «{etiqueta}»." if etiqueta else "."), "ventana_activa": _fg_title()}
 
     if name == "escribir_texto":
-        texto = str(args.get("texto", ""))[:2000]
-        if not texto:
-            return {"error": "falta el texto"}
+        texto = str(args.get("texto", "") or "")
+        redactar = str(args.get("redactar", "") or "").strip()
+        nota_largo = ""
+        if redactar and not texto.strip():
+            # texto largo o «de tu cosecha»: lo redacta un modelo de texto (sin tope de la voz y sin mezclar tus pensamientos)
+            r = ctx.write(redactar, "plano", "")
+            if r.get("error"):
+                return {"error": r["error"]}
+            texto = _plano(r.get("texto", ""))
+        if len(texto) > MAX_ESCRIBIR:
+            nota_largo = f" (el texto tenía {len(texto)} caracteres y solo escribí los primeros {MAX_ESCRIBIR}; avísale al usuario)"
+            texto = texto[:MAX_ESCRIBIR]
+        if not texto.strip():
+            return {"error": "falta el texto: pasa `texto` (dictado literal) o `redactar` (qué hay que redactar)"}
         preview = texto if len(texto) <= 120 else texto[:120] + "…"
-        motivo = _delicada(ctx, "escribir_texto", args)
-        if motivo and not _confirm_delicada(ctx, motivo, f"Texto: «{preview}»" + (" + Enter" if args.get("enter") else "")):
+        if not _autoriza(ctx, "escribir_texto", args, f"Texto: «{preview}»" + (" + Enter" if args.get("enter") else "")):
             return {"error": "El usuario NO autorizó esta acción. No la intentes de otra forma; avísale."}
         from windows import foreground_info
         focused = None
@@ -1075,7 +1339,10 @@ def _control(name: str, args: dict, ctx: ToolContext) -> dict:
         if args.get("enter"):
             pg.press("enter")
         out = {"resultado": f"Escribí {len(texto)} caracteres en «{fg or 'la ventana activa'}»."
-                            + (" (y Enter)" if args.get("enter") else ""), "ventana_activa": fg}
+                            + (" (y Enter)" if args.get("enter") else "") + nota_largo, "ventana_activa": fg}
+        if redactar:
+            out["empieza_con"] = texto[:160]
+            out["indicacion"] = "Ya quedó escrito completo. No lo repitas en voz alta ni lo vuelvas a escribir; di solo «listo»."
         if focused is False:
             out["aviso"] = f"La ventana «{args['ventana']}» no llegó a quedar al frente; revisa dónde se escribió."
         elif focused and not args.get("enter"):
@@ -1093,8 +1360,7 @@ def _control(name: str, args: dict, ctx: ToolContext) -> dict:
             return {"error": "Alguna tecla no existe."}
         if any(set(keys) >= b for b in BLOCKED_COMBOS):
             return {"error": "Esa combinación está bloqueada por seguridad."}
-        motivo = _delicada(ctx, "presionar_teclas", args, keys)
-        if motivo and not _confirm_delicada(ctx, motivo, "Teclas: " + "+".join(keys)):
+        if not _autoriza(ctx, "presionar_teclas", args, "Teclas: " + "+".join(keys), keys):
             return {"error": "El usuario NO autorizó esta acción. No la intentes de otra forma; avísale."}
         *mods, last = keys
         if mods and all(m in MODS for m in mods):
@@ -1117,6 +1383,22 @@ def _control(name: str, args: dict, ctx: ToolContext) -> dict:
 
 
 # --------------------------------------------------------------------------- archivos
+MAX_ESCRIBIR = 20000        # tope de caracteres por escribir_texto (antes 2000, y recortaba en silencio)
+
+
+def _plano(md: str) -> str:
+    """Markdown -> texto plano para teclearlo en una app (Word no interpreta ** ni #): sin símbolos, viñetas con •."""
+    out = []
+    for ln in str(md or "").replace("\r\n", "\n").split("\n"):
+        ln = re.sub(r"^\s*#{1,6}\s+", "", ln)
+        ln = re.sub(r"^\s*[-*]\s+", "• ", ln)
+        ln = re.sub(r"\*\*([^*]+)\*\*", r"\1", ln)
+        ln = re.sub(r"(?<!\*)\*([^*\n]+)\*(?!\*)", r"\1", ln)
+        ln = ln.replace("`", "")
+        out.append(ln.rstrip())
+    return re.sub(r"\n{3,}", "\n\n", "\n".join(out)).strip()
+
+
 def _resolve_file(ref: str):
     """Ruta dentro de las carpetas permitidas a partir de una ruta o un nombre. -> (Path|None, candidatos)."""
     ref = (ref or "").strip().strip('"')
@@ -1147,10 +1429,20 @@ def _files(name: str, args: dict, ctx: ToolContext) -> dict:
         if len(texto) < 3:
             return {"error": "Dame al menos 3 letras."}
         hits = DR.search_content(texto)
+        info = dict(DR.LAST_INFO)
+        notas = []
+        if info.get("faltan"):
+            notas.append("No pude revisar " + " ni ".join("los PDF" if x == "pypdf" else "los Excel" for x in info["faltan"])
+                         + f": falta instalar {' y '.join(info['faltan'])} (pip install {' '.join(info['faltan'])}).")
+        if info.get("pendientes"):
+            notas.append(f"Todavía me faltan {info['pendientes']} archivos por revisar (empecé por los más recientes); si no es "
+                         "este, vuelve a pedirme la búsqueda y sigo donde me quedé.")
+        if info.get("escaneados"):
+            notas.append(f"{info['escaneados']} PDF son escaneos (imagen sin texto) y no se pueden buscar por contenido.")
         if not hits:
-            return {"resultado": "No encontré eso dentro de tus archivos de texto/Word/PowerPoint "
-                                 "(los PDF y Excel no se buscan por contenido, solo por nombre)."}
-        return {"resultado": [{"ruta": str(f), "fragmento": frag} for f, frag in hits]}
+            return {"resultado": "No encontré nada parecido dentro de tus archivos.", "notas": notas}
+        return {"resultado": [{"ruta": str(f), "fragmento": frag} for f, frag in hits], "notas": notas,
+                "indicacion": "Dile al dueño la ruta exacta del mejor candidato y pregúntale si lo abres (`abrir_archivo` con esa ruta)."}
 
     if name in ("abrir_carpeta", "listar_carpeta"):
         d, cands = DR.resolve_dir(str(args.get("carpeta", "")))
@@ -1207,7 +1499,63 @@ def _files(name: str, args: dict, ctx: ToolContext) -> dict:
         except DR.ReadError as e:
             return {"error": str(e)}
         res = ctx.analyze(text, instr)
-        return {"resultado": res[:3000], "archivo": p.name, "tipo": kind, "caracteres_leidos": len(text)}
+        return {"resultado": res[:12000], "archivo": p.name, "tipo": kind, "caracteres_leidos": len(text)}
+
+    import archivos_ops as AO
+    if name == "crear_carpeta":
+        return AO.crear_carpeta(str(args.get("carpeta", "")))
+    if name == "mover_archivo":
+        return AO.mover(str(args.get("archivo", "")), str(args.get("carpeta_destino", "")), str(args.get("nuevo_nombre", "") or ""))
+    if name == "copiar_archivo":
+        return AO.copiar(str(args.get("archivo", "")), str(args.get("carpeta_destino", "")), str(args.get("nuevo_nombre", "") or ""))
+    if name == "renombrar_archivo":
+        return AO.renombrar(str(args.get("archivo", "")), str(args.get("nuevo_nombre", "")))
+    if name == "deshacer_organizacion":
+        return AO.deshacer()
+    if name == "organizar_carpeta":
+        try:
+            d, plan, saltados = AO.plan_organizar(str(args.get("carpeta", "")), str(args.get("criterio", "") or "tipo"),
+                                                  args.get("solo_tipos") or None)
+        except AO.OpError as e:
+            return {"error": str(e)}
+        if not plan:
+            return {"resultado": f"No hay archivos sueltos que organizar en «{d.name}»." , "saltados": saltados[:6]}
+        vista = args.get("vista_previa") is True or str(args.get("vista_previa", "")).lower() in ("true", "1", "si", "sí")
+        if vista:
+            return {"resultado": f"Plan para «{d.name}» ({len(plan)} archivos, todavía no moví nada):", "plan": AO.resumen_plan(plan),
+                    "saltados": saltados[:6]}
+        if len(plan) > 25 and not _confirm_delicada(ctx, f"mover {len(plan)} archivos de «{d.name}» a subcarpetas",
+                                                    "\n".join(AO.resumen_plan(plan)[:8]) + "\n(se puede deshacer)"):
+            return {"error": "El usuario NO autorizó organizar la carpeta."}
+        res = AO.aplicar_plan(d, plan, f"organizar {d.name} por {args.get('criterio') or 'tipo'}")
+        res["plan"] = AO.resumen_plan(plan)
+        if saltados:
+            res["saltados"] = saltados[:6]
+        return res
+    if name == "escribir_archivo":
+        return AO.escribir_archivo(str(args.get("ruta", "")), str(args.get("contenido", "")),
+                                   args.get("agregar") is True or str(args.get("agregar", "")).lower() in ("true", "1", "si", "sí"))
+    if name == "redactar_documento":
+        contenido = str(args.get("contenido", "") or "").strip()
+        instr = str(args.get("instrucciones", "") or "").strip()
+        if not contenido:
+            if not instr:
+                return {"error": "Dime de qué trata el documento (`instrucciones`) o pásame el texto exacto en `contenido`."}
+            r = ctx.write(instr, "documento", "")
+            if r.get("error"):
+                return {"error": r["error"]}
+            contenido = r.get("texto", "")
+        agregar_a = str(args.get("agregar_a", "") or "").strip()
+        res = AO.escribir_docx(agregar_a or str(args.get("archivo", "")), contenido, agregar=bool(agregar_a))
+        if "error" in res:
+            return res
+        res["palabras"] = len(contenido.split())
+        res["empieza_con"] = contenido.strip().splitlines()[0][:120] if contenido.strip() else ""
+        if args.get("abrir") is True:
+            _launch(res["ruta"])
+            res["resultado"] += " Lo abrí en Word."
+        res["indicacion"] = "Dile al usuario dónde quedó y de qué trata en una frase; no leas el documento en voz alta."
+        return res
 
     if name == "abrir_archivo":
         p, cands = _resolve_file(str(args.get("ruta", "")))

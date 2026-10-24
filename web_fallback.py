@@ -44,3 +44,31 @@ def ddg_search(consulta: str, timeout: float = 5.0, n: int = 5) -> list:
     with urllib.request.urlopen(req, timeout=timeout) as r:
         page = r.read(600_000).decode("utf-8", "replace")
     return parse_ddg_html(page, n)
+
+
+def wiki_card(consulta: str, timeout: float = 6.0):
+    """(titulo, extracto, bytes_imagen|None) del artículo de Wikipedia que mejor responde a la consulta; None si no hay.
+    Es lo que le pone imagen al resumen de la mini ventana (sin API key)."""
+    import json
+    q = urllib.parse.urlencode({
+        "action": "query", "format": "json", "generator": "search", "gsrsearch": consulta, "gsrlimit": 1,
+        "prop": "pageimages|extracts", "piprop": "thumbnail", "pithumbsize": 320, "exintro": 1, "explaintext": 1, "exsentences": 3})
+    for lang in ("es", "en"):
+        try:
+            req = urllib.request.Request(f"https://{lang}.wikipedia.org/w/api.php?{q}", headers={"User-Agent": UA})
+            with urllib.request.urlopen(req, timeout=timeout) as r:
+                data = json.loads(r.read(400_000).decode("utf-8", "replace"))
+            pages = list((data.get("query") or {}).get("pages", {}).values())
+            if not pages:
+                continue
+            pg = pages[0]
+            img = None
+            url = (pg.get("thumbnail") or {}).get("source")
+            if url:
+                with urllib.request.urlopen(urllib.request.Request(url, headers={"User-Agent": UA}), timeout=timeout) as r:
+                    img = r.read(900_000)
+            return pg.get("title", ""), " ".join((pg.get("extract") or "").split())[:400], img
+        except Exception:                                   # noqa: BLE001
+            continue
+    return None
+

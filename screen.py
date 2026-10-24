@@ -9,20 +9,84 @@ MAX_SIDE = 1280      # lado más largo del JPEG que se manda (menos tokens, más
 QUALITY = 65
 
 
-def capture(max_side: int = MAX_SIDE, quality: int = QUALITY):
+_click = {"t": 0.0, "x": 0, "y": 0}      # último clic de Orbi (píxeles de pantalla) para dibujarlo en las capturas
+MARK_TTL_S = 25.0                          # cuánto tiempo se sigue dibujando la marca del último clic
+last_capture_t = 0.0                       # instante (time.time()) de la última captura tomada
+
+
+def note_click(px: int, py: int) -> None:
+    """pc_tools lo llama al hacer clic: la próxima captura (con mark=True) dibuja dónde cayó."""
+    _click.update(t=time.time(), x=int(px), y=int(py))
+
+
+def _draw_click_mark(img, mon, sx: float, sy: float):
+    """Anillo rojo con borde blanco + cruz en el último clic, para que la IA vea DÓNDE cayó (y si fue donde quería)."""
+    if time.time() - _click["t"] > MARK_TTL_S:
+        return img
+    from PIL import ImageDraw
+    cx, cy = (_click["x"] - mon["left"]) * sx, (_click["y"] - mon["top"]) * sy
+    if not (0 <= cx < img.width and 0 <= cy < img.height):
+        return img
+    d = ImageDraw.Draw(img)
+    r = max(10, round(min(img.size) / 60))
+    for rad, col, w in ((r + 2, (255, 255, 255), 2), (r, (255, 40, 40), 3)):
+        d.ellipse([cx - rad, cy - rad, cx + rad, cy + rad], outline=col, width=w)
+    d.line([cx - r * 1.8, cy, cx + r * 1.8, cy], fill=(255, 40, 40), width=2)
+    d.line([cx, cy - r * 1.8, cx, cy + r * 1.8], fill=(255, 40, 40), width=2)
+    return img
+
+
+def _grab_full():
     import mss
     from PIL import Image
-
     with mss.mss() as sct:                       # se crea en cada llamada: seguro desde cualquier hilo
         mon = dict(sct.monitors[1])              # monitor principal
         shot = sct.grab(mon)
         img = Image.frombytes("RGB", shot.size, shot.bgra, "raw", "BGRX")
+    return img, mon
+
+
+def capture(max_side: int = MAX_SIDE, quality: int = QUALITY, mark: bool = False):
+    """Captura NUEVA de la pantalla completa. `mark=True` dibuja el último clic de Orbi (círculo rojo)."""
+    global last_capture_t
+    from PIL import Image
+    img, mon = _grab_full()
+    last_capture_t = time.time()
     scale = min(1.0, max_side / max(img.size))
     if scale < 1.0:
         img = img.resize((round(img.width * scale), round(img.height * scale)), Image.LANCZOS)
+    if mark:
+        img = _draw_click_mark(img, mon, img.width / mon["width"], img.height / mon["height"])
     buf = io.BytesIO()
     img.save(buf, "JPEG", quality=quality)
     return buf.getvalue(), mon
+
+
+def capture_region(box, max_side: int = 1600, quality: int = 88, mark: bool = True):
+    """Zoom: recorta una zona de la pantalla a resolución COMPLETA (y la agranda si es chica) para leer texto pequeño.
+
+    `box` = [ymin, xmin, ymax, xmax] en 0..1000 sobre la pantalla completa. Devuelve (jpeg, mon, box_px).
+    """
+    global last_capture_t
+    from PIL import Image
+    img, mon = _grab_full()
+    last_capture_t = time.time()
+    ymin, xmin, ymax, xmax = (max(0.0, min(1000.0, float(v))) for v in box)
+    ymin, ymax = sorted((ymin, ymax))
+    xmin, xmax = sorted((xmin, xmax))
+    W, H = img.size
+    l, t, r, b = round(xmin / 1000 * W), round(ymin / 1000 * H), round(xmax / 1000 * W), round(ymax / 1000 * H)
+    if r - l < 40 or b - t < 40:                 # zona diminuta: ábrela un poco para que tenga contexto
+        l, t, r, b = max(0, l - 40), max(0, t - 40), min(W, r + 40), min(H, b + 40)
+    if mark:
+        img = _draw_click_mark(img, mon, W / mon["width"], H / mon["height"])
+    crop = img.crop((l, t, r, b))
+    f = min(max_side / max(crop.size), 3.0)      # agranda hasta 3x (texto chico), o reduce si es enorme
+    if abs(f - 1.0) > 0.05:
+        crop = crop.resize((max(1, round(crop.width * f)), max(1, round(crop.height * f))), Image.LANCZOS)
+    buf = io.BytesIO()
+    crop.save(buf, "JPEG", quality=quality)
+    return buf.getvalue(), mon, (l, t, r, b)
 
 
 def primary_monitor() -> dict:

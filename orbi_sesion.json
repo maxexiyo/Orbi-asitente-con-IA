@@ -1,60 +1,44 @@
 {
- "fecha": "2026-10-22T20:30",
+ "fecha": "2026-10-23T23:45",
  "turnos": [
   {
-   "tu": "¿Me abres esta puerta?",
-   "orbi": "No tengo acceso a herramientas para controlar puertas o dispositivos más allá de las luces WiZ y las alarmas."
+   "tu": "जी",
+   "orbi": "Listo, ya tienes el archivo actualizado con las correcciones necesarias para evitar errores."
   },
   {
-   "tu": "¿Qué hago con",
-   "orbi": "required -->"
+   "tu": "gastarles",
+   "orbi": "​"
   },
   {
-   "tu": "tous les quatre",
-   "orbi": "---"
+   "tu": "chinga, ¿dónde está la puta carpeta?",
+   "orbi": "No encuentro una carpeta de capturas de pantalla en las ubicaciones principales de tu equipo para poder moverlas."
   },
   {
-   "tu": "intensa campaña de último minuto y una alta participación",
-   "orbi": "---"
+   "tu": "takip",
+   "orbi": "¡Ya veo! Esas capturas están guardadas en la carpeta de Screenshots, dentro de la ruta de tus Emulated Gamepads. ¿Quieres que mueva esas tres imágenes recientes a tu carpeta de Descargas?"
   },
   {
-   "tu": "Muchas gracias por sintonizaros. Amigos, ahora seguimos con la mejor música para acompañar su día.",
-   "orbi": "---"
+   "tu": "hermano",
+   "orbi": "Chequé en el navegador y el nombre correcto es Laragon, sin esa g que mencionabas, max."
   },
   {
-   "tu": "un mensaje",
-   "orbi": "---"
+   "tu": "espera, güey",
+   "orbi": "No hay problema, aquí sigo esperando."
   },
   {
-   "tu": "A ver quién me manda el mensaje.",
-   "orbi": "No me aparecen notificaciones recientes de esa aplicación en este momento, Max."
+   "tu": "¿Puedes liberar RAM sin cerrar Chrome en la música?",
+   "orbi": "Claro, max. Veo que Microsoft Edge está usando más de un gigabyte de RAM, ¿te gustaría que lo cerrara para liberar memoria?"
   },
   {
-   "tu": "quien dañe su distancia",
-   "orbi": "A pesar del aviso anterior, acabo de revisar y no hay mensajes de Instagram pendientes."
+   "tu": "porfa, que ya no estoy usando Claudia ahorita.",
+   "orbi": "Listo, acabo de cerrar Microsoft Edge, así que ya deberías tener más memoria disponible."
   },
   {
-   "tu": "Bueno, gracias.",
-   "orbi": "De nada, Max. Aquí sigo por si ocupas algo más. ---"
+   "tu": "Arruíname dejaste, no me avisaste que",
+   "orbi": "Revisé y no recibí ninguna notificación reciente sobre ese mensaje de David."
   },
   {
-   "tu": "A ver.",
-   "orbi": "---"
-  },
-  {
-   "tu": "pantalla y tomar apuntes del objetivo de cada sprint a partir de aquí.",
-   "orbi": "No puedo leer directamente el contenido de la interfaz de Jira para extraer los objetivos. ¿Me podrías dictarlos o pasarlos a un documento de Word?"
-  },
-  {
-   "tu": "te cuento rapidito",
-   "orbi": "Adelante max, te escucho."
-  },
-  {
-   "tu": "apaga la alarma",
-   "orbi": "Listo, max, ya apagué la alarma."
-  },
-  {
-   "tu": "스트레스",
+   "tu": "doch je",
    "orbi": "---"
   }
  ]

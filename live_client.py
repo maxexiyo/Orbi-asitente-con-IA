@@ -116,12 +116,25 @@ class LiveSession:
         self.speaker_stall_s = 3.0           # una escritura a la bocina que tarda tanto = bocina trabada: reabrir
         self.vad = VoiceDetector()           # live_orb lo reconfigura con mic_umbral, mic_min_ms y mic_ruido_factor
         self.use_aad = True                  # se apaga solo si el servidor rechaza la configuración
+        # interrumpir con tu VOZ sin audífonos: mientras Orbi habla el micro oye su eco, así que tu voz debe pasar claramente
+        # el eco esperado (se aprende solo) durante barge_ms seguidos. Con audífonos no hace falta: el micro siempre está abierto.
+        self.barge = True
+        self.barge_min, self.barge_ms, self.barge_factor = 0.22, 350.0, 2.2
+        self.barge_strict = lambda: False    # True (ej. modo intérprete): exige voz más fuerte y larga para no cortarlo por otras personas
+        self._echo_gain = 1.0                # cuánto del volumen de la bocina vuelve al micro (se ajusta solo)
+        self._out_lvl, self._out_t = 0.0, 0.0
+        self._barge_run, self._barge_until = 0, 0.0
+        self._barge_buf = collections.deque()
+        self._cut_until = 0.0                # «cállate»: hasta entonces se descarta lo que Live siga diciendo en ese turno (clic o Ctrl+Espacio)
+        self._turn_active = False            # Live está en medio de una respuesta
         self._suppress_until = 0.0           # mientras sea futuro: ignora todo lo que Live conteste (voz de otra persona)
         self._turn_done_t = 0.0
         self.muted = False
         self.mute_output = False      # True = no reproduce la voz (solo texto en burbuja)
         self.screen_watch = False     # True = manda la pantalla cada ~2 s si cambió (modo "ver todo")
         self.screen_interval = 2.0
+        self.frame_max_age_s = 2.0     # guardia de captura vieja: un frame que esperó más que esto en la cola se descarta
+        self._tool_img_t = 0.0         # cuándo se mandó la última captura pedida por una tool (los frames anteriores ya no sirven)
         self._handle = None            # handle para reanudar la sesión al reconectar
         self._handle_key = None        # key con la que se obtuvo ese handle (un handle de otra key da "session not found")
         self._last_key = None          # última key que conectó bien: se prefiere para no perder el handle
@@ -136,6 +149,21 @@ class LiveSession:
     def set_muted(self, v: bool):
         self.muted = v
 
+    def interrupt(self) -> bool:
+        """Calla a Orbi YA (clic en la bolita o Ctrl+Espacio mientras habla). True si estaba hablando."""
+        if self._task is None or not (self._speaking or self._turn_active):
+            return False
+        self._task.get_loop().call_soon_threadsafe(self._do_cut)
+        return True
+
+    def _do_cut(self):
+        if self._turn_active:                           # Live todavía está generando: descarta el resto de esa respuesta (se libera al terminar el turno)
+            self._cut_until = time.time() + 60.0
+        self._hold, self._hold_txt = [], []
+        self._flush_out()
+        self.emit("interrupted", None)
+        print("[voz] lo callaste (clic o Ctrl+Espacio)")
+
     def send_text(self, text: str) -> bool:
         """Manda texto escrito a la conversación en vivo. Se puede llamar desde cualquier hilo."""
         if not self._task or self._task.done():
@@ -147,8 +175,24 @@ class LiveSession:
         """Manda un frame JPEG a la conversación en vivo. Se puede llamar desde cualquier hilo."""
         if not self._task or self._task.done():
             return False
-        self._task.get_loop().call_soon_threadsafe(self._img_q.put_nowait, jpeg)
+        self._task.get_loop().call_soon_threadsafe(self._put_frame, jpeg, time.time())
         return True
+
+    def _put_frame(self, jpeg: bytes, t: float):
+        """Mete un frame a la cola; si está llena tira el MÁS VIEJO (antes tiraba el nuevo y la IA veía pantallas del pasado)."""
+        while self._img_q.full():
+            try:
+                self._img_q.get_nowait()
+            except asyncio.QueueEmpty:
+                break
+        self._img_q.put_nowait((t, jpeg))
+
+    def _drain_frames(self):
+        while not self._img_q.empty():
+            try:
+                self._img_q.get_nowait()
+            except asyncio.QueueEmpty:
+                break
 
     def _enqueue_text(self, text):
         self._waiting = True                 # para que la bolita se vea "pensando"
@@ -326,7 +370,11 @@ class LiveSession:
 
     async def _send_image_loop(self, session):
         while True:
-            jpeg = await self._img_q.get()
+            t, jpeg = await self._img_q.get()
+            age = time.time() - t
+            if age > self.frame_max_age_s or t < self._tool_img_t:      # guardia: frame viejo o ya superado por una captura de tool
+                print(f"[pantalla] descarté un frame viejo ({age:.1f}s en cola)")
+                continue
             await session.send_realtime_input(video=types.Blob(data=jpeg, mime_type="image/jpeg"))
 
     async def _screen_loop(self):
@@ -339,9 +387,10 @@ class LiveSession:
                 det.reset()
                 continue
             try:
+                t0 = time.time()
                 jpeg, _ = await asyncio.to_thread(capture)
-                if det.changed(jpeg) and not self._img_q.full():
-                    self._img_q.put_nowait(jpeg)
+                if det.changed(jpeg):
+                    self._put_frame(jpeg, t0)
             except Exception as e:
                 self.screen_watch = False
                 self.emit("error", f"No pude capturar la pantalla ({e}); apagué el modo continuo.")
@@ -418,8 +467,14 @@ class LiveSession:
                     continue
                 now = time.time()
                 # sin audífonos: no mandes el micro mientras la IA habla (evita que se escuche a sí misma)
-                if not self.headphones and (self._speaking or now - self._last_audio_out < 0.5):
-                    continue
+                if not self.headphones and now >= self._barge_until and (self._speaking or now - self._last_audio_out < 0.5):
+                    if not self._barge_check(data, now):
+                        continue
+                    # te oyó hablar encima de Orbi: manda lo que dijiste justo antes (sin repetir el trozo actual) y sigue normal
+                    if self.gate is None or self.gate():
+                        for _t, d in list(self._barge_buf)[:-1]:
+                            await session.send_realtime_input(audio=types.Blob(data=d, mime_type=f"audio/pcm;rate={IN_RATE}"))
+                    self._barge_buf.clear()
                 for hook in self.mic_hooks:           # palabra clave: ve el micro aunque la compuerta esté cerrada
                     try:
                         hook(data)
@@ -449,6 +504,34 @@ class LiveSession:
                 await session.send_realtime_input(
                     audio=types.Blob(data=data, mime_type=f"audio/pcm;rate={IN_RATE}"))
 
+    def _barge_check(self, data, now) -> bool:
+        """Mientras Orbi habla (sin audífonos): ¿esto es TU voz encima de la suya? Si sí, calla su audio y devuelve True."""
+        self._barge_buf.append((now, data))
+        while self._barge_buf and now - self._barge_buf[0][0] > 0.8:
+            self._barge_buf.popleft()
+        if not self.barge or self.muted or (self.gate is not None and not self.gate()):
+            return False
+        lvl = rms(data)
+        out = self._out_lvl if now - self._out_t < 0.3 else 0.0
+        eco = self._echo_gain * out
+        strict = bool(self.barge_strict())
+        thr = max(self.barge_min, eco * self.barge_factor + 0.05) * (1.6 if strict else 1.0)
+        need = max(1, round(self.barge_ms * (1.5 if strict else 1.0) / 64))
+        if lvl > thr:
+            self._barge_run += 1
+        else:
+            self._barge_run = max(0, self._barge_run - 1)
+            if out > 0.02 and lvl <= eco * 1.3 + 0.02:                  # solo eco: aprende cuánto vuelve al micro
+                self._echo_gain = min(1.5, max(0.05, self._echo_gain * 0.95 + (lvl / out) * 0.05))
+        if self._barge_run < need:
+            return False
+        self._barge_run = 0
+        self._barge_until = now + 1.5                                   # deja pasar el micro mientras terminas tu frase
+        self._flush_out()
+        self.emit("interrupted", None)
+        print(f"[voz] interrumpido con tu voz (nivel {lvl:.2f} > {thr:.2f})")
+        return True
+
     def _flush_out(self):
         """Vacía lo que falta por sonar y suelta el estado «hablando» (si no, el micro se queda ignorado por anti-eco)."""
         while not self._out_q.empty():
@@ -464,6 +547,21 @@ class LiveSession:
         self._last_audio_out = time.time()
         self._out_q.put_nowait(data)
 
+    _RUIDO = {"gracias", "ajá", "aja", "mm", "mmm", "eh", "ah", "oh", "hm", "uh", "um", "sí", "si", "no", "ok", "oye", "gracias por ver el video",
+              "subtítulos", "subtitulos", "amara.org"}
+
+    def _real_speech(self) -> bool:
+        """¿Lo transcrito parece habla real y no ruido? Evita que la bolita «piense» por un murmullo, la tele o muletillas sueltas.
+        Con filtro por nombre, solo cuenta si ya se confirmó (o se está confirmando) que era para Orbi."""
+        txt = " ".join(self._turn_text.lower().replace("¿", "").replace("?", "").replace(",", " ").replace(".", " ").split())
+        if len(txt) < 4 or txt in self._RUIDO:
+            return False
+        if self.name_gate and self._gate_decision is False:
+            return False
+        if self.name_gate and self._gate_decision is None and time.time() >= self._gate_pre_until:
+            return False                                         # todavía no sabemos si era para Orbi: _gate_try lo enciende al confirmarlo
+        return True
+
     def _gate_try(self, final: bool = False):
         """Filtro por nombre: ¿esta respuesta es para Orbi? Retiene su voz hasta saberlo (o hasta gate_wait_s)."""
         if not self.name_gate or self._gate_decision is not None:
@@ -474,6 +572,9 @@ class LiveSession:
             ok = True
         if ok:
             self._gate_decision = True
+            if not self._speaking and self._real_speech():
+                self._waiting = True                            # confirmado que era para Orbi (nombre dicho): ahora sí «piensa»
+                self._last_voice = time.time()
             for d in self._hold:
                 self._queue_audio(d)
             for t in self._hold_txt:
@@ -531,6 +632,7 @@ class LiveSession:
                     data = await self._out_q.get()
                     for i in range(0, len(data), slice_bytes):
                         part = data[i:i + slice_bytes]
+                        self._out_lvl, self._out_t = rms(part), time.time()
                         self.emit("level", ("out", rms(part)))
                         if self.mute_output:
                             await asyncio.sleep(len(part) / (2 * OUT_RATE))
@@ -559,7 +661,10 @@ class LiveSession:
             async for r in session.receive():
                 got_any = True
                 sup = time.time() < self._suppress_until
-                if r.data and not sup:
+                cut = time.time() < self._cut_until
+                if r.data or (r.server_content and r.server_content.output_transcription):
+                    self._turn_active = True
+                if r.data and not sup and not cut:
                     if self.name_gate and self._gate_decision is None:
                         if not self._hold:
                             self._hold_t0 = time.time()
@@ -570,19 +675,20 @@ class LiveSession:
                 sc = r.server_content
                 if sc:
                     if sc.interrupted:
+                        self._cut_until, self._turn_active = 0.0, False
                         while not self._out_q.empty():
                             self._out_q.get_nowait()
                         self._speaking = False
                         self.emit("interrupted", None)
                     if sc.input_transcription and sc.input_transcription.text:
                         self._turn_text += sc.input_transcription.text
-                        if not self._speaking:                  # Live entendió palabras: ahora sí «piensa» (el ruido no cuenta)
+                        if not self._speaking and self._real_speech():      # entendió palabras REALES dirigidas a Orbi: ahora sí «piensa»
                             self._waiting = True
                             self._last_voice = time.time()
                         if not sup:
                             self.emit("user_text", sc.input_transcription.text)
                         self._gate_try()
-                    if sc.output_transcription and sc.output_transcription.text and not sup:
+                    if sc.output_transcription and sc.output_transcription.text and not sup and not cut:
                         if self.name_gate and self._gate_decision is None:
                             if not self._hold and not self._hold_txt:
                                 self._hold_t0 = time.time()
@@ -591,6 +697,7 @@ class LiveSession:
                         else:
                             self._emit_model_text(sc.output_transcription.text)
                     if sc.turn_complete:
+                        self._cut_until, self._turn_active = 0.0, False
                         self._gate_try(final=True)              # si quedó voz retenida: suena o se descarta ya
                         self._waiting = False
                         self._turn_done_t = time.time()
@@ -641,8 +748,14 @@ class LiveSession:
             image = result.pop("_image", None) if isinstance(result, dict) else None
             if isinstance(result, dict):
                 result.pop("_sin_captura", None)      # llave interna del agente: no tiene sentido para la voz
+                try:
+                    self.emit("tool_result", (fc.name, args, dict(result)))     # la mini ventana puede mostrar listas/resúmenes
+                except Exception:
+                    pass
             if image:            # la tool pidió que la IA vea una imagen (ver_pantalla)
                 try:
+                    self._drain_frames()               # lo que esperaba en la cola es más viejo que esta captura: fuera
+                    self._tool_img_t = time.time()
                     await session.send_realtime_input(video=types.Blob(data=image, mime_type="image/jpeg"))
                 except Exception as e:
                     result = {"error": f"No pude enviar la captura: {e}"}

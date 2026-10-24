@@ -9,6 +9,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 
 PATH = Path(__file__).parent / "orbi_alarmas.json"
+PERDIDA_ALARMA_S = 600          # una alarma con más retraso que esto ya no suena al volver Orbi: se avisa como «se te pasó»
 DIAS = {"lunes": 0, "martes": 1, "miercoles": 2, "miércoles": 2, "jueves": 3, "viernes": 4, "sabado": 5, "sábado": 5,
         "domingo": 6}
 
@@ -47,6 +48,7 @@ class Alarmas:
         self.on_fire = on_fire                 # on_fire(item)  (se llama desde el hilo del reloj)
         self.items = self._load()
         self._lock = threading.Lock()
+        self.on_added = None                   # on_added(item): lo usa reglas.py (avisos previos)
         self.ringing = None                    # item que está sonando
         self._ring_stop = threading.Event()
 
@@ -66,12 +68,19 @@ class Alarmas:
             pass
 
     # ------------------------------------------------------------ crear / listar / quitar
-    def add(self, kind: str, when: datetime, texto: str, repetir: str = "no") -> dict:
+    def add(self, kind: str, when: datetime, texto: str, repetir: str = "no", extra: dict | None = None) -> dict:
         it = dict(id=uuid.uuid4().hex[:6], kind=kind, when=when.isoformat(timespec="seconds"),
                   texto=(texto or "").strip()[:160] or ("Alarma" if kind == "alarma" else "Recordatorio"),
                   repetir=repetir if repetir in ("no", "diaria", "laborales") else "no")
+        if extra:
+            it.update(extra)                     # p. ej. de_regla: lo creó una regla (no dispara otras reglas)
         with self._lock:
             self.items.append(it); self._save()
+        if not extra and self.on_added:
+            try:
+                self.on_added(it)
+            except Exception as e:
+                print("[alarmas] regla:", e)
         return it
 
     def set_by_time(self, kind: str, hora: str = "", minutos=None, texto: str = "", repetir: str = "no", fecha: str = ""):
@@ -119,14 +128,20 @@ class Alarmas:
 
     # ------------------------------------------------------------ reloj
     def tick(self):
-        """Llamar cada ~1 s. Dispara lo vencido (y si Orbi estuvo apagada <10 min, lo avisa igual)."""
+        """Llamar cada ~1 s. Dispara lo vencido. Si Orbi estuvo cerrada, sin conexión o la PC dormida, lo vencido se avisa
+        IGUAL al volver, pero marcado: `retraso_min` (cuánto tarde va) y `perdida` (una ALARMA con más de 10 min de retraso ya
+        no suena: se avisa como «se te pasó»). Lo repetitivo salta directo a su próxima hora, sin disparar los días perdidos."""
         now = datetime.now()
         due = []
         with self._lock:
             for it in list(self.items):
                 when = datetime.fromisoformat(it["when"])
                 if when <= now:
-                    due.append(it)
+                    late_s = (now - when).total_seconds()
+                    d = dict(it)
+                    d["retraso_min"] = int(late_s // 60) if late_s >= 90 else 0
+                    d["perdida"] = bool(it["kind"] == "alarma" and late_s > PERDIDA_ALARMA_S)
+                    due.append(d)
                     rep = it.get("repetir", "no")
                     if rep == "no":
                         self.items.remove(it)
@@ -152,6 +167,16 @@ class Alarmas:
         def run():
             t0 = time.time()
             try:
+                import tonos
+                if getattr(self, "tono", None) and tonos.play_loop(self.tono):     # tono elegido (.wav en bucle)
+                    while not self._ring_stop.is_set() and time.time() - t0 < max_seconds:
+                        self._ring_stop.wait(0.2)
+                    tonos.stop()
+                    self.ringing = None
+                    return
+            except Exception as e:                                                  # noqa: BLE001
+                print("[alarmas] tono:", e)
+            try:
                 import winsound
                 beep = lambda f, d: winsound.Beep(f, d)
             except Exception:
@@ -168,6 +193,11 @@ class Alarmas:
     def stop_ring(self) -> bool:
         was = self.ringing is not None
         self._ring_stop.set()
+        try:
+            import tonos
+            tonos.stop()
+        except Exception:                                                           # noqa: BLE001
+            pass
         return was
 
     def snooze(self, minutos: float = 10) -> dict | None:
