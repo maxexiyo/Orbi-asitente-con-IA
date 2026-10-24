@@ -23,6 +23,38 @@
   {
    "fecha": "2026-10-23 23:20",
    "resumen": "El usuario buscaba sus capturas de pantalla, las cuales se localizan en la carpeta «Screenshots» dentro de la ruta de «Emulated Gamepads». Quedó pendiente confirmar si el asistente debe mover tres capturas recientes a la carpeta de Descargas."
+  },
+  {
+   "fecha": "2026-10-23 23:50",
+   "resumen": "A petición del usuario (Max), el asistente cerró Microsoft Edge para liberar más de 1 GB de RAM sin cerrar Chrome. Quedó pendiente un reclamo del usuario sobre una notificación no recibida respecto a un mensaje de David, ya que la comunicación al final fue confusa e incompleta."
+  },
+  {
+   "fecha": "2026-10-23 23:58",
+   "resumen": "El usuario (llamado Max) autorizó gestionar sus documentos de Word abiertos. Orbi guardó la lista de las ventanas abiertas en un archivo para que el usuario las vuelva a abrir después. Se procedió a cerrar todas las aplicaciones del equipo, dejando abiertas únicamente Spotify y Discord."
+  },
+  {
+   "fecha": "2026-10-24 00:16",
+   "resumen": "El usuario solicitó una síntesis de la Unidad 3 sobre el módulo de comunicación serial en Arduino. Orbi generó el resumen y lo guardó en un nuevo documento de Word dentro de la carpeta Documentos del usuario."
+  },
+  {
+   "fecha": "2026-10-24 11:08",
+   "resumen": "El usuario prefiere comunicarse con un tono informal y natural. Trabaja en un proyecto de Arduino para controlar efectos de secuencias con luces LED. Indicó que algo está fallando con el código, pero la conversación quedó interrumpida antes de especificar el error."
+  },
+  {
+   "fecha": "2026-10-24 12:57",
+   "resumen": "El usuario trabaja en un documento sobre la comunicación serial entre Arduino Uno y Arduino Mega. Prefiere que la información se presente en Word en texto plano, sin formatos ni estilos, y solicitó expandir el contenido para abarcar una mayor extensión (aproximadamente una página y media)."
+  },
+  {
+   "fecha": "2026-10-24 15:44",
+   "resumen": "El usuario se llama Max y se encuentra trabajando en un proyecto que involucra código SQL. Consultó sobre cómo comentar líneas en SQL para continuar con el desarrollo de su consulta o script."
+  },
+  {
+   "fecha": "2026-10-24 15:59",
+   "resumen": "El usuario (identificado como Max) tiene pendiente resolver el acceso a su correo electrónico, ya que se reportó la falta de una contraseña de aplicación en el archivo de configuración. La revisión y edición de dicho archivo en el Bloc de notas quedó a medias debido a fallos en las respuestas del asistente."
+  },
+  {
+   "fecha": "2026-10-24 16:15",
+   "resumen": "El usuario (llamado Max) tiene pendiente revisar el `fetch` en el archivo `registro.js`. Debe comprobar que todo funcione correctamente tras el cambio de eliminar la sesión de Express."
   }
  ],
  "resumen_general": ""

@@ -2,7 +2,7 @@
 import json, math, os, random, re, sys, time
 from pathlib import Path
 
-from PySide6.QtCore import Qt, QTimer, QPointF, QRectF, Signal, QPropertyAnimation, QEasingCurve, QPoint
+from PySide6.QtCore import Qt, QTimer, QPointF, QRectF, Signal, QPropertyAnimation, QEasingCurve, QPoint, QAbstractAnimation
 from PySide6.QtGui import (QPainter, QRadialGradient, QLinearGradient, QColor, QBrush, QPen,
                            QPainterPath, QCursor, QFont, QGuiApplication)
 from PySide6.QtWidgets import QApplication, QWidget, QMenu, QLabel, QVBoxLayout
@@ -43,6 +43,28 @@ STATE_COLORS = {
     "sleeping": (55, 85, 150),
 }
 # pulse = amplitud de la "respiración", speed = rapidez
+# cómo baila según el estilo (lo elige live_orb.py por el género de la canción o por el tempo): dx/dy = empuje en cada golpe
+# (dy > 0 baja, dy < 0 salta), sway/sw = balanceo entre golpes, decay = qué tan rápido se calma, pulse = cuánto late el cuerpo
+COLOR_KEYS = ("er", "eg", "eb", "ew", "tr", "tg", "tb")   # claves de FACES que son COLOR (no forma de la cara)
+DANCE_FACE_SNAP = True      # True: al bailar, la carita cambia de golpe (el color de la emoción sí se funde); False: todo se funde suave
+
+DANCE_STYLES = {
+    # hx/hsway = la carita se corre de lado, nod = cabeceo (+ baja, - sube), tilt/tsway = inclina la cabeza (grados), caras = expresiones
+    "pop":         dict(dx=13, dy=-16, sway=3,  sw=3.0, decay=0.88, pulse=0.08, hx=0.06, hsway=0.03, nod=-0.05, tilt=4, tsway=3, caras=("excited", "happy")),
+    "salsa":       dict(dx=16, dy=-7,  sway=5,  sw=4.2, decay=0.90, pulse=0.06, hx=0.10, hsway=0.05, nod=0.02,  tilt=6, tsway=4, caras=("party", "happy", "love")),
+    "cumbia":      dict(dx=11, dy=-9,  sway=6,  sw=2.6, decay=0.90, pulse=0.05, hx=0.06, hsway=0.06, nod=0.03,  tilt=4, tsway=5, caras=("happy", "party")),
+    "bachata":     dict(dx=9,  dy=-5,  sway=8,  sw=2.0, decay=0.92, pulse=0.04, hx=0.04, hsway=0.08, nod=0.01,  tilt=3, tsway=7, caras=("love", "dreamy")),
+    "reggaeton":   dict(dx=5,  dy=14,  sway=2,  sw=3.2, decay=0.90, pulse=0.12, hx=0.02, hsway=0.02, nod=0.08,  tilt=2, tsway=1, caras=("cool", "happy")),
+    "hiphop":      dict(dx=4,  dy=11,  sway=2,  sw=1.8, decay=0.91, pulse=0.07, hx=0.02, hsway=0.02, nod=0.07,  tilt=3, tsway=1, caras=("cool",)),
+    "rock":        dict(dx=3,  dy=-22, sway=1,  sw=3.0, decay=0.83, pulse=0.12, hx=0.02, hsway=0.01, nod=0.14,  tilt=2, tsway=1, caras=("rocker", "excited")),
+    "metal":       dict(dx=2,  dy=-26, sway=1,  sw=4.0, decay=0.80, pulse=0.15, hx=0.01, hsway=0.01, nod=0.17,  tilt=1, tsway=1, caras=("rocker",)),
+    "electronica": dict(dx=3,  dy=-24, sway=1,  sw=3.0, decay=0.86, pulse=0.16, hx=0.02, hsway=0.02, nod=-0.10, tilt=2, tsway=2, caras=("party", "surprised", "excited")),
+    "regional":    dict(dx=12, dy=-12, sway=2,  sw=3.5, decay=0.84, pulse=0.07, hx=0.07, hsway=0.02, nod=-0.05, tilt=5, tsway=2, caras=("happy", "excited")),
+    "disco":       dict(dx=14, dy=-13, sway=4,  sw=3.4, decay=0.88, pulse=0.10, hx=0.08, hsway=0.04, nod=-0.04, tilt=8, tsway=3, caras=("party", "love", "cool")),
+    "suave":       dict(dx=4,  dy=-5,  sway=14, sw=1.4, decay=0.93, pulse=0.03, hx=0.02, hsway=0.10, nod=0.01,  tilt=2, tsway=8, caras=("dreamy", "happy")),
+}
+
+
 STATE_MOTION = {
     "idle": (0.03, 1.5), "listening": (0.06, 2.6), "thinking": (0.05, 5.0),
     "speaking": (0.035, 3.0), "sleeping": (0.018, 0.8),
@@ -64,6 +86,16 @@ FACES = {
     "sleepy":    dict(eye_h=0.06, eye_w=1.3, arc=0, curve=0.25, open=0, blush=0, brow=0, lx=0, ly=0.3, tr=-10, tg=-10, tb=0),
     # trabajando: ojos entrecerrados, cejas concentradas y mirada que va y viene como leyendo (ver _face_target)
     "working":   dict(eye_h=0.8, eye_w=1.05, arc=0, curve=0.1, open=0, blush=0, brow=-0.35, lx=0, ly=0.55, tr=0, tg=18, tb=25),
+    # caras por TIPO de chamba (las elige live_orb.py según la herramienta; el movimiento de los ojos está en WORK_MOTION)
+    "writing":    dict(eye_h=0.75, eye_w=1.05, arc=0, curve=0.25, open=0, blush=0, brow=-0.15, lx=0, ly=0.7, tr=0, tg=0, tb=0),    # mirando el texto, siguiendo el renglón
+    "searching":  dict(eye_h=1.4, eye_w=1.15, arc=0, curve=0.05, open=0, blush=0, brow=0.3, lx=0, ly=0, tr=0, tg=0, tb=0),         # ojotes: lupa que recorre la pantalla
+    "waiting":    dict(eye_h=1.05, eye_w=1.0, arc=0, curve=0.0, open=0.2, blush=0, brow=0.25, lx=0, ly=-0.55, tr=0, tg=0, tb=0),  # mirando hacia arriba, esperando que cargue
+    "organizing": dict(eye_h=0.95, eye_w=1.1, arc=0, curve=0.55, open=0, blush=0.15, brow=0.1, lx=0, ly=0.1, tr=0, tg=0, tb=0),    # sonrisita, ojos que reparten de lado a lado
+    # caras de baile (las elige DANCE_STYLES según el estilo de la música)
+    "party":     dict(eye_h=1.2, eye_w=1.2, arc=1, curve=1.2, open=0.55, blush=0.4, brow=0, lx=0, ly=0, tr=0, tg=0, tb=0),     # ojos ^ ^ y boca abierta cantando
+    "cool":      dict(eye_h=0.45, eye_w=1.2, arc=0, curve=0.95, open=0, blush=0, brow=-0.2, lx=0, ly=0.15, tr=0, tg=0, tb=0),  # ojos de lado, sonrisa de medio lado
+    "rocker":    dict(eye_h=0.75, eye_w=1.1, arc=0, curve=-0.3, open=0.5, blush=0, brow=-0.75, lx=0, ly=0, tr=0, tg=0, tb=0),  # ceño y grito
+    "dreamy":    dict(eye_h=0.3, eye_w=1.2, arc=1, curve=1.0, open=0, blush=0.65, brow=0, lx=0, ly=0.1, tr=0, tg=0, tb=0),     # ojitos cerrados, mejillas rosas
 }
 # Color propio de CADA emoción (r, g, b, peso 0-1): se mezcla con el color del estado. Antes solo se sumaba un tinte
 # pequeño y varias caras (thinking, surprised, sleepy, attentive, working) casi no cambiaban de color.
@@ -79,6 +111,23 @@ EMO_COLOR = {
     "excited":   (255, 130, 40, 0.68),
     "sleepy":    (70, 70, 120, 0.55),
     "working":   (60, 200, 190, 0.45),
+    "writing":    (125, 150, 255, 0.55),
+    "searching":  (255, 215, 80, 0.58),
+    "waiting":    (255, 150, 70, 0.55),
+    "organizing": (90, 230, 170, 0.55),
+    "party":     (255, 105, 70, 0.65),
+    "cool":      (150, 95, 255, 0.55),
+    "rocker":    (235, 40, 60, 0.72),
+    "dreamy":    (255, 150, 205, 0.55),
+}
+# emociones de «chamba» y cómo se mueven los ojos en cada una (lx/ly de -1 a 1)
+WORK_EMOS = ("working", "writing", "searching", "waiting", "organizing")
+WORK_MOTION = {
+    "working":    lambda t: dict(lx=math.sin(t * 2.4) * 0.85),                                   # va y viene como leyendo
+    "writing":    lambda t: dict(lx=((t * 1.5) % 1.0) * 1.5 - 0.75),                             # recorre un renglón y salta al siguiente
+    "searching":  lambda t: dict(lx=math.cos(t * 2.3) * 0.8, ly=math.sin(t * 2.3) * 0.6),        # círculos, como una lupa
+    "waiting":    lambda t: dict(lx=math.sin(t * 0.9) * 0.3),                                    # mirada arriba, casi quieta
+    "organizing": lambda t: dict(lx=0.8 if math.sin(t * 4.5) > 0 else -0.8),                     # reparte a izquierda y derecha
 }
 for _n, _f in FACES.items():
     _c = EMO_COLOR.get(_n, (0, 0, 0, 0.0))
@@ -237,6 +286,9 @@ class Orb(QWidget):
         self._look = None; self._look_until = 0.0       # (lx, ly) hacia dónde mira (al señalar algo)
         self.hearts = []                                # corazones flotando tras una caricia: (nacimiento, desplazamiento)
         self.dancing = False; self._beat = 0.0; self._dance_dir = 1   # bailar con la música (lo activa live_orb)
+        self.dance_style = "pop"                        # cómo baila (DANCE_STYLES)
+        self._hx = self._hy = self._rot = 0.0           # cabeza: la carita se corre, cabecea y se inclina al bailar
+        self._dface = "excited"; self._dface_next = 0.0  # cara de baile actual y cuándo cambia
         self._dx = 0.0; self._dy = 0.0
         self._intro_t0 = None                           # animación de aparecer (play_intro)
         self._outro_t0 = None; self._outro_done = False  # animación de despedirse (quit_animated)
@@ -333,7 +385,24 @@ class Orb(QWidget):
         self.dancing = bool(on)
         if self.dancing:
             self.last_active = time.time()
-            if self.state == "idle": self.set_emotion("excited", 3.0)
+            if self.state == "idle": self.set_emotion(self._dface, 3.0); self._snap_face()
+
+    def _snap_face(self):
+        """Pone la carita (ojos, cejas, boca, mejillas) en la objetivo AL INSTANTE, sin pasar por caras intermedias."""
+        if not DANCE_FACE_SNAP:
+            return
+        t = self._face_target()
+        for k in LERP_KEYS:
+            if k not in COLOR_KEYS:                  # el color de la emoción sí se funde suave; solo la carita salta
+                self.p[k] = t[k]
+
+    def set_dance_style(self, name):
+        """Cambia cómo baila (salsa, cumbia, reggaeton, rock...). Si no existe, se queda como estaba."""
+        if name in DANCE_STYLES and name != self.dance_style:
+            self.dance_style = name
+            self._dface = DANCE_STYLES[name]["caras"][0]; self._dface_next = time.time() + random.uniform(4.0, 8.0)
+            if self.dancing and self.state in ("idle", "listening") and not self.edge:
+                self.set_emotion(self._dface, 3.0); self._snap_face()
 
     def beat(self, strength=1.0):
         """Un golpe de ritmo: rebote hacia arriba y se carga al otro lado."""
@@ -341,7 +410,7 @@ class Orb(QWidget):
         self._beat = max(self._beat, 0.45 + 0.55 * max(0.0, min(1.0, float(strength))))
         self._dance_dir = -self._dance_dir
         self.last_active = time.time()
-        if self.state in ("idle", "listening"): self.set_emotion("excited", 3.0)
+        if self.state in ("idle", "listening"): self.set_emotion(self._dface, 3.0)
 
     def say(self, text, seconds=None):
         self.last_active = time.time()
@@ -415,8 +484,8 @@ class Orb(QWidget):
         if self.state == "sleeping": return FACES["sleepy"]
         if self._look and time.time() < self._look_until:
             return {**FACES[self.emotion if self.emotion != "neutral" else "attentive"], "lx": self._look[0], "ly": self._look[1]}
-        if self.emotion == "working":
-            return {**FACES["working"], "lx": math.sin(self.t * 2.4) * 0.85}       # mira de lado a lado, como leyendo
+        if self.emotion in WORK_MOTION:                                            # cada tipo de chamba mueve los ojos distinto
+            return {**FACES[self.emotion], **WORK_MOTION[self.emotion](self.t)}
         if self.emotion == "neutral":
             if self.state == "thinking": return FACES["thinking"]
             if self.state == "listening": return FACES["attentive"]
@@ -467,12 +536,21 @@ class Orb(QWidget):
         self.ripples = [b for b in self.ripples if self.t - b < 1.3]
 
         # baile: rebota en cada golpe de ritmo y se mece entre golpes (solo si no está hablando ni escondida en el borde)
-        self._beat *= 0.88
+        ds = DANCE_STYLES.get(self.dance_style, DANCE_STYLES["pop"])
+        self._beat *= ds["decay"]
         active = self.dancing and self.state in ("idle", "listening") and not self.edge
-        tx = (self._dance_dir * 13 * self._beat + math.sin(self.t * 3.0) * 3) if active else 0.0
-        ty = (-16 * self._beat) if active else 0.0
+        tx = (self._dance_dir * ds["dx"] * self._beat + math.sin(self.t * ds["sw"]) * ds["sway"]) if active else 0.0
+        ty = (ds["dy"] * self._beat) if active else 0.0
         self._dx += (tx - self._dx) * 0.30
         self._dy += (ty - self._dy) * 0.45
+        hx = (self._dance_dir * ds["hx"] * self._beat + math.sin(self.t * ds["sw"]) * ds["hsway"]) * R0 if active else 0.0
+        hy = ds["nod"] * self._beat * R0 if active else 0.0
+        rt = (self._dance_dir * ds["tilt"] * self._beat + math.sin(self.t * ds["sw"] * 0.5) * ds["tsway"]) if active else 0.0
+        self._hx += (hx - self._hx) * 0.35; self._hy += (hy - self._hy) * 0.45; self._rot += (rt - self._rot) * 0.30
+        if active and now >= self._dface_next:                      # cada 4-8 s cambia de expresión (dentro de las del estilo)
+            opciones = [x for x in ds["caras"] if x != self._dface] or list(ds["caras"])
+            self._dface = random.choice(opciones); self._dface_next = now + random.uniform(4.0, 8.0)
+            self.set_emotion(self._dface, 3.0); self._snap_face()
 
         self.update()
 
@@ -491,7 +569,7 @@ class Orb(QWidget):
             p.setOpacity(max(0.0, min(1.0, _o)))
         c = QPointF(W / 2 + self._dx, H / 2 + self._dy)
         pulse, speed = STATE_MOTION[self.state]
-        r = R0 * (1 + pulse * math.sin(self.t * speed) + self.level * 0.16 + self._beat * 0.08)
+        r = R0 * (1 + pulse * math.sin(self.t * speed) + self.level * 0.16 + self._beat * DANCE_STYLES.get(self.dance_style, DANCE_STYLES["pop"])["pulse"])
         col = self._color()
         sleeping = self.state == "sleeping"
 
@@ -564,6 +642,10 @@ class Orb(QWidget):
                 p.drawText(QPointF(c.x() + r * (0.7 + ph * 0.4), c.y() - r * (0.5 + ph * 0.9)), "z")
 
     def _draw_face(self, p, c, r):
+        p.save()
+        if abs(self._rot) > 0.05:                                # cabeza inclinada: gira la carita alrededor del centro del cuerpo
+            p.translate(c); p.rotate(self._rot); p.translate(-c)
+        c = QPointF(c.x() + self._hx, c.y() + self._hy)          # y se corre / cabecea respecto al cuerpo
         f = self.p
         ink = QColor(14, 28, 70)
         lx = (f["lx"] + self._eye_wander[0] * (1 if self.state in ("idle", "listening") else 0.2)) * r * 0.10
@@ -623,6 +705,7 @@ class Orb(QWidget):
             path.quadTo(mx, my + f["curve"] * r * 0.42, mx + w / 2, my)
             p.setBrush(Qt.NoBrush); p.setPen(QPen(ink, 3.2, Qt.SolidLine, Qt.RoundCap))
             p.drawPath(path)
+        p.restore()
 
     # --------------------------------------------------------------- ratón
     def mousePressEvent(self, e):
@@ -700,6 +783,66 @@ class Orb(QWidget):
         self.move_to_global(sx, sy, 800)
         return True
 
+    def avoid_text(self, ratio: float = 1.0, mon=None) -> bool:
+        """Si la bolita (o su burbuja) está encima de texto de la pantalla, se mueve al hueco más vacío. True si se movió.
+        Detector local, sin IA (orb_cover): mira las franjas que rodean a la bolita y, si hay texto a ambos lados o arriba y abajo,
+        busca entre ~15 lugares el que tenga menos texto. `ratio` = devicePixelRatio de Qt, `mon` = screen.primary_monitor()."""
+        now = time.time()
+        if mon is None or self.edge or self.state == "sleeping" or self._drag is not None or self.dancing \
+                or not self.isVisible() or self.underMouse():
+            return False
+        if now < getattr(self, "_no_dodge_until", 0.0) or now - getattr(self, "_last_dodge", 0.0) < 6.0:
+            return False
+        if self._move_anim.state() == QAbstractAnimation.State.Running or self._anim.state() == QAbstractAnimation.State.Running:
+            return False
+        try:
+            import orb_cover as oc
+        except Exception:                                          # noqa: BLE001  (sin numpy/mss: simplemente no se aparta)
+            return False
+        c = self._center_global()
+        pscr = QGuiApplication.primaryScreen()
+        pgeo = pscr.geometry()
+        if not pgeo.contains(c):
+            return False                                           # solo se vigila la pantalla principal (la que ve Orbi)
+        r = float(ratio) or 1.0
+
+        def phys(x, y):                                            # coordenadas de Qt -> píxeles físicos de mss
+            return mon["left"] + (x - pgeo.x()) * r, mon["top"] + (y - pgeo.y()) * r
+
+        half = R0 * 1.2
+        x0, y0 = phys(c.x() - half, c.y() - half)
+        x1, y1 = phys(c.x() + half, c.y() + half)
+        rect = [x0, y0, x1, y1]
+        bub_rel = None
+        if self.bubble.isVisible():                                # la burbuja con texto también tapa
+            bg = self.bubble.frameGeometry()
+            bx0, by0 = phys(bg.left(), bg.top())
+            bx1, by1 = phys(bg.right(), bg.bottom())
+            rect = [min(x0, bx0), min(y0, by0), max(x1, bx1), max(y1, by1)]
+            cpx, cpy = phys(c.x(), c.y())
+            bub_rel = (bx0 - cpx, by0 - cpy, bx1 - cpx, by1 - cpy)
+        bounds = (mon["left"], mon["top"], mon["left"] + mon["width"], mon["top"] + mon["height"])
+        cov = oc.cover_score(rect, bounds)
+        self._last_cover = cov
+        if cov < oc.COVER_ON:
+            return False
+        g = oc.grab_gray(mon["left"], mon["top"], mon["width"], mon["height"])
+        if g is None:
+            return False
+        ag = pscr.availableGeometry()
+        m = int(R0 * 1.3) + 40
+        xs = (ag.left() + m, ag.left() + ag.width() * 0.25, ag.center().x(), ag.left() + ag.width() * 0.75, ag.right() - m)
+        ys = (ag.top() + m, ag.center().y(), ag.bottom() - m)
+        spots = [phys(x, y) for x in xs for y in ys]
+        best = oc.choose_spot(g, (mon["left"], mon["top"]), bounds, rect, spots, half * r, bub_rel, cov)
+        if best is None:
+            return False                                           # no hay un hueco vacío: mejor quedarse
+        lx = pgeo.x() + (best[0] - mon["left"]) / r
+        ly = pgeo.y() + (best[1] - mon["top"]) / r
+        self._last_dodge = now
+        self.move_to_global(int(lx), int(ly), 800)
+        return True
+
     def wander(self):
         """Se pasea a otro lugar de la pantalla (esquinas o mitad de los bordes), lejos de donde está ahora."""
         c = self._center_global()
@@ -720,12 +863,12 @@ class Orb(QWidget):
         side = -1 if gx > g.center().x() else 1                    # donde haya más espacio
         ox, oy = int(gx + side * (R0 * 2.4 + 60)), int(gy - R0 * 0.6)
         self._no_dodge_until = time.time() + seconds + 1.5          # señalando: aquí SÍ tiene que estar cerca
-        self.move_to_global(ox, oy, 650)
+        self.move_to_global(ox, oy, 520)
         self._look = (-side * 1.6, max(-1.0, min(1.0, (gy - oy) / 200.0))); self._look_until = time.time() + seconds + 1.0
         self.set_emotion("attentive" if "attentive" in FACES else "happy", seconds)
-        QTimer.singleShot(450, lambda: self.pointer.show_at(gx, gy, seconds))
+        self.pointer.show_at(gx, gy, seconds)                       # el anillo sale YA; la bolita camina hacia allá al mismo tiempo
         if text:
-            QTimer.singleShot(700, lambda: self.say(text, max(4.0, seconds)))
+            QTimer.singleShot(250, lambda: self.say(text, max(4.0, seconds)))
 
     def mouseMoveEvent(self, e):
         if self._drag is None:

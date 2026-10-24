@@ -26,16 +26,67 @@ class ReadError(Exception):
 
 
 # ------------------------------------------------------------------ carpetas permitidas
+EXTERNAL_DRIVES = True       # incluir USB, discos externos y otras unidades (live_orb lo lee de config.json -> "unidades_externas")
+
+
+def external_drives() -> list:
+    """Raíces de unidades que NO son la del sistema: USB / discos externos (tipo 2) y discos fijos extra (tipo 3).
+    Solo las que están conectadas en este momento. Sin CD/DVD ni unidades de red."""
+    if os.name != "nt":
+        return []
+    try:
+        import ctypes
+        k = ctypes.windll.kernel32
+        mask = k.GetLogicalDrives()
+        sysdrive = (os.environ.get("SystemDrive") or "C:").upper()[:2]
+        out = []
+        for i in range(26):
+            if not mask & (1 << i):
+                continue
+            letter = f"{chr(65 + i)}:"
+            if letter == sysdrive:
+                continue
+            if k.GetDriveTypeW(letter + "\\") not in (2, 3):
+                continue
+            p = Path(letter + "\\")
+            try:
+                if p.is_dir():
+                    out.append(p)
+            except OSError:
+                pass
+        return out
+    except Exception:                                      # noqa: BLE001
+        return []
+
+
 def file_roots() -> list:
-    """Documentos, Escritorio y Descargas (y sus versiones en OneDrive / en español)."""
+    """Documentos, Escritorio, Descargas, Imágenes (incluye «Capturas de pantalla»), Videos y Música, y sus versiones en
+    OneDrive / en español. Las de documentos van primero para que las búsquedas las revisen antes que las fotos."""
     home = Path.home()
+    bases = [home, home / "OneDrive"]
+    for var in ("OneDrive", "OneDriveConsumer", "OneDriveCommercial"):      # OneDrive con otro nombre («OneDrive - Personal»…)
+        v = os.environ.get(var)
+        if v:
+            bases.append(Path(v))
+    try:
+        bases += [d for d in home.iterdir() if d.is_dir() and d.name.lower().startswith("onedrive")]
+    except OSError:
+        pass
     roots = []
-    for name in ("Desktop", "Documents", "Downloads", "Escritorio", "Documentos", "Descargas"):
-        for base in (home, home / "OneDrive"):
+    for name in ("Desktop", "Documents", "Downloads", "Escritorio", "Documentos", "Descargas",
+                 "Pictures", "Imágenes", "Imagenes", "Videos", "Vídeos", "Music", "Música", "Musica"):
+        for base in bases:
             p = base / name
             try:
                 if p.is_dir() and p.resolve() not in roots:
                     roots.append(p.resolve())
+            except OSError:
+                pass
+    if EXTERNAL_DRIVES:                                    # al final: las búsquedas revisan primero tus carpetas de siempre
+        for d in external_drives():
+            try:
+                if d.resolve() not in roots:
+                    roots.append(d.resolve())
             except OSError:
                 pass
     return roots
@@ -63,7 +114,7 @@ def walk_files(roots=None, max_depth=5, max_scan=80_000):
         for dirpath, dirnames, files in os.walk(root):
             if len(Path(dirpath).parts) - base_depth >= max_depth:
                 dirnames[:] = []
-            dirnames[:] = [d for d in dirnames if d not in SKIP_DIRS and not d.startswith(".")]
+            dirnames[:] = [d for d in dirnames if d not in SKIP_DIRS and not d.startswith((".", "$")) and d != "System Volume Information"]
             for f in files:
                 scanned += 1
                 if scanned > max_scan:
@@ -224,7 +275,9 @@ def search_name(query: str, limit: int = 8, roots=None) -> list:
 
 
 ROOT_ALIASES = {"escritorio": "desktop", "desktop": "desktop", "documentos": "documents", "documents": "documents",
-                "descargas": "downloads", "downloads": "downloads"}
+                "descargas": "downloads", "downloads": "downloads",
+                "imagenes": "pictures", "imágenes": "pictures", "pictures": "pictures", "fotos": "pictures",
+                "videos": "videos", "vídeos": "videos", "musica": "music", "música": "music", "music": "music"}
 
 
 def resolve_dir(ref: str, limit: int = 6) -> tuple:

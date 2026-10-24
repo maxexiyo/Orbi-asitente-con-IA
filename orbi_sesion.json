@@ -1,44 +1,56 @@
 {
- "fecha": "2026-10-23T23:45",
+ "fecha": "2026-10-24T16:10",
  "turnos": [
   {
-   "tu": "जी",
-   "orbi": "Listo, ya tienes el archivo actualizado con las correcciones necesarias para evitar errores."
+   "tu": "C'est la carte.",
+   "orbi": "---"
   },
   {
-   "tu": "gastarles",
-   "orbi": "​"
+   "tu": "K",
+   "orbi": "---"
   },
   {
-   "tu": "chinga, ¿dónde está la puta carpeta?",
-   "orbi": "No encuentro una carpeta de capturas de pantalla en las ubicaciones principales de tu equipo para poder moverlas."
+   "tu": "Orbe",
+   "orbi": "Dime Max, ¿qué seguimos haciendo?"
   },
   {
-   "tu": "takip",
-   "orbi": "¡Ya veo! Esas capturas están guardadas en la carpeta de Screenshots, dentro de la ruta de tus Emulated Gamepads. ¿Quieres que mueva esas tres imágenes recientes a tu carpeta de Descargas?"
+   "tu": "ventana SQL",
+   "orbi": "Aquí estoy en la ventana del proyecto."
   },
   {
-   "tu": "hermano",
-   "orbi": "Chequé en el navegador y el nombre correcto es Laragon, sin esa g que mencionabas, max."
+   "tu": "¿Cómo se comenta en SQL?",
+   "orbi": "En SQL, los comentarios de una sola línea se ponen con dos guiones seguidos."
   },
   {
-   "tu": "espera, güey",
-   "orbi": "No hay problema, aquí sigo esperando."
+   "tu": "olvidar las",
+   "orbi": "Si ya pusiste el comentario, adelante con el código."
   },
   {
-   "tu": "¿Puedes liberar RAM sin cerrar Chrome en la música?",
-   "orbi": "Claro, max. Veo que Microsoft Edge está usando más de un gigabyte de RAM, ¿te gustaría que lo cerrara para liberar memoria?"
+   "tu": "¿Qué dice?",
+   "orbi": "Max, no pude revisar tu correo porque falta la contraseña de aplicación en el archivo de configuración."
   },
   {
-   "tu": "porfa, que ya no estoy usando Claudia ahorita.",
-   "orbi": "Listo, acabo de cerrar Microsoft Edge, así que ya deberías tener más memoria disponible."
+   "tu": "違うね。",
+   "orbi": "Disculpa la confusión, ahora mismo corrijo el error y abro el archivo en el Bloc de notas."
   },
   {
-   "tu": "Arruíname dejaste, no me avisaste que",
-   "orbi": "Revisé y no recibí ninguna notificación reciente sobre ese mensaje de David."
+   "tu": "5",
+   "orbi": "No generate response."
   },
   {
-   "tu": "doch je",
+   "tu": "sinha",
+   "orbi": "No generate response."
+  },
+  {
+   "tu": "Mande.",
+   "orbi": "Max, revisa el fetch en registro js para asegurarte de que todo maneje bien el cambio de quitar la sesión express."
+  },
+  {
+   "tu": "A",
+   "orbi": "No generate response."
+  },
+  {
+   "tu": "Okay.",
    "orbi": "---"
   }
  ]

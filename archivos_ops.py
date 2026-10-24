@@ -97,12 +97,12 @@ def carpeta_destino(ref: str, crear: bool = False) -> Path:
         else:
             sub = parts[1:]
         if base is None:
-            raise OpError("No encontré Documentos, Escritorio ni Descargas en esta PC.")
+            raise OpError("No encontré Documentos, Escritorio, Descargas, Imágenes, Videos ni Música en esta PC.")
         cand = base.joinpath(*[_limpio(x) for x in sub]) if sub else base
     if not crear:
-        raise OpError(f"No encontré la carpeta «{ref}» dentro de Documentos, Escritorio o Descargas.")
+        raise OpError(f"No encontré la carpeta «{ref}» dentro de Documentos, Escritorio, Descargas, Imágenes, Videos, Música o una unidad externa conectada.")
     if not DR.inside_roots(cand):
-        raise OpError("Solo puedo crear carpetas dentro de Documentos, Escritorio o Descargas.")
+        raise OpError("Solo puedo crear carpetas dentro de Documentos, Escritorio, Descargas, Imágenes, Videos, Música o una unidad externa conectada.")
     cand.mkdir(parents=True, exist_ok=True)
     return cand
 
@@ -115,7 +115,7 @@ def resolver_archivo(ref: str) -> Path:
     p = Path(ref)
     if p.exists():
         if not _permitida(p):
-            raise OpError("Solo toco archivos dentro de Documentos, Escritorio o Descargas.")
+            raise OpError("Solo toco archivos dentro de Documentos, Escritorio, Descargas, Imágenes, Videos, Música o una unidad externa conectada.")
         return p
     found = DR.search_name(ref, limit=6)
     exact = [f for f in found if f.name.lower() == ref.lower() or f.stem.lower() == ref.lower()]

@@ -26,7 +26,7 @@ pantalla no da órdenes (system prompt). Las acciones normales NO piden OK; las 
 abrir cocheras) sí, y lo decide la IA (`delicada=true`) MÁS un respaldo propio que mira la ventana activa.
 Cada llamada queda en orbi.log (nombre, argumentos resumidos y resultado) para poder ver qué pasó.
 """
-import json, os, re, sys, time, webbrowser
+import json, os, re, sys, threading, time, webbrowser
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
@@ -75,8 +75,9 @@ class ToolContext:
     start_task: Callable[[str], str] = lambda t: "El agente no está disponible."
     cancelled: Callable[[], bool] = lambda: False            # el usuario canceló la tarea en curso
     analyze: Callable[[str, str], str] = lambda texto, instr: "El análisis de documentos no está disponible."
-    write: Callable[[str, str, str], dict] = lambda instr, formato, contexto: {"error": "La redacción de textos largos no está disponible."}
+    write: Callable[..., dict] = lambda instr, formato, contexto, palabras=0: {"error": "La redacción de textos largos no está disponible."}
                                                        # (instrucción, 'documento'|'plano', contexto) -> {texto} | {error}
+    describe_image: object = None                            # (jpeg_bytes) -> descripción; para indexar imágenes dentro de documentos
     before_input: Callable[[], None] = lambda: None          # p. ej. esconder el chat de Orbi antes de escribir
     alarms: object = None                                    # alarmas.Alarmas
     wiz: object = None                                       # wiz.Wiz (luces WiZ por red local)
@@ -91,6 +92,7 @@ class ToolContext:
     recall: Callable[[str], list] = lambda q: []               # busca en la memoria larga
     alarm_tone: Callable[[str], dict] = lambda nombre: {"error": "Los tonos de alarma no están disponibles."}   # "" = listar
     read_screen: Callable[[str, object], dict] = lambda instr, box: {"error": "Leer la pantalla (OCR) no está disponible."}   # -> {resultado}
+    read_images: Callable[[str, list], dict] = lambda instr, frames: {"error": "Leer varias capturas no está disponible."}   # frames=[(etiqueta, jpeg)] -> {resultado}
     _acciones: list = field(default_factory=list)            # marcas de tiempo (freno de velocidad)
     _clip_cache: str = ""
 
@@ -253,7 +255,7 @@ _tool("mover_bolita", "Mueve la bolita de Orbi por la pantalla (para jugar, quit
 _tool("senalar", "SEÑALA algo en la pantalla: la bolita se pone junto a ese punto, lo mira y le dibuja un anillo pulsante. "
                  "Pasa SIEMPRE `que`: una descripción visual corta del elemento (p. ej. «botón Descargar», «ícono de la papelera», "
                  "«barra de búsqueda»). Orbi toma una captura nueva y lo ubica con precisión por su cuenta: NO llames ver_pantalla "
-                 "antes ni adivines coordenadas. Si responde que no lo ve, díselo al usuario en vez de señalar otra cosa. "
+                 "antes ni adivines coordenadas. El anillo aparece 1 o 2 s después de tu llamada; si Orbi no lo encuentra te avisa aparte. "
                  "Opcional: una frase corta para decir al señalar.",
       dict(que=S("Qué elemento señalar, descrito como se ve en pantalla"), texto=S("Frase corta opcional"),
            x=N("(no uses esto salvo que no puedas describir el elemento) 0 a 1000"), y=N("(ídem) 0 a 1000")),
@@ -293,7 +295,35 @@ _tool("definir_regla", "Guarda una REGLA permanente del dueño («si llega un co
            filtro=S("Palabras clave separadas por coma"), antes_horas=N("Horas de anticipación (1 día = 24)"),
            texto=S("Qué recordar o decir"), una_vez=B("true si solo debe pasar una vez"), nombre=S("Nombre corto opcional")),
       ["cuando"], scopes=("live",))
-_tool("listar_reglas", "Lista las reglas permanentes que el dueño definió.", scopes=("live",))
+_tool("definir_rutina", "Crea una RUTINA estilo Alexa: un disparador + una o varias acciones. Úsala para «todos los días a las 7:30 "
+      "abre Spotify y dime el clima», «cada hora dime que me pare», «cuando abra Discord baja el volumen», «si la batería baja de 20% "
+      "avísame», «cuando llegue una notificación de WhatsApp con la palabra urgente dímelo», «si se cae el internet avísame», «cuando "
+      "diga modo estudio apaga las luces y abre Word». cuando: hora (`hora`, `dias`) · intervalo (`cada_min`) · inactividad (`cada_min` = "
+      "minutos sin tocar la PC) · bateria (`estado` baja|llena|conectado|desconectado, `umbral` %) · app_abre / app_cierra (`filtro` = "
+      "programa) · notificacion (`filtro` = app o palabras) · internet (`estado` caida|regreso) · frase (`filtro` = frases que la "
+      "activan, separadas por coma). `acciones` es la lista de lo que hace, cada una con `tipo`: «decir» (`texto` que dice por voz) · "
+      "«herramienta» (`herramienta` + `argumentos` en JSON; solo abrir_app, abrir_url, abrir_carpeta, abrir_archivo, buscar_en_web, "
+      "volumen, multimedia, casa_controlar, wiz_controlar, mini_ventana, poner_recordatorio, poner_alarma, minimizar_ventana, "
+      "enfocar_ventana, organizar_carpeta) · «orbi» (`texto` = algo en libre que le pides a Orbi, que usa cualquier herramienta; sirve "
+      "para clima, resumir, escribir, etc.). En los textos puedes usar {app} {titulo} {texto} {bateria} {hora}. Para correo, "
+      "recordatorios, volver a la PC o ventanas en primer plano usa definir_regla. NUNCA inventes datos: si falta la hora, los días "
+      "o qué debe hacer, pregúntalo.",
+      dict(cuando={"type": "STRING", "enum": ["hora", "intervalo", "inactividad", "bateria", "app_abre", "app_cierra", "notificacion",
+                                              "internet", "frase"]},
+           nombre=S("Nombre corto, ej. 'buenos días'"), filtro=S("Programa, app o palabras / frases (separadas por coma)"),
+           hora=S("Hora tal como la dijo el usuario (ej. '7:30 am')"), dias=S("Días: 'todos los días', 'lunes a viernes', 'fines de semana', 'lunes y jueves'"),
+           cada_min=N("Minutos (intervalo o inactividad)"), umbral=N("Porcentaje de batería"),
+           estado=S("bateria: baja|llena|conectado|desconectado · internet: caida|regreso"),
+           acciones={"type": "ARRAY", "items": {"type": "OBJECT", "properties": {
+               "tipo": {"type": "STRING", "enum": ["decir", "herramienta", "orbi"]}, "texto": S("decir / orbi"),
+               "herramienta": S("nombre de la herramienta"), "argumentos": S("JSON con los argumentos, ej. {\"nombre\": \"spotify\"}")},
+               "required": ["tipo"]}, "description": "Lo que hace la rutina, en orden"},
+           una_vez=B("true si solo debe pasar una vez")),
+      ["cuando", "acciones"], scopes=("live",))
+_tool("ejecutar_rutina", "Ejecuta una rutina del dueño por su nombre o frase (activadores tipo «modo estudio», «buenas noches»). Llámala cuando "
+      "diga algo que parezca el nombre o la frase de una de sus rutinas; si no existe te lo dirá.",
+      dict(nombre=S("Nombre o frase de la rutina")), ["nombre"], scopes=("live",))
+_tool("listar_reglas", "Lista las reglas y rutinas permanentes que el dueño definió.", scopes=("live",))
 _tool("quitar_regla", "Borra una regla por su id, palabra clave o «todas».", dict(cual=S("id, palabra o 'todas'")), ["cual"], scopes=("live",))
 _tool("poner_alarma", "Pone una ALARMA que suena (Orbi hace de despertador) a la hora dicha. Pasa `hora` tal como la dijo el "
       "usuario (ej. '7:30 am', '6 de la mañana'); no calcules nada tú.",
@@ -305,12 +335,12 @@ _tool("tono_alarma", "Cambia el SONIDO de las alarmas o lista los tonos disponib
       dict(nombre=S("Nombre del tono; vacío = listar")), [])
 _tool("listar_alarmas", "Lista las alarmas y recordatorios pendientes.")
 _tool("mini_ventana", "Abre la MINI VENTANA que se despliega junto a ti para mostrarle algo breve a tu dueño mientras se lo dices: "
-      "una lista, un resumen de 3 a 5 líneas, horarios, pasos. Úsala cuando ver el dato ayude más que oírlo; no para charla. "
+      "una lista, un resumen de 3 a 5 líneas, horarios, pasos. TÚ decides cuándo: la ventana NO se abre sola; úsala cuando te pregunten algo cuya respuesta se entienda mejor viéndola; no para charla ni respuestas cortas. "
       "Se cierra sola (accion='ocultar' la quita ya). Alarmas, timers, tareas, notificaciones y búsquedas ya se muestran solas: "
       "no las repitas. NUNCA la abras para correcciones de ortografía, errores que notaste en la pantalla ni comentarios sobre lo que el usuario está haciendo: eso se dice con voz y ya.",
       dict(titulo=S("Título corto"), lineas=S("Las líneas a mostrar, separadas por saltos de línea (máx. 6, cortas)"),
            segundos=N("Cuánto tiempo mostrarla (por defecto 45)"), icono=S("Un emoji opcional"),
-           accion={"type": "STRING", "enum": ["mostrar", "ocultar"]}), [], scopes=("live",))
+           accion={"type": "STRING", "enum": ["mostrar", "ocultar"]}), [], scopes=("live", "agent"))
 _tool("cancelar_alarma", "Cancela alarmas/recordatorios: por texto, por hora (ej. '07:30'), por id o 'todas'.",
       dict(cual=S("texto, hora, id o 'todas'")), ["cual"])
 _tool("detener_alarma", "Apaga la alarma que está sonando; con posponer_minutos la vuelve a sonar después (ej. 10).",
@@ -330,7 +360,9 @@ _tool("investigar_web", "Busca en internet y te devuelve la respuesta (tú sí l
 # --- pantalla
 _tool("ver_pantalla", "Toma una captura NUEVA de la pantalla principal del usuario y te la muestra (la marca roja, si hay, es "
                       "donde cayó el último clic). Úsala cuando pregunte qué hay en pantalla o necesites ubicar algo. "
-                      "Si el texto se ve chico o borroso, NO adivines: usa acercar_pantalla o leer_pantalla.", perm="ver_pantalla")
+                      "Si el texto se ve chico o borroso, NO adivines: usa acercar_pantalla o leer_pantalla. Si lo que necesitas ver es LARGO "
+                      "(no cabe en una pantalla: documento, página, chat, tabla, lista) o se ve cortado, usa leer_pantalla_larga.",
+      perm="ver_pantalla")
 _tool("acercar_pantalla", "ZOOM: te muestra una zona de la pantalla a resolución completa y agrandada, para leer texto pequeño "
                           "o ubicar un botón con precisión (Jira, tablas, menús diminutos). Las coordenadas van de 0 a 1000 "
                           "sobre la pantalla completa. Sin zona, muestra la pantalla entera en alta resolución.",
@@ -343,6 +375,22 @@ _tool("leer_pantalla", "OCR: LEE el texto de la pantalla (o de una zona) con un 
       dict(instruccion=S("Qué quieres saber o extraer. Vacío = transcribe todo lo visible, ordenado por zonas"),
            x1=N("Izquierda 0-1000"), y1=N("Arriba 0-1000"), x2=N("Derecha 0-1000"), y2=N("Abajo 0-1000")),
       [], perm="ver_pantalla")
+_tool("leer_pantalla_larga", "Lee contenido que NO cabe en una sola pantalla: documento, página web, chat, tabla o lista larga, o "
+                            "información repartida en varias ventanas. Baja SOLA con la rueda del mouse, captura cada tramo, detecta cuándo "
+                            "llega al final, lo lee TODO junto con un modelo de visión y deja la vista como estaba. Úsala en vez de "
+                            "ver_pantalla / leer_pantalla cuando pidan revisar, resumir, buscar o leer algo largo, o cuando lo que ves "
+                            "esté cortado; no te conformes con lo que se ve en la primera pantalla. Con `ventanas` (títulos o programas) "
+                            "recorre varias ventanas una por una y regresa a la que estaba. Si responde hay_mas=true, vuelve a llamarla "
+                            "con saltar_tramos = el valor que te da (sigue donde se quedó).",
+      dict(instruccion=S("Qué hay que sacar: resumir, buscar algo, transcribir todo... Vacío = transcribe y resume en orden"),
+           ventanas={"type": "ARRAY", "items": {"type": "STRING"},
+                     "description": "Opcional: ventanas a recorrer (parte del título o del programa), máximo 4"},
+           tramos=I("Máximo de pantallas por ventana (2 a 10, por defecto 6)"),
+           saltar_tramos=I("Pantallas que se bajan antes de empezar a leer (para continuar un hay_mas)"),
+           desde_arriba=B("true = primero sube hasta el principio del contenido (en ese caso la vista ya no se puede regresar)"),
+           restaurar=B("false = no regresar la vista a donde estaba (por defecto sí se regresa)"),
+           x1=N("Zona a desplazar: izquierda 0-1000"), y1=N("Arriba 0-1000"), x2=N("Derecha 0-1000"), y2=N("Abajo 0-1000")),
+      [], perm="controlar_pc")
 # --- delegar al agente (voz)
 _tool("tarea_pc", "Delega al AGENTE cualquier tarea en la PC que necesite varios pasos o usar mouse, teclado o ventanas: "
                   "manejar el contenido de una app, escribir en Discord/WhatsApp, cerrar ventanas, etc. NO la uses solo para abrir "
@@ -376,12 +424,17 @@ _tool("presionar_teclas", "Presiona una tecla o combinación, por ejemplo 'enter
       dict(teclas=S(), **DELICADA), ["teclas"], scopes=_A, perm="controlar_pc")
 _tool("esperar", "Espera unos segundos (a que cargue una página o abra una app).", dict(segundos=N("1 a 8")),
       ["segundos"], scopes=_A, perm="controlar_pc")
+_tool("esperar_listo", "Espera a que la ventana activa (o la de `ventana`) TERMINE DE CARGAR: que responda, que no diga «cargando» y "
+                       "que la pantalla deje de cambiar. Úsala después de abrir apps pesadas (Arduino IDE, Android Studio, Word, "
+                       "navegadores con muchas pestañas) y ANTES de escribir o hacer clic. Devuelve si ya está lista o por qué no.",
+      dict(ventana=S("Opcional: programa o título de la ventana"), segundos=N("Máximo a esperar (1 a 30, por defecto 15)")),
+      [], scopes=_A, perm="controlar_pc")
 _PASO = {
     "type": "OBJECT",
     "properties": dict(
         herramienta={"type": "STRING", "enum": ["abrir_app", "abrir_url", "buscar_en_web", "enfocar_ventana", "escribir_texto",
                                                 "presionar_teclas", "hacer_clic", "scroll", "cerrar_ventana",
-                                                "minimizar_ventana", "esperar", "volumen", "multimedia"]},
+                                                "minimizar_ventana", "esperar", "esperar_listo", "volumen", "multimedia"]},
         nombre=S("abrir_app: nombre de la app"), url=S("abrir_url"), consulta=S("buscar_en_web"),
         app=S("enfocar/cerrar/minimizar_ventana: programa"), titulo=S("enfocar/cerrar/minimizar_ventana: parte del título"),
         todas=B(), texto=S("escribir_texto"), redactar=S("escribir_texto: instrucciones para redactar un texto largo y escribirlo"),
@@ -435,6 +488,12 @@ _tool("buscar_en_archivos", "Busca por CONTENIDO dentro de tus archivos de texto
                             "del archivo (ej. un Word llamado «documento5»): describe de qué trata con 3 a 6 palabras clave, no hace falta "
                             "que sean exactas.",
       dict(texto=S("Palabras clave de lo que dice el archivo (sin acentos ni plurales exactos)")), ["texto"], perm="archivos")
+_tool("buscar_en_imagenes", "Busca documentos (PDF, Word, PowerPoint, Excel) por lo que SE VE en sus imágenes: una foto, gráfica, diagrama o "
+                            "captura. Solo conoce los documentos que Orbi ya abrió o leyó antes (al hacerlo describe sus imágenes). Dice el "
+                            "documento y dónde está (página o diapositiva). Úsalo cuando describe una imagen de un documento que no "
+                            "encuentra; si no sale nada, prueba buscar_en_archivos por texto.",
+      dict(texto=S("Qué se ve en la imagen, 3 a 8 palabras clave (ej. 'gráfica de barras ventas', 'foto de un perro café')")),
+      ["texto"], perm="archivos")
 _tool("leer_archivo", "Lee el contenido de un archivo (Word, PowerPoint, Excel, PDF, texto o código) SIN abrirlo. "
                       "Devuelve un trozo; si hay 'siguiente_desde', llámala otra vez con ese valor para seguir.",
       dict(ruta=S("Ruta o solo el nombre del archivo (ej. 'reporte final'); no hace falta abrirlo ni verlo en pantalla"),
@@ -492,7 +551,10 @@ _tool("redactar_documento", "CREA un documento de WORD (.docx) completo y lo gua
            instrucciones=S("Qué debe decir el documento: tema, extensión, tono, secciones, datos del usuario"),
            contenido=S("Opcional: texto exacto ya dictado, en vez de redactarlo"),
            agregar_a=S("Opcional: nombre/ruta de un .docx existente al que añadir el texto en lugar de crear uno nuevo"),
-           abrir=B("true = abrirlo en Word al terminar")),
+           abrir=B("true = abrirlo en Word al terminar"),
+           palabras=I("Extensión objetivo en palabras (1 página ≈ 450). Úsalo siempre que pidan un documento largo o «de N páginas»"),
+           ampliar_de=S("Opcional: nombre de un documento existente que hay que AMPLIAR / hacer más largo; se usa su texto como base "
+                        "y se guarda una versión nueva más extensa")),
       ["archivo"], perm="archivos")
 # --- casa
 _tool("casa_listar", "Lista tus dispositivos de casa inteligente (luces, enchufes, ventiladores, persianas, escenas...).",
@@ -649,7 +711,7 @@ SETTLE_FLOOR = {"hacer_clic": 0.2, "escribir_texto": 0.1, "presionar_teclas": 0.
 SLOW_ACTIONS = {"abrir_app", "abrir_url", "buscar_en_web"}      # cargas en varias fases: pide más revisiones estables
 
 PLAN_TOOLS = {"abrir_app", "abrir_url", "buscar_en_web", "enfocar_ventana", "escribir_texto", "presionar_teclas", "hacer_clic",
-              "scroll", "cerrar_ventana", "minimizar_ventana", "esperar", "volumen", "multimedia"}
+              "scroll", "cerrar_ventana", "minimizar_ventana", "esperar", "esperar_listo", "volumen", "multimedia"}
 PLAN_MAX_STEPS = 15
 PLAN_MAX_SECONDS = 90
 
@@ -723,6 +785,10 @@ def _log(name, args, res, dt):
 # qué pasó de verdad (antes iba a ciegas y adivinaba teclas).
 MOUSE_GLIDE_S = 0.3        # segundos que tarda el cursor en llegar al clic (visible); 0 = salto instantáneo. Config: mouse_suave_s
 TODO_CAPTURA = True        # lo ajusta live_orb con "todo_captura_tras_accion" en config.json
+SENALAR_ASYNC = True       # `senalar` responde YA a la voz y ubica en segundo plano (config.json: "senalar_async")
+LARGA_MUESCAS = 7          # leer_pantalla_larga: muescas de rueda por tramo (~70-80 % de pantalla, deja traslape). Config: "leer_largo_muescas"
+LARGA_MAX_CAPTURAS = 14    # leer_pantalla_larga: tope de capturas por llamada (entre todas las ventanas)
+LARGA_IGUAL = 0.8          # diferencia media (0-255) bajo la cual dos capturas seguidas cuentan como «no se movió» = llegó al final
 _GUI_ACTIONS = {"hacer_clic", "scroll", "escribir_texto", "presionar_teclas", "enfocar_ventana", "cerrar_ventana",
                 "minimizar_ventana", "abrir_app", "abrir_url", "ejecutar_plan"}
 _SLOW_ACTIONS = {"abrir_app", "abrir_url", "ejecutar_plan"}      # tardan en cargar: espera un poco más antes de la captura
@@ -743,6 +809,162 @@ def _zona(args: dict):
     return [min(y1, y2), min(x1, x2), max(y1, y2), max(x1, x2)]
 
 
+# --------------------------------------------------------------------------- contenido largo: scroll + varias ventanas
+def _huella(jpeg: bytes):
+    """Miniatura en grises para comparar dos capturas sin gastar un modelo."""
+    import io
+    import numpy as np
+    from PIL import Image
+    return np.asarray(Image.open(io.BytesIO(jpeg)).convert("L").resize((96, 54)), dtype="int16")
+
+
+def _cambio(a, b) -> float:
+    return float(abs(a - b).mean())
+
+
+def _int_arg(v, d, lo, hi) -> int:
+    try:
+        return max(lo, min(hi, int(float(v))))
+    except (TypeError, ValueError):
+        return d
+
+
+def _punto_scroll(box, mon):
+    """Dónde poner el mouse para que la rueda mueva el contenido: centro de la zona pedida o, si no, de la ventana activa."""
+    if box:
+        ymin, xmin, ymax, xmax = box
+        return (mon["left"] + round((xmin + xmax) / 2000 * (mon["width"] - 1)),
+                mon["top"] + round((ymin + ymax) / 2000 * (mon["height"] - 1)))
+    try:
+        import ctypes
+        from ctypes import wintypes
+        u = ctypes.windll.user32
+        hwnd = u.GetForegroundWindow()
+        r = wintypes.RECT()
+        if hwnd and u.GetWindowRect(hwnd, ctypes.byref(r)):
+            cx, cy = (r.left + r.right) // 2, (r.top + r.bottom) // 2
+            return (min(max(cx, mon["left"] + 5), mon["left"] + mon["width"] - 5),
+                    min(max(cy, mon["top"] + 5), mon["top"] + mon["height"] - 5))
+    except Exception:                                   # noqa: BLE001
+        pass
+    return mon["left"] + mon["width"] // 2, mon["top"] + mon["height"] // 2
+
+
+def _leer_larga(args: dict, ctx, pg) -> dict:
+    """Lee contenido que no cabe en una pantalla: baja con la rueda (por cada ventana pedida), captura cada tramo, detecta el final
+    comparando capturas, y manda TODOS los tramos juntos a un solo modelo de visión (ctx.read_images). Al terminar regresa el scroll,
+    el foco y el mouse a donde estaban (aproximado: la rueda no es exacta)."""
+    from screen import capture, capture_region, primary_monitor, wait_settled
+    if not (ctx.get_profile().get("permisos") or {}).get("ver_pantalla"):
+        return {"error": "No tengo permiso para ver la pantalla; se activa en «Configurar a Orbi…»."}
+    box = _zona(args)
+    if box is False:
+        return {"error": "La zona debe ser x1,y1,x2,y2 entre 0 y 1000 (o no pases zona)."}
+    instr = str(args.get("instruccion", "") or "").strip()[:400]
+    tramos = _int_arg(args.get("tramos"), 6, 2, 10)
+    saltar = _int_arg(args.get("saltar_tramos"), 0, 0, 40)
+    ventanas = args.get("ventanas") or []
+    if isinstance(ventanas, str):
+        ventanas = [ventanas]
+    ventanas = [str(v).strip() for v in ventanas if str(v).strip()][:4]
+    desde_arriba = args.get("desde_arriba") is True or str(args.get("desde_arriba", "")).lower() in ("true", "1", "si", "sí")
+    restaurar = args.get("restaurar") is not False and str(args.get("restaurar", "")).lower() not in ("false", "0", "no")
+    muescas = max(2, int(LARGA_MUESCAS))
+
+    def tomar() -> bytes:
+        if box:
+            return capture_region(box, max_side=1600, quality=80, mark=False)[0]
+        return capture(max_side=1600, quality=80, mark=False)[0]
+
+    mon = primary_monitor()
+    pos0, fg0 = pg.position(), _fg_title()
+    frames, notas, finales = [], [], []              # finales: [(ventana, llegó_al_final)]
+    try:
+        for obj in (ventanas or [None]):
+            if ctx.cancelled() or len(frames) >= LARGA_MAX_CAPTURAS:
+                break
+            if obj:
+                r = _run("enfocar_ventana", {"titulo": obj}, ctx)
+                if r.get("error"):
+                    notas.append(f"No pude pasar a «{obj}»: {r['error']}")
+                    continue
+                wait_settled(0.6, floor_s=0.15)
+            etiqueta = obj or (_fg_title() or "pantalla")
+            cx, cy = _punto_scroll(box, mon)
+            pg.moveTo(cx, cy, duration=0.12)         # la rueda mueve lo que está bajo el cursor
+            subidas = bajadas = 0
+            if desde_arriba:
+                ant = _huella(tomar())
+                for _ in range(8):
+                    pg.scroll(15 * 120)
+                    time.sleep(0.18)
+                    nueva = _huella(tomar())
+                    if _cambio(ant, nueva) < LARGA_IGUAL:
+                        break                        # ya estaba arriba
+                    subidas += 15
+                    ant = nueva
+            if saltar:
+                pg.scroll(-saltar * muescas * 120)
+                bajadas += saltar * muescas
+                time.sleep(0.3)
+            prev, fin, n0 = None, False, len(frames)
+            for i in range(tramos):
+                if ctx.cancelled() or len(frames) >= LARGA_MAX_CAPTURAS:
+                    break
+                jpg = tomar()
+                h = _huella(jpg)
+                if prev is not None and _cambio(prev, h) < LARGA_IGUAL:
+                    fin = True                       # el scroll anterior no movió nada: ya estaba al final (esta captura se descarta)
+                    bajadas -= muescas
+                    break
+                frames.append((f"{etiqueta} · parte {saltar + i + 1}", jpg))
+                prev = h
+                pg.scroll(-muescas * 120)
+                bajadas += muescas
+                time.sleep(0.12)
+                wait_settled(0.5, floor_s=0.12)
+            else:
+                if prev is not None and _cambio(prev, _huella(tomar())) < LARGA_IGUAL:   # ¿el último scroll movió algo?
+                    fin = True
+                    bajadas -= muescas
+            finales.append((etiqueta, fin, len(frames) - n0))
+            neto = bajadas - subidas
+            if restaurar and not desde_arriba and neto:
+                pg.scroll(neto * 120)                # positivo = arriba: regresa a donde estaba (aproximado)
+                time.sleep(0.15)                     # (si subió hasta el principio no se puede: la rueda se topa y se pierde la cuenta)
+    finally:
+        try:
+            if ventanas and fg0:
+                _run("enfocar_ventana", {"titulo": fg0}, ctx)
+        except Exception:                            # noqa: BLE001
+            pass
+        try:
+            pg.moveTo(pos0[0], pos0[1], duration=0.1)
+        except Exception:                            # noqa: BLE001
+            pass
+    if not frames:
+        return {"error": "No pude capturar ningún tramo. " + " ".join(notas), "ventana_activa": _fg_title()}
+    leido = ctx.read_images(instr, frames)
+    if "error" in leido:
+        return leido
+    out = {"resultado": leido.get("resultado", ""), "capturas_leidas": len(frames), "ventana_activa": _fg_title()}
+    if notas:
+        out["avisos"] = notas
+    sin_fin = [e for e, fin, _n in finales if not fin]
+    if sin_fin:
+        out["hay_mas"] = True
+        out["nota"] = (f"No llegué al final de: {', '.join(sin_fin)} (tope de {tramos} pantallas por ventana). Si necesitas el resto, "
+                       f"vuelve a llamar con saltar_tramos={saltar + (finales[-1][2] if finales else 0)}.")
+        out["siguiente_saltar_tramos"] = saltar + (finales[-1][2] if finales else 0)
+    else:
+        out["llegue_al_final"] = True
+    if restaurar and not desde_arriba:
+        out["vista"] = "Dejé la vista (scroll, ventana y mouse) como estaba, más o menos."
+    elif desde_arriba:
+        out["vista"] = "Subí al principio para leer: la vista quedó donde terminé de leer (no la pude regresar a donde estaba)."
+    return out
+
+
 def run_tool(name: str, args: dict, ctx: ToolContext) -> dict:
     t0 = time.time()
     gui = LIVE_TODO and name in _GUI_ACTIONS
@@ -758,7 +980,7 @@ def run_tool(name: str, args: dict, ctx: ToolContext) -> dict:
     except Exception as e:                                  # noqa: BLE001
         res = {"error": f"{type(e).__name__}: {e}"}
     if gui:
-        _last_gui["key"] = key
+        _last_gui["key"] = None if (isinstance(res, dict) and (res.get("aviso") or res.get("error"))) else key
         if TODO_CAPTURA and isinstance(res, dict) and not res.get("error") and "_image" not in res:
             try:
                 time.sleep(1.5 if name in _SLOW_ACTIONS else 0.7)        # deja que la ventana reaccione
@@ -795,10 +1017,30 @@ def _run(name: str, args: dict, ctx: ToolContext) -> dict:
     if name == "senalar" and str(args.get("que", "")).strip():
         if not (ctx.get_profile().get("permisos") or {}).get("ver_pantalla"):
             return {"error": "No tengo permiso para ver la pantalla; se activa en «Configurar a Orbi…»."}
-        found = ctx.locate(str(args["que"]).strip())
+        que = str(args["que"]).strip()
+        texto = str(args.get("texto", "") or "")[:120]
+        if SENALAR_ASYNC:
+            # el modelo de visión tarda 1-3 s: se ubica en segundo plano para que la voz conteste al instante
+            def _ubicar_y_senalar():
+                t0 = time.time()
+                try:
+                    found = ctx.locate(que)
+                except Exception as e:                                  # noqa: BLE001
+                    import traceback
+                    traceback.print_exc()
+                    found = {"error": f"{type(e).__name__}: {str(e)[:100]}"}
+                if "error" in found:
+                    print(f"[señalar] FALLÓ «{que[:60]}» tras {time.time() - t0:.1f}s: {found['error']}")
+                    ctx.emit("senalar_fallo", f"{que[:60]}: {str(found['error'])[:100]}")
+                    return
+                print(f"[señalar] ubicado en {time.time() - t0:.1f}s -> anillo en x={found.get('x')} y={found.get('y')}")
+                ctx.emit("orb_point", {"x": found["x"], "y": found["y"], "texto": texto})
+            threading.Thread(target=_ubicar_y_senalar, daemon=True).start()
+            return {"resultado": f"Ya lo estoy ubicando: el anillo aparece en 1 o 2 segundos. Dile en una frase corta y natural que ya se "
+                                 f"lo marcas (ej. «ahí te lo marco»). No digas dónde está ni que ya lo ves; si no lo encuentro, te aviso aparte."}
+        found = ctx.locate(que)
         if "error" in found:
             return {"error": found["error"]}
-        texto = str(args.get("texto", "") or "")[:120]
         ctx.emit("orb_point", {"x": found["x"], "y": found["y"], "texto": texto})
         return {"resultado": "Listo, ya lo señalé" + (f": {found['etiqueta']}." if found.get("etiqueta") else ".")}
     if name in ("mover_bolita", "senalar"):
@@ -857,6 +1099,24 @@ def _run(name: str, args: dict, ctx: ToolContext) -> dict:
         w = datetime.fromisoformat(it["when"])
         cuando = f"{_DIAS[w.weekday()]} {w.day} a las {w:%H:%M}" if w.date() != datetime.now().date() else f"hoy a las {w:%H:%M}"
         return {"resultado": f"Listo: {kind} «{it['texto']}» {cuando}" + (f" (se repite: {it['repetir']})" if it["repetir"] != "no" else "")}
+    if name == "definir_rutina":
+        if ctx.reglas is None:
+            return {"error": "Las reglas no están disponibles."}
+        acc = args.get("acciones")
+        if isinstance(acc, str):
+            try:
+                acc = json.loads(acc)
+            except ValueError:
+                return {"error": "`acciones` debe ser una lista."}
+        r, err = ctx.reglas.add_rutina(str(args.get("cuando", "")), str(args.get("nombre", "") or ""), str(args.get("filtro", "") or ""),
+                                       str(args.get("hora", "") or ""), str(args.get("dias", "") or ""), args.get("cada_min") or 0,
+                                       args.get("umbral") or 0, str(args.get("estado", "") or ""), acc, "", bool(args.get("una_vez")))
+        return {"resultado": "Rutina guardada: " + ctx.reglas.describe(r)} if r else {"error": err}
+    if name == "ejecutar_rutina":
+        if ctx.reglas is None:
+            return {"error": "Las reglas no están disponibles."}
+        hechas, err = ctx.reglas.ejecutar_frase(str(args.get("nombre", "")))
+        return {"resultado": "Ejecutando: " + ", ".join(hechas) + ". Ya lo está haciendo; solo di «va» o algo corto."} if hechas else {"error": err}
     if name in ("definir_regla", "listar_reglas", "quitar_regla"):
         if ctx.reglas is None:
             return {"error": "Las reglas no están disponibles."}
@@ -941,8 +1201,13 @@ def _run(name: str, args: dict, ctx: ToolContext) -> dict:
         w = wait_for_window(exe_hint, 8.0, antes) if sys.platform == "win32" else None
         if w:
             focus_window(w["hwnd"])
-            return {"resultado": f"Abrí {app} y ya está al frente.", "ventana": w["title"], "_sin_captura": True}
-        return {"resultado": f"Lancé {app}; todavía no veo su ventana (puede tardar o abrir en la bandeja)."}
+            r = _esperar_listo(w["hwnd"], max_s=APP_LOAD_S, quiet_s=0.8)
+            if r["listo"]:
+                return {"resultado": f"Abrí {app}; ya cargó y está al frente (tardó {r['espero_s']} s).", "ventana": w["title"]}
+            return {"resultado": f"Abrí {app} pero TODAVÍA ESTÁ CARGANDO ({r['motivo']}, esperé {r['espero_s']} s). NO escribas ni hagas clic "
+                                 "aún: usa esperar_listo o mira la captura y espera a que la interfaz termine de cargar.",
+                    "ventana": w["title"], "cargando": True}
+        return {"resultado": f"Lancé {app}; todavía no veo su ventana (puede tardar o abrir en la bandeja). Usa esperar_listo antes de escribir."}
     if name == "abrir_url":
         url = str(args.get("url", "")).strip()
         if not re.match(r"^https?://", url, re.I):
@@ -1058,6 +1323,69 @@ def _run(name: str, args: dict, ctx: ToolContext) -> dict:
 
 
 # --------------------------------------------------------------------------- planes (varios pasos en una llamada)
+LOADING_WORDS = ("cargando", "loading", "iniciando", "starting", "splash", "abriendo", "espere", "please wait", "un momento",
+                 "no responde", "not responding")
+ESCRITO_RECIENTE = []       # [(t, texto, ventana)]: lo que Orbi tecleó hace poco (el modo compañero lo usa para no culpar al dueño)
+
+
+def escrito_reciente(max_s: float = 420.0) -> list:
+    now = time.time()
+    ESCRITO_RECIENTE[:] = [e for e in ESCRITO_RECIENTE if now - e[0] < max_s][-6:]
+    return list(ESCRITO_RECIENTE)
+
+
+def _hung(hwnd) -> bool:
+    if sys.platform != "win32" or not hwnd:
+        return False
+    try:
+        import ctypes
+        return bool(ctypes.windll.user32.IsHungAppWindow(hwnd))
+    except Exception:                                   # noqa: BLE001
+        return False
+
+
+def _grab_fn():
+    try:
+        import mss
+        from screen import _thumb_from_mss
+        sct = mss.mss(); mon = dict(sct.monitors[1])
+        return lambda: _thumb_from_mss(sct, mon)
+    except Exception:                                   # noqa: BLE001
+        return None
+
+
+def _esperar_listo(hwnd=None, max_s: float = 12.0, quiet_s: float = 0.6, threshold: float = 0.8) -> dict:
+    """Espera a que la ventana esté LISTA: que responda (no «No responde»), que su título no diga cargando/iniciando y que la
+    pantalla lleve `quiet_s` sin cambiar. Las apps pesadas (Arduino IDE, Android Studio, Word) crean la ventana MUCHO antes de
+    poder usarse: escribir ahí se pierde. -> {listo, espero_s, motivo}."""
+    from windows import foreground_hwnd, foreground_info
+    t0, quiet_since, prev, motivo = time.time(), None, None, ""
+    grab = _grab_fn()
+    while True:
+        h = hwnd or foreground_hwnd()
+        title = (foreground_info().get("title") or "").lower() if not hwnd or h == foreground_hwnd() else ""
+        hung = _hung(h)
+        busy = hung or any(w in title for w in LOADING_WORDS)
+        moved = False
+        if grab:
+            try:
+                cur = grab()
+                moved = prev is not None and float(abs(cur - prev).mean()) > threshold
+                prev = cur
+            except Exception:                           # noqa: BLE001
+                grab = None
+        if busy or moved:
+            quiet_since = None
+            motivo = "no responde" if hung else ("dice que está cargando" if busy else "la pantalla sigue cambiando")
+        else:
+            quiet_since = quiet_since or time.time()
+            if time.time() - quiet_since >= quiet_s:
+                return {"listo": True, "espero_s": round(time.time() - t0, 1)}
+        if time.time() - t0 >= max_s:
+            return {"listo": False, "espero_s": round(time.time() - t0, 1), "motivo": motivo or "tardó demasiado"}
+        time.sleep(0.1)
+
+
 def _wait_window_text(text: str, limit: float, poll: float = 0.1) -> bool:
     """Espera a que la ventana ACTIVA tenga `text` en el título o el programa. True si apareció a tiempo."""
     from windows import foreground_info
@@ -1137,6 +1465,9 @@ def _run_plan(args: dict, ctx: ToolContext) -> dict:
                 limit = 8.0
             if not _wait_window_text(espera, limit):
                 return _plan_stop(ctx, i, tool, f"no apareció una ventana con «{espera}» en {limit:g} s.", hechos)
+            lst = _esperar_listo(max_s=max(4.0, min(APP_LOAD_S, limit * 2)), quiet_s=0.5)
+            if not lst["listo"]:
+                return _plan_stop(ctx, i, tool, f"la ventana «{espera}» apareció pero sigue cargando ({lst['motivo']}).", hechos)
     return _plan_result(ctx, {"resultado": f"Ejecuté los {len(hechos)} pasos del plan.", "pasos": hechos,
                               "ventana_activa": _fg_title()})
 
@@ -1166,7 +1497,11 @@ def _control(name: str, args: dict, ctx: ToolContext) -> dict:
             return {"error": "Dime qué ventanas (programa o título); no cierro/minimizo 'todo'."}
         matches = match_windows(app, titulo)
         if not matches:
-            return {"error": "No encontré esa ventana.", "ventanas": [w["title"] for w in list_windows()][:25]}
+            err = {"error": "No encontré esa ventana.", "ventanas": [w["title"] for w in list_windows()][:25]}
+            if any(k in f"{app} {titulo}".lower() for k in ("orbi", "mini", "panel", "burbuja", "bolita", "chat")):
+                err["indicacion"] = ("Las ventanas de Orbi (mini ventana, burbuja, chat) no se ven ni se cierran como ventanas de "
+                                     "Windows. Para cerrar la mini ventana usa `mini_ventana` con accion='ocultar'.")
+            return err
         if name == "enfocar_ventana":
             w = matches[0]
             time.sleep(0.1)
@@ -1251,6 +1586,9 @@ def _control(name: str, args: dict, ctx: ToolContext) -> dict:
 
     ctx.before_input()                                  # esconde el chat de Orbi para que no robe el foco / el texto
 
+    if name == "leer_pantalla_larga":
+        return _leer_larga(args, ctx, pg)
+
     if name == "scroll":
         n = max(-20, min(20, int(args.get("cantidad", 0))))
         pg.scroll(n * 120)
@@ -1316,7 +1654,14 @@ def _control(name: str, args: dict, ctx: ToolContext) -> dict:
                 return {"error": f"No encontré una ventana de «{args['ventana']}» abierta."}
             focus_window(ms[0]["hwnd"])
             focused = _wait_foreground(ms[0]["hwnd"], 0.4)     # antes: dormía 0.35 s fijos sin comprobar nada
+        listo = _esperar_listo(max_s=8.0, quiet_s=0.15)          # rápido si ya está lista; si carga, espera (antes tecleaba al vacío)
+        if not listo["listo"]:
+            return {"error": f"La ventana «{foreground_info()['title'] or 'activa'}» todavía no está lista ({listo['motivo']}); NO escribí nada "
+                             "para que no se pierda. Espera con esperar_listo (o mira la captura) y vuelve a intentarlo.",
+                    "ventana_activa": foreground_info()["title"]}
         fg = foreground_info()["title"]
+        _grab = _grab_fn()
+        _antes = _grab() if _grab else None
         if args.get("nueva_linea"):
             pg.press("enter")
         import winput
@@ -1338,6 +1683,14 @@ def _control(name: str, args: dict, ctx: ToolContext) -> dict:
         time.sleep(0.15)
         if args.get("enter"):
             pg.press("enter")
+        ESCRITO_RECIENTE.append((time.time(), texto[:700], fg))
+        cambio = None
+        if _antes is not None and len(texto.strip()) >= 4:
+            time.sleep(0.35)
+            try:
+                cambio = float(abs(_grab() - _antes).mean()) > 0.02
+            except Exception:                                   # noqa: BLE001
+                cambio = None
         out = {"resultado": f"Escribí {len(texto)} caracteres en «{fg or 'la ventana activa'}»."
                             + (" (y Enter)" if args.get("enter") else "") + nota_largo, "ventana_activa": fg}
         if redactar:
@@ -1345,9 +1698,30 @@ def _control(name: str, args: dict, ctx: ToolContext) -> dict:
             out["indicacion"] = "Ya quedó escrito completo. No lo repitas en voz alta ni lo vuelvas a escribir; di solo «listo»."
         if focused is False:
             out["aviso"] = f"La ventana «{args['ventana']}» no llegó a quedar al frente; revisa dónde se escribió."
+        elif cambio is False:
+            out["aviso"] = ("Tecleé el texto pero NO vi que la pantalla cambiara: puede que no se haya escrito (¿el cursor no estaba en un "
+                            "campo de texto, o la interfaz seguía cargando?). Mira la captura y comprueba antes de repetirlo.")
         elif focused and not args.get("enter"):
             out["_sin_captura"] = True                  # dictado: ya se comprobó el foco y SendInput terminó, sin captura por frase
         return out
+
+    if name == "esperar_listo":
+        try:
+            seg = max(1.0, min(30.0, float(args.get("segundos") or 15)))
+        except (TypeError, ValueError):
+            seg = 15.0
+        hwnd = None
+        if args.get("ventana"):
+            from windows import match_windows
+            ms = match_windows(str(args["ventana"]), "") or match_windows("", str(args["ventana"]))
+            if not ms:
+                return {"error": f"No encontré una ventana de «{args['ventana']}» abierta (¿todavía no aparece?)."}
+            hwnd = ms[0]["hwnd"]
+        r = _esperar_listo(hwnd, max_s=seg, quiet_s=0.8)
+        if r["listo"]:
+            return {"resultado": f"Ya está lista (esperé {r['espero_s']} s).", "ventana_activa": _fg_title()}
+        return {"resultado": f"Todavía no está lista tras {r['espero_s']} s: {r['motivo']}. Espera más o mira la captura.",
+                "ventana_activa": _fg_title(), "cargando": True}
 
     if name == "presionar_teclas":
         raw = str(args.get("teclas", "")).lower().replace(" ", "")
@@ -1383,6 +1757,7 @@ def _control(name: str, args: dict, ctx: ToolContext) -> dict:
 
 
 # --------------------------------------------------------------------------- archivos
+APP_LOAD_S = 20.0           # tope para esperar a que una app recién abierta termine de cargar
 MAX_ESCRIBIR = 20000        # tope de caracteres por escribir_texto (antes 2000, y recortaba en silencio)
 
 
@@ -1414,6 +1789,15 @@ def _resolve_file(ref: str):
     return None, found
 
 
+def _img_info(p, ctx) -> dict:
+    """Imágenes dentro del documento que Orbi acaba de leer/abrir: cuántas hay y arranca su descripción en segundo plano."""
+    try:
+        import doc_images as DI
+        return DI.on_read(p, ctx.describe_image)
+    except Exception:                                      # noqa: BLE001
+        return {}
+
+
 def _files(name: str, args: dict, ctx: ToolContext) -> dict:
     if name == "buscar_archivos":
         texto = str(args.get("texto", "")).strip()
@@ -1423,6 +1807,19 @@ def _files(name: str, args: dict, ctx: ToolContext) -> dict:
         if not found:
             return {"resultado": "No encontré archivos con ese nombre. Prueba buscar_en_archivos por contenido."}
         return {"resultado": [f"{f}  (modificado {datetime.fromtimestamp(f.stat().st_mtime):%d/%m/%Y})" for f in found]}
+
+    if name == "buscar_en_imagenes":
+        texto = str(args.get("texto", "")).strip()
+        if len(texto) < 3:
+            return {"error": "Dime qué se ve en la imagen (3 letras o más)."}
+        import doc_images as DI
+        hits, n_docs = DI.search(texto)
+        if not hits:
+            return {"resultado": ("No encontré ninguna imagen parecida" if n_docs else "Todavía no tengo imágenes descritas")
+                    + f" (documentos con imágenes ya revisados: {n_docs}). Solo conozco las de documentos que ya abrí o leí; "
+                      "si sabes cuál podría ser, dímelo y lo leo para describir sus imágenes, o busca por texto con buscar_en_archivos."}
+        return {"resultado": [{"ruta": f, "donde": w, "imagen": d} for f, w, d in hits],
+                "indicacion": "Dile la ruta del mejor candidato y dónde está; pregúntale si lo abres (`abrir_archivo`)."}
 
     if name == "buscar_en_archivos":
         texto = str(args.get("texto", "")).strip()
@@ -1440,7 +1837,8 @@ def _files(name: str, args: dict, ctx: ToolContext) -> dict:
         if info.get("escaneados"):
             notas.append(f"{info['escaneados']} PDF son escaneos (imagen sin texto) y no se pueden buscar por contenido.")
         if not hits:
-            return {"resultado": "No encontré nada parecido dentro de tus archivos.", "notas": notas}
+            return {"resultado": "No encontré nada parecido dentro de tus archivos. Si lo que recuerda es algo que se VE en una "
+                                 "imagen del documento, prueba buscar_en_imagenes.", "notas": notas}
         return {"resultado": [{"ruta": str(f), "fragmento": frag} for f, frag in hits], "notas": notas,
                 "indicacion": "Dile al dueño la ruta exacta del mejor candidato y pregúntale si lo abres (`abrir_archivo` con esa ruta)."}
 
@@ -1449,7 +1847,7 @@ def _files(name: str, args: dict, ctx: ToolContext) -> dict:
         if d is None:
             if cands:
                 return {"error": "Hay varias carpetas con ese nombre; dime cuál.", "candidatos": [str(c) for c in cands]}
-            return {"error": "No encontré esa carpeta dentro de Documentos, Escritorio o Descargas."}
+            return {"error": "No encontré esa carpeta dentro de Documentos, Escritorio, Descargas, Imágenes, Videos, Música o una unidad externa conectada."}
         if name == "listar_carpeta":
             return {"resultado": DR.list_dir(d)}
         if sys.platform != "win32":
@@ -1469,16 +1867,16 @@ def _files(name: str, args: dict, ctx: ToolContext) -> dict:
             p, cands = _resolve_file(ref)
             if p is None:
                 return {"error": "No hay un archivo claro con ese nombre.", "candidatos": [str(c) for c in cands]} if cands \
-                    else {"error": "No encontré ese archivo en Documentos, Escritorio o Descargas."}
+                    else {"error": "No encontré ese archivo en Documentos, Escritorio, Descargas, Imágenes, Videos, Música o una unidad externa conectada."}
         if not DR.inside_roots(p):
-            return {"error": "Solo leo archivos dentro de Documentos, Escritorio o Descargas."}
+            return {"error": "Solo leo archivos dentro de Documentos, Escritorio, Descargas, Imágenes, Videos, Música o una unidad externa conectada."}
         try:
             text, kind = DR.extract(p)
         except DR.ReadError as e:
             return {"error": str(e)}
         d = DR.chunk(text, args.get("desde") or 0, 6000)
         d["tipo"] = kind
-        return {"resultado": d}
+        return {"resultado": d, **_img_info(p, ctx)}
 
     if name == "analizar_documento":
         fuente = str(args.get("fuente", "") or "abierto").strip()
@@ -1499,7 +1897,7 @@ def _files(name: str, args: dict, ctx: ToolContext) -> dict:
         except DR.ReadError as e:
             return {"error": str(e)}
         res = ctx.analyze(text, instr)
-        return {"resultado": res[:12000], "archivo": p.name, "tipo": kind, "caracteres_leidos": len(text)}
+        return {"resultado": res[:12000], "archivo": p.name, "tipo": kind, "caracteres_leidos": len(text), **_img_info(p, ctx)}
 
     import archivos_ops as AO
     if name == "crear_carpeta":
@@ -1538,10 +1936,31 @@ def _files(name: str, args: dict, ctx: ToolContext) -> dict:
     if name == "redactar_documento":
         contenido = str(args.get("contenido", "") or "").strip()
         instr = str(args.get("instrucciones", "") or "").strip()
+        try:
+            palabras = max(0, min(12000, int(float(args.get("palabras") or 0))))
+        except (TypeError, ValueError):
+            palabras = 0
+        base_txt, ampliar = "", str(args.get("ampliar_de", "") or "").strip()
+        if ampliar and not contenido:
+            bp, bc = _resolve_file(ampliar)
+            if bp is None:
+                return {"error": "No encontré el documento a ampliar; dime cuál es.", "candidatos": [str(c) for c in bc]} if bc \
+                    else {"error": f"No encontré «{ampliar}» para ampliarlo."}
+            try:
+                base_txt, _k = DR.extract(bp)
+            except DR.ReadError as e:
+                return {"error": str(e)}
+            nombre_dest = str(args.get("archivo", "") or "").strip().lower()
+            if not nombre_dest or nombre_dest in (bp.stem.lower(), bp.name.lower()):
+                args["archivo"] = bp.stem + " (ampliado)"          # nunca sobrescribe el original
+            if not palabras:
+                palabras = max(900, int(len(base_txt.split()) * 2))
+            instr = (instr + "\n\n" if instr else "") + ("Amplía y desarrolla el documento actual: conserva sus ideas y estructura, "
+                                                       "agrega profundidad, ejemplos y secciones, y entrégalo COMPLETO (no solo lo nuevo).")
         if not contenido:
             if not instr:
                 return {"error": "Dime de qué trata el documento (`instrucciones`) o pásame el texto exacto en `contenido`."}
-            r = ctx.write(instr, "documento", "")
+            r = ctx.write(instr, "documento", ("DOCUMENTO ACTUAL A AMPLIAR:\n" + base_txt[:60000]) if base_txt else "", palabras)
             if r.get("error"):
                 return {"error": r["error"]}
             contenido = r.get("texto", "")
@@ -1550,6 +1969,8 @@ def _files(name: str, args: dict, ctx: ToolContext) -> dict:
         if "error" in res:
             return res
         res["palabras"] = len(contenido.split())
+        if palabras and res["palabras"] < palabras * 0.7:
+            res["aviso"] = f"Quedó en {res['palabras']} palabras (se pedían ~{palabras}). Si falta, vuelve a llamar con ampliar_de."
         res["empieza_con"] = contenido.strip().splitlines()[0][:120] if contenido.strip() else ""
         if args.get("abrir") is True:
             _launch(res["ruta"])
@@ -1561,10 +1982,11 @@ def _files(name: str, args: dict, ctx: ToolContext) -> dict:
         p, cands = _resolve_file(str(args.get("ruta", "")))
         if p is None:
             return {"error": "No hay un archivo claro con ese nombre.", "candidatos": [str(c) for c in cands]} if cands \
-                else {"error": "No encontré ese archivo en Documentos, Escritorio o Descargas."}
+                else {"error": "No encontré ese archivo en Documentos, Escritorio, Descargas, Imágenes, Videos, Música o una unidad externa conectada."}
         if p.suffix.lower() in BLOCKED_EXT:
             return {"error": f"Por seguridad no abro archivos {p.suffix}."}
         _launch(str(p))
+        _img_info(p, ctx)                                    # también indexa sus imágenes en segundo plano
         return {"resultado": f"Abrí {p.name}."}
 
     return {"error": f"Tool desconocida: {name}"}

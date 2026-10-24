@@ -22,6 +22,7 @@ KEEP_IMAGES = 2                      # solo las últimas N capturas viajan en el
 # tamaño de las capturas de VERIFICACIÓN (la inicial sigue a 1280 px). live_orb las ajusta con config.json
 SHOT_SIDE = 1024
 SHOT_QUALITY = 60
+PLAN_THINKING = "default"   # el PRIMER paso piensa más (planea toda la tarea); los demás usan THINKING. config.json: agent_plan_thinking
 THINKING = "low"          # cuánto "piensa" el modelo en cada paso ("low" = rápido; "default" = el del modelo). Ver config.json: agent_thinking
 
 SYSTEM = """Eres el AGENTE de Orbi: operas la computadora Windows de {quien} para completar una tarea.
@@ -39,7 +40,13 @@ Cómo trabajar:
   Usa mouse y teclado solo cuando no haya otra forma.
 - Para revisar un documento o página completa: analizar_documento con fuente='abierto'; si no es un archivo guardado,
   copiar_texto_de_ventana y luego léelo por partes (usa 'desde') o analiza el texto tú mismo.
+- CONTENIDO LARGO EN PANTALLA: si lo que tienes que revisar no cabe en una pantalla (página web, chat, tabla, lista) NO te quedes con lo
+  visible: usa `leer_pantalla_larga` (baja con la rueda, junta todos los tramos y deja la vista como estaba; con `ventanas` recorre varias
+  ventanas), o `scroll` + captura hasta llegar al final. Antes de dar algo por «no está», comprueba que ya viste todo.
 - Antes de escribir en una app, haz clic en el campo correcto y comprueba que quedó enfocado.
+- ESPERA A QUE CARGUE: las apps pesadas (Arduino IDE, Android Studio, Word) crean la ventana antes de poder usarse. Si abrir_app devuelve `cargando`
+  o la captura muestra una pantalla de carga, usa `esperar_listo` antes de escribir o hacer clic. Tras escribir, comprueba en la captura que el texto apareció
+  (si llega un `aviso`, no lo des por hecho).
 - ACCIONES DELICADAS: si un paso envía o publica algo a otras personas (mensaje, correo, post), compra o paga, borra,
   instala o cambia cuentas, ponle delicada=true y un resumen claro; el sistema pedirá permiso al usuario. Si no lo
   autoriza, detente y repórtalo.
@@ -53,6 +60,12 @@ Cómo trabajar:
 - RAPIDEZ: cada paso cuesta tiempo. Para abrir una app usa SIEMPRE `abrir_app` (abre cualquier app instalada, o si ya
   estaba abierta la pone al frente y confirma sola: no revises con capturas ni uses el menú Inicio, Win+tecla ni el buscador).
   Para escribir en una ventana abierta usa `escribir_texto` con `ventana` (cambia a ella y escribe sin clics).
+- PLANEAR ANTES DE ACTUAR (tareas que mueven la pantalla: clics, ventanas, apps, menús): en tu PRIMER paso no hagas una acción
+  suelta. Primero decide el plan completo: 1) qué hay ahora en pantalla (ventana activa, qué app está abierta), 2) la lista de
+  pasos en orden hasta el resultado final, 3) qué ventana debe estar al frente y enfocada antes de cada paso, 4) dónde hay que
+  esperar (apps que abren o cargan), 5) cómo comprobarás que quedó bien. Luego mándalo en el menor número de llamadas posible
+  (`ejecutar_plan`); los clics que dependen de lo que aparece se hacen con la pantalla a la vista. Si un paso falla, replantea
+  desde el estado real de la captura; no repitas la misma acción.
 - PLANES (lo más importante para ir rápido): cada vez que consultas al modelo se pierden varios segundos, y las herramientas
   tardan décimas. En cuanto sepas una SECUENCIA de pasos que no necesita que veas la pantalla entre uno y otro, mándala TODA en un
   solo `ejecutar_plan` (abrir_app → esperar_ventana → atajo → escribir_texto...). Usa `esperar_ventana` en el paso que hace que algo
@@ -120,7 +133,8 @@ class Agent:
 
         prof = self.get_profile() or {}
         from perfil import call_name
-        system = SYSTEM.format(quien=call_name(prof) or "tu dueño")
+        from perfil import fecha_actual_texto
+        system = SYSTEM.format(quien=call_name(prof) or "tu dueño") + "\n\n" + fecha_actual_texto()
         from perfil import lessons_text
         if lessons_text(prof):
             system += ("\n\nLECCIONES que el dueño te enseñó antes (aplícalas si la tarea se parece):\n" + lessons_text(prof)
@@ -148,7 +162,7 @@ class Agent:
                 return f"Me quedé sin tiempo ({MAX_SECONDS} s) antes de terminar la tarea.", False
             try:
                 t_model0 = time.time()
-                resp, _model = llm.generate(self.pool, self.models, contents, config, thinking=THINKING)
+                resp, _model = llm.generate(self.pool, self.models, contents, config, thinking=(PLAN_THINKING if step == 1 else THINKING))
                 t_model = time.time() - t_model0
                 um = getattr(resp, "usage_metadata", None)
                 tokens = (f" · tokens: prompt {getattr(um, 'prompt_token_count', 0) or 0}, pensó "

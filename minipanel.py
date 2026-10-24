@@ -3,7 +3,8 @@
 Muestra: tarea en curso, avisos/resultados que Orbi empuja con push(), timers (cuenta regresiva), alarmas, recordatorios,
 calendario y resúmenes de búsquedas web con imagen.
 
-Ajustes (profile["ajustes"]["mini"]): modo "siempre"|"con_datos"|"oculta", tam, opacidad, esquina (solo si no hay bolita
+Ajustes (profile["ajustes"]["mini"]): modo "orbi"|"siempre"|"con_datos"|"oculta" («orbi» = por defecto: solo sale cuando ORBI decide
+mostrar algo con la herramienta mini_ventana, o suena una alarma; calendario, timers y avisos automáticos no la abren), tam, opacidad, esquina (solo si no hay bolita
 a la que seguir), secciones {calendario, alarmas, recordatorios, timers, busquedas}, pos (arrastre manual, solo sin bolita).
 
 API que usa live_orb.py:
@@ -18,10 +19,10 @@ from datetime import datetime
 
 from PySide6.QtCore import Qt, QTimer, QPoint
 from PySide6.QtGui import QColor, QPainter, QPixmap, QPen, QBrush
-from PySide6.QtWidgets import QApplication, QHBoxLayout, QLabel, QMenu, QVBoxLayout, QWidget
+from PySide6.QtWidgets import QApplication, QHBoxLayout, QLabel, QMenu, QPushButton, QVBoxLayout, QWidget
 from PySide6.QtGui import QGuiApplication
 
-DEFAULT = {"modo": "con_datos", "tam": "media", "opacidad": 92, "esquina": "inferior_derecha",
+DEFAULT = {"modo": "orbi", "tam": "media", "opacidad": 92, "esquina": "inferior_derecha",
            "secciones": {"calendario": True, "alarmas": True, "recordatorios": True, "timers": True, "busquedas": True}, "pos": None}
 TAM = {"compacta": dict(w=250, fs=11, items=2, img=0), "media": dict(w=310, fs=12, items=4, img=84),
        "grande": dict(w=400, fs=13, items=6, img=116)}
@@ -33,7 +34,7 @@ MAX_PUSH = 4
 def merged(cfg: dict | None) -> dict:
     out = {**DEFAULT, **(cfg or {})}
     out["secciones"] = {**DEFAULT["secciones"], **((cfg or {}).get("secciones") or {})}
-    if out["modo"] not in ("siempre", "con_datos", "oculta"):
+    if out["modo"] not in ("orbi", "siempre", "con_datos", "oculta"):
         out["modo"] = DEFAULT["modo"]
     if out["tam"] not in TAM:
         out["tam"] = DEFAULT["tam"]
@@ -63,6 +64,7 @@ class MiniPanel(QWidget):
         self.tarea = None                # {"texto", "paso", "t"}
         self._drag = None
         self._cache = None
+        self._dismissed = None           # firma de los datos fijos (alarmas, calendario...) que el usuario ya cerró
         self._lay = QVBoxLayout(self)
         self._lay.setContentsMargins(12, 10, 12, 10)
         self._lay.setSpacing(6)
@@ -70,12 +72,28 @@ class MiniPanel(QWidget):
         self._text.setAttribute(Qt.WA_TransparentForMouseEvents, True)
         self._lay.addWidget(self._text)
         self._card_boxes: list = []
+        self._close = QPushButton("✕", self)                 # botón de cerrar (antes solo había menú con clic derecho)
+        self._close.setFixedSize(20, 20)
+        self._close.setCursor(Qt.PointingHandCursor)
+        self._close.setFocusPolicy(Qt.NoFocus)
+        self._close.setStyleSheet("QPushButton{color:#cfd6e6;background:rgba(255,255,255,25);border:none;border-radius:10px;"
+                                  "font-size:11px;}QPushButton:hover{background:rgba(255,80,80,170);color:white;}")
+        self._close.clicked.connect(self.hide_now)
+        self._close.raise_()
         self._timer = QTimer(self); self._timer.timeout.connect(self._tick); self._timer.start(1000)
         self._n = 0
         self.refresh()
 
     # ------------------------------------------------------------------ datos
+    def _solo_orbi(self) -> bool:
+        try:
+            return merged(self.get_cfg())["modo"] == "orbi"
+        except Exception:                                  # noqa: BLE001
+            return False
+
     def push(self, icono, titulo, lineas, segundos=40, clave=None) -> None:
+        if self._solo_orbi() and not (clave == "orbi" or str(clave or "").startswith("alarm:")):
+            return                                         # modo «orbi»: avisos automáticos no abren la ventana; solo lo que Orbi decide
         if isinstance(lineas, str):
             lineas = [x.strip() for x in lineas.splitlines() if x.strip()]
         lineas = [str(x)[:90] for x in (lineas or [])][:6]
@@ -92,14 +110,33 @@ class MiniPanel(QWidget):
         self.refresh()
 
     def set_tarea(self, texto, paso="") -> None:
+        if texto and self._solo_orbi():
+            return
         self.tarea = {"texto": str(texto)[:80], "paso": str(paso)[:60], "t": time.time()} if texto else None
         self.refresh()
 
+    @staticmethod
+    def _firma(d: dict) -> tuple:
+        """Qué datos «fijos» hay ahora (sin contar la cuenta regresiva): si cambian, la ventana puede volver a salir."""
+        return (tuple(str(i.get("id") or i.get("texto")) + str(w) for w, i in d["alarmas"]),
+                tuple(str(i.get("id") or i.get("texto")) + str(w) for w, i in d["recs"]),
+                tuple(str(i.get("id") or i.get("texto")) + str(w) for w, i in d["timers"]),
+                tuple(str(x) for x in d["evs"]))
+
     def hide_now(self) -> None:
-        self.pushes.clear(); self.tarea = None
+        """Cierra la ventana YA. Antes solo borraba avisos y tarea, y con alarmas, calendario o búsquedas seguía abierta
+        (por eso el botón «no hacía nada»). Ahora además recuerda los datos fijos actuales y no reabre hasta que lleguen otros."""
+        self.pushes.clear(); self.tarea = None; self.cards = []
+        try:
+            self._dismissed = self._firma(self._collect(merged(self.get_cfg())))
+        except Exception:                                  # noqa: BLE001
+            self._dismissed = None
+        self.hide()
         self.refresh()
 
     def add_web_card(self, card: dict) -> None:
+        if self._solo_orbi():
+            return
         pix = None
         if card.get("imagen"):
             p = QPixmap()
@@ -111,7 +148,8 @@ class MiniPanel(QWidget):
         self.refresh()
 
     def _collect(self, c: dict) -> dict:
-        sec, now = c["secciones"], datetime.now()
+        sec = c["secciones"] if c["modo"] != "orbi" else {k: False for k in c["secciones"]}
+        now = datetime.now()
         alarmas, recs, timers = [], [], []
         try:
             items = self.get_alarms() or []
@@ -154,7 +192,13 @@ class MiniPanel(QWidget):
         self.setFixedWidth(t["w"])
         self.setWindowOpacity(max(0.3, min(1.0, c["opacidad"] / 100.0)))
         hay = bool(d["tarea"]) or any(d[k] for k in ("alarmas", "recs", "timers", "evs", "cards", "pushes"))
-        if c["modo"] == "oculta" or (c["modo"] == "con_datos" and not hay):
+        if self._dismissed is not None:                    # cerrada a mano: solo vuelve con algo NUEVO
+            if d["tarea"] or d["cards"] or d["pushes"] or self._firma(d) != self._dismissed:
+                self._dismissed = None
+            else:
+                self.hide()
+                return
+        if c["modo"] == "oculta" or (c["modo"] in ("con_datos", "orbi") and not hay):
             self.hide()
             return
         self._text.setStyleSheet(f"color:#e8ecf5; font-size:{fs}px;")
@@ -224,6 +268,11 @@ class MiniPanel(QWidget):
             hl.addWidget(tx, 1)
             self._lay.addWidget(row); self._card_boxes.append(row)
 
+    def resizeEvent(self, e):
+        super().resizeEvent(e)
+        self._close.move(self.width() - self._close.width() - 8, 8)
+        self._close.raise_()
+
     def paintEvent(self, _e):
         p = QPainter(self); p.setRenderHint(QPainter.Antialiasing)
         p.setBrush(QBrush(QColor(20, 25, 40, 235))); p.setPen(QPen(QColor(120, 160, 255, 90), 1))
@@ -285,6 +334,7 @@ class MiniPanel(QWidget):
             m.addAction("Cerrar avisos", self.hide_now)
             m.addAction("Ocultar mini ventana", lambda: self._set_modo("oculta"))
             m.addAction("Mostrar siempre", lambda: self._set_modo("siempre"))
+            m.addAction("Solo cuando Orbi decida", lambda: self._set_modo("orbi"))
             m.addAction("Mostrar solo si hay algo", lambda: self._set_modo("con_datos"))
             if self.open_settings:
                 m.addSeparator(); m.addAction("Ajustes…", self.open_settings)
