@@ -792,6 +792,7 @@ def main():
     attn = Attention(profile.get("escucha_modo", "palabra"), window=float(cfg.get("conversation_window_s", 25)))
     followup_s = float(cfg.get("seguimiento_s", 12))     # segundos de ventana tras terminar de hablar Orbi (para un seguimiento)
     session.proactive = bool(cfg.get("live_proactive_audio", False))   # opcional: que el modelo decida solo cuándo callar
+    session.affective = bool(cfg.get("live_dialogo_afectivo", True))     # voz con más emoción (diálogo afectivo de Live; ver live_client.py)
     default_aliases = ("orvi", "orbe", "horbi", "horvi", "orby")
     wake = WakeWord(lambda text: emit("wake", text), emit, word=profile.get("palabra_clave", "orbi"),
                     aliases=tuple(cfg.get("wake_aliases", default_aliases)),
@@ -1086,6 +1087,37 @@ def main():
         QTimer.singleShot(1500, lambda: set_dance(True, False, False))
 
     orb.add_menu_action("Bailar con la música", lambda: set_dance(dance["obj"] is None), True, lambda: dance["obj"] is not None)
+
+    # ---------------------------------------------- corrector de ortografía: espera a que termines, avisa en la burbuja y no toca nada
+    import corrector as _corr
+
+    def corr_clip(txt):
+        from PySide6.QtGui import QGuiApplication
+        QGuiApplication.clipboard().setText(txt)
+
+    def corr_nombres():
+        try:
+            from perfil import call_name
+            return [w for w in re.split(r"\W+", call_name(st["profile"]) or "") if w]
+        except Exception:                                      # noqa: BLE001
+            return []
+
+    corr = _corr.Corrector(on_text=lambda t: emit("corrector", t), set_clipboard=corr_clip,
+                           espera_s=float(cfg.get("corrector_espera_s", 2.5)), min_len=int(cfg.get("corrector_min_letras", 4)),
+                           extra_words=corr_nombres(), debug=bool(cfg.get("corrector_debug")))
+    corr.aplicar_en = str(cfg.get("corrector_aplicar", "portapapeles"))   # "campo": intenta escribir directo en campos de texto simples
+    corr.enabled = bool(ajuste("corrector", False))                       # apagado hasta que lo actives en el menú
+
+    def set_corrector(on: bool):
+        corr.enabled = bool(on)
+        guardar_ajuste("corrector", bool(on))
+        orb.say("✏️ Corrector de ortografía " + ("activado: te aviso cuando dejes de escribir" if on else "desactivado"), 4)
+
+    def corr_apply():
+        orb.say(corr.aplicar(), 5)
+
+    orb.add_menu_action("Corrector de ortografía", lambda: set_corrector(not corr.enabled), True, lambda: corr.enabled)
+    corr_timer = QTimer(app); corr_timer.timeout.connect(corr.tick); corr_timer.start(500)
     def set_color(rgb):
         if rgb == "custom":
             from PySide6.QtWidgets import QColorDialog
@@ -1291,8 +1323,9 @@ def main():
     orb.petted.connect(lambda: emit("petted", None))
     for hk in (GlobalHotkey(MOD_CONTROL, VK_SPACE, 1, "Ctrl+Espacio"),
                GlobalHotkey(MOD_CONTROL | MOD_ALT, VK_SPACE, 2, "Ctrl+Alt+Espacio"),
-               GlobalHotkey(MOD_CONTROL | MOD_ALT, VK_O, 3, "Ctrl+Alt+O")):
-        hk.pressed.connect({1: open_chat, 2: listen_now, 3: orb.summon}[hk.hid])
+               GlobalHotkey(MOD_CONTROL | MOD_ALT, VK_O, 3, "Ctrl+Alt+O"),
+               GlobalHotkey(MOD_CONTROL | MOD_ALT, 0x4B, 4, "Ctrl+Alt+K")):
+        hk.pressed.connect({1: open_chat, 2: listen_now, 3: orb.summon, 4: corr_apply}[hk.hid])
         hk.start()
 
     # ---------------------------------------------- tareas periódicas
@@ -1534,6 +1567,9 @@ def main():
                 dance["cancion"] = dance["genero"] = ""
         elif kind == "dance_style":
             dance["audio"] = data; dance_apply()
+        elif kind == "corrector":
+            if corr.enabled and st["state"] != "speaking":        # nunca habla encima ni le quita el foco a lo que escribes
+                orb.say(data, 8)
         elif kind == "dance_genre":
             if data[0] == dance["cancion"] and data[1] != "ninguno":      # sigue sonando la misma canción
                 dance["genero"] = data[1]; dance_apply()
