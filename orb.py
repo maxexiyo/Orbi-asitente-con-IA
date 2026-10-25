@@ -2,7 +2,7 @@
 import json, math, os, random, re, sys, time
 from pathlib import Path
 
-from PySide6.QtCore import Qt, QTimer, QPointF, QRectF, Signal, QPropertyAnimation, QEasingCurve, QPoint, QAbstractAnimation
+from PySide6.QtCore import Qt, QTimer, QPointF, QRectF, Signal, QPropertyAnimation, QEasingCurve, QPoint
 from PySide6.QtGui import (QPainter, QRadialGradient, QLinearGradient, QColor, QBrush, QPen,
                            QPainterPath, QCursor, QFont, QGuiApplication)
 from PySide6.QtWidgets import QApplication, QWidget, QMenu, QLabel, QVBoxLayout
@@ -271,6 +271,9 @@ class Orb(QWidget):
         self.setAttribute(Qt.WA_TranslucentBackground)
         self.resize(W, H)
         self.setMouseTracking(True)                     # para detectar caricias (pasar el mouse por encima sin clic)
+        self.halo_clickthrough = True                   # el brillo de alrededor deja pasar los clics a lo que hay debajo
+        self._hit_clickthrough = None
+        self._hit_timer = QTimer(self); self._hit_timer.timeout.connect(self._hit_tick); self._hit_timer.start(30)
 
         self.state = "idle"
         self.emotion = "neutral"
@@ -416,9 +419,18 @@ class Orb(QWidget):
         self.last_active = time.time()
         self.bubble.show_text(text, self._center_global(), R0, seconds)
 
-    def add_menu_action(self, text, callback, checkable=False, checked=None):
-        """checked: función que devuelve si la casilla está marcada (para acciones checkable)."""
-        self._menu_actions.append((text, callback, checkable, checked))
+    # Lo único que sale en el clic derecho (el resto de las funciones está en Ajustes -> Funciones). Se compara con «empieza con».
+    MENU_BASICO = ("Silenciar micro", "Hablar ahora", "Detener tarea", "Traer a Orbi", "Ajustes")
+
+    def add_menu_action(self, text, callback, checkable=False, checked=None, menu=None):
+        """checked: función que devuelve si la casilla está marcada (para acciones checkable).
+        menu: True = sale en el clic derecho · False = solo en Ajustes -> Funciones · None = según MENU_BASICO."""
+        show = text.startswith(self.MENU_BASICO) if menu is None else bool(menu)
+        self._menu_actions.append((text, callback, checkable, checked, show))
+
+    def menu_items(self) -> list:
+        """Todas las funciones registradas (también las que no salen en el clic derecho), para la ventana de Ajustes."""
+        return [dict(text=t, cb=cb, checkable=c, checked=chk, en_menu=show) for t, cb, c, chk, show in self._menu_actions]
 
     def wake(self):
         if self.state == "sleeping":
@@ -707,6 +719,35 @@ class Orb(QWidget):
             p.drawPath(path)
         p.restore()
 
+    # --------------------------------------------------------------- el halo no estorba
+    def _hit_tick(self):
+        """La ventana de Orbi es grande (el brillo ocupa mucho) y un clic en el brillo se lo quedaba ella sin hacer nada.
+        Solo la bolita es «sólida»: con el mouse fuera de ella la ventana se vuelve transparente a los clics (WS_EX_TRANSPARENT),
+        y en cuanto el mouse entra en la bolita vuelve a recibirlos (clic, arrastre, caricias)."""
+        if sys.platform != "win32" or not self.halo_clickthrough or not self.isVisible():
+            return
+        try:
+            import ctypes
+            from ctypes import wintypes
+            from PySide6.QtGui import QCursor
+            p = self.mapFromGlobal(QCursor.pos())
+            dx, dy = p.x() - W / 2, p.y() - H / 2
+            dentro = (dx * dx + dy * dy) ** 0.5 <= R0 * 1.15 or self._drag is not None
+            through = not dentro
+            if through == self._hit_clickthrough:
+                return
+            u = ctypes.windll.user32
+            u.GetWindowLongW.argtypes = [wintypes.HWND, ctypes.c_int]
+            u.GetWindowLongW.restype = ctypes.c_long
+            u.SetWindowLongW.argtypes = [wintypes.HWND, ctypes.c_int, ctypes.c_long]
+            hwnd = wintypes.HWND(int(self.winId()))
+            ex = u.GetWindowLongW(hwnd, -20)                       # GWL_EXSTYLE
+            ex = (ex | 0x20) if through else (ex & ~0x20)           # WS_EX_TRANSPARENT
+            u.SetWindowLongW(hwnd, -20, ex)
+            self._hit_clickthrough = through
+        except Exception:                                           # noqa: BLE001
+            self.halo_clickthrough = False                          # algo no cuadra en esta PC: se apaga y queda como antes
+
     # --------------------------------------------------------------- ratón
     def mousePressEvent(self, e):
         if e.button() == Qt.LeftButton:
@@ -783,66 +824,6 @@ class Orb(QWidget):
         self.move_to_global(sx, sy, 800)
         return True
 
-    def avoid_text(self, ratio: float = 1.0, mon=None) -> bool:
-        """Si la bolita (o su burbuja) está encima de texto de la pantalla, se mueve al hueco más vacío. True si se movió.
-        Detector local, sin IA (orb_cover): mira las franjas que rodean a la bolita y, si hay texto a ambos lados o arriba y abajo,
-        busca entre ~15 lugares el que tenga menos texto. `ratio` = devicePixelRatio de Qt, `mon` = screen.primary_monitor()."""
-        now = time.time()
-        if mon is None or self.edge or self.state == "sleeping" or self._drag is not None or self.dancing \
-                or not self.isVisible() or self.underMouse():
-            return False
-        if now < getattr(self, "_no_dodge_until", 0.0) or now - getattr(self, "_last_dodge", 0.0) < 6.0:
-            return False
-        if self._move_anim.state() == QAbstractAnimation.State.Running or self._anim.state() == QAbstractAnimation.State.Running:
-            return False
-        try:
-            import orb_cover as oc
-        except Exception:                                          # noqa: BLE001  (sin numpy/mss: simplemente no se aparta)
-            return False
-        c = self._center_global()
-        pscr = QGuiApplication.primaryScreen()
-        pgeo = pscr.geometry()
-        if not pgeo.contains(c):
-            return False                                           # solo se vigila la pantalla principal (la que ve Orbi)
-        r = float(ratio) or 1.0
-
-        def phys(x, y):                                            # coordenadas de Qt -> píxeles físicos de mss
-            return mon["left"] + (x - pgeo.x()) * r, mon["top"] + (y - pgeo.y()) * r
-
-        half = R0 * 1.2
-        x0, y0 = phys(c.x() - half, c.y() - half)
-        x1, y1 = phys(c.x() + half, c.y() + half)
-        rect = [x0, y0, x1, y1]
-        bub_rel = None
-        if self.bubble.isVisible():                                # la burbuja con texto también tapa
-            bg = self.bubble.frameGeometry()
-            bx0, by0 = phys(bg.left(), bg.top())
-            bx1, by1 = phys(bg.right(), bg.bottom())
-            rect = [min(x0, bx0), min(y0, by0), max(x1, bx1), max(y1, by1)]
-            cpx, cpy = phys(c.x(), c.y())
-            bub_rel = (bx0 - cpx, by0 - cpy, bx1 - cpx, by1 - cpy)
-        bounds = (mon["left"], mon["top"], mon["left"] + mon["width"], mon["top"] + mon["height"])
-        cov = oc.cover_score(rect, bounds)
-        self._last_cover = cov
-        if cov < oc.COVER_ON:
-            return False
-        g = oc.grab_gray(mon["left"], mon["top"], mon["width"], mon["height"])
-        if g is None:
-            return False
-        ag = pscr.availableGeometry()
-        m = int(R0 * 1.3) + 40
-        xs = (ag.left() + m, ag.left() + ag.width() * 0.25, ag.center().x(), ag.left() + ag.width() * 0.75, ag.right() - m)
-        ys = (ag.top() + m, ag.center().y(), ag.bottom() - m)
-        spots = [phys(x, y) for x in xs for y in ys]
-        best = oc.choose_spot(g, (mon["left"], mon["top"]), bounds, rect, spots, half * r, bub_rel, cov)
-        if best is None:
-            return False                                           # no hay un hueco vacío: mejor quedarse
-        lx = pgeo.x() + (best[0] - mon["left"]) / r
-        ly = pgeo.y() + (best[1] - mon["top"]) / r
-        self._last_dodge = now
-        self.move_to_global(int(lx), int(ly), 800)
-        return True
-
     def wander(self):
         """Se pasea a otro lugar de la pantalla (esquinas o mitad de los bordes), lejos de donde está ahora."""
         c = self._center_global()
@@ -863,12 +844,12 @@ class Orb(QWidget):
         side = -1 if gx > g.center().x() else 1                    # donde haya más espacio
         ox, oy = int(gx + side * (R0 * 2.4 + 60)), int(gy - R0 * 0.6)
         self._no_dodge_until = time.time() + seconds + 1.5          # señalando: aquí SÍ tiene que estar cerca
-        self.move_to_global(ox, oy, 520)
+        self.move_to_global(ox, oy, 650)
         self._look = (-side * 1.6, max(-1.0, min(1.0, (gy - oy) / 200.0))); self._look_until = time.time() + seconds + 1.0
         self.set_emotion("attentive" if "attentive" in FACES else "happy", seconds)
-        self.pointer.show_at(gx, gy, seconds)                       # el anillo sale YA; la bolita camina hacia allá al mismo tiempo
+        QTimer.singleShot(450, lambda: self.pointer.show_at(gx, gy, seconds))
         if text:
-            QTimer.singleShot(250, lambda: self.say(text, max(4.0, seconds)))
+            QTimer.singleShot(700, lambda: self.say(text, max(4.0, seconds)))
 
     def mouseMoveEvent(self, e):
         if self._drag is None:
@@ -901,7 +882,9 @@ class Orb(QWidget):
                 a.setChecked(value == cur)
                 a.triggered.connect(lambda checked=False, f=on_pick, v=value: f(v))
         m.addAction("Dormir", lambda checked=False: setattr(self, "state", "sleeping"))
-        for text, cb, checkable, is_checked in self._menu_actions:
+        for text, cb, checkable, is_checked, show in self._menu_actions:
+            if not show:
+                continue
             a = m.addAction(text)
             a.setCheckable(checkable)
             if checkable and is_checked:

@@ -1,7 +1,7 @@
 """Asistente de primera vez de Orbi: te conoce y configura qué puede hacer.
 
 run_onboarding(existing=None) -> perfil (dict) o None si lo cancelas.
-Se abre solo la primera vez (cuando no existe orbi_profile.json) y desde el menú: "Configurar a Orbi…".
+Se abre solo la primera vez (cuando no existe orbi_profile.json) y desde Ajustes → Controles → «Configurar a Orbi…».
 """
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (QWizard, QWizardPage, QVBoxLayout, QLabel, QLineEdit, QPlainTextEdit,
@@ -129,7 +129,7 @@ class PagePermisos(QWizardPage):
         perm = {**PERMISOS_DEFAULT, **prof.get("permisos", {})}
         lay = QVBoxLayout(self)
         lay.addWidget(_title("¿Qué puedo hacer en tu PC?"))
-        lay.addWidget(_hint("Tú decides. Puedes cambiar esto después desde «Configurar a Orbi…» en el menú."))
+        lay.addWidget(_hint("Tú decides. Puedes cambiar esto después desde «Ajustes → Controles → Configurar a Orbi»."))
         self.ver = QCheckBox("Ver mi pantalla (cuando me lo pidas, o en modo continuo)")
         self.ver.setChecked(perm["ver_pantalla"])
         self.obs = QCheckBox("Modo compañero: mirar mi pantalla de vez en cuando y avisarme si noto algo útil")

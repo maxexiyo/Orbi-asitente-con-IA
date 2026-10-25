@@ -62,6 +62,8 @@ class MiniPanel(QWidget):
         self.cards: list = []
         self.pushes: dict = {}           # clave -> {icono, titulo, lineas, hasta}
         self.tarea = None                # {"texto", "paso", "t"}
+        self.acts: list = []             # actividad de herramientas: dict(key, label, t0, t1, ok, bg)
+        self.pend: list = []             # lo que sigue (etiquetas) cuando el modelo pide varias herramientas juntas
         self._drag = None
         self._cache = None
         self._dismissed = None           # firma de los datos fijos (alarmas, calendario...) que el usuario ya cerró
@@ -123,10 +125,40 @@ class MiniPanel(QWidget):
                 tuple(str(i.get("id") or i.get("texto")) + str(w) for w, i in d["timers"]),
                 tuple(str(x) for x in d["evs"]))
 
+    # ---- actividad: qué va a hacer, qué ya hizo y qué está haciendo (compacta; sale sola aunque la ventana esté en modo «Orbi decide»)
+    def act_plan(self, labels) -> None:
+        self.pend = [str(x)[:34] for x in (labels or [])][:4]
+        self.refresh()
+
+    def act_start(self, key, label) -> None:
+        label = str(label)[:44]
+        if label in self.pend:
+            self.pend.remove(label)
+        self.acts.append(dict(key=key, label=label, t0=time.time(), t1=None, ok=True, bg=False))
+        del self.acts[:-6]
+        self.refresh()
+
+    def act_bg(self, key) -> None:
+        for a in reversed(self.acts):
+            if a["key"] == key and a["t1"] is None:
+                a["bg"] = True
+                break
+        self.refresh()
+
+    def act_end(self, key, ok=True) -> None:
+        for a in reversed(self.acts):
+            if a["key"] == key and a["t1"] is None:
+                a["t1"], a["ok"] = time.time(), bool(ok)
+                break
+        self.refresh()
+
+    def act_running(self) -> bool:
+        return any(a["t1"] is None for a in self.acts)
+
     def hide_now(self) -> None:
         """Cierra la ventana YA. Antes solo borraba avisos y tarea, y con alarmas, calendario o búsquedas seguía abierta
         (por eso el botón «no hacía nada»). Ahora además recuerda los datos fijos actuales y no reabre hasta que lleguen otros."""
-        self.pushes.clear(); self.tarea = None; self.cards = []
+        self.pushes.clear(); self.tarea = None; self.cards = []; self.acts = []; self.pend = []
         try:
             self._dismissed = self._firma(self._collect(merged(self.get_cfg())))
         except Exception:                                  # noqa: BLE001
@@ -176,11 +208,19 @@ class MiniPanel(QWidget):
         self.pushes = {k: v for k, v in self.pushes.items() if v["hasta"] > t}
         if self.tarea and t - self.tarea["t"] > 600:       # tarea olvidada: se limpia sola
             self.tarea = None
+        self.acts = [a for a in self.acts if a["t1"] is None or t - a["t1"] < 7]            # lo terminado se queda 7 s
+        running = [a for a in self.acts if a["t1"] is None]
+        if not running and not self.acts:
+            self.pend = []
+        # no parpadear con herramientas rápidas: sale si algo lleva >1.5 s, hay algo en segundo plano o ya van 2 o más pasos
+        mostrar_acts = bool(self.acts) and (any(t - a["t0"] > 1.5 for a in running) or any(a["bg"] for a in running)
+                                           or len(self.acts) >= 3)
         # alarmas/timers/recordatorios cercanos y calendario abren la ventana en modo «con_datos» solo si son relevantes pronto
         alarmas = [(w, i) for w, i in alarmas if (w - now).total_seconds() <= 3 * 3600]
         return dict(alarmas=alarmas if sec["alarmas"] else [], recs=recs if sec["recordatorios"] else [],
                     timers=timers if sec["timers"] else [], evs=evs if sec["calendario"] else [],
-                    cards=self.cards if sec["busquedas"] else [], pushes=list(self.pushes.values()), tarea=self.tarea)
+                    cards=self.cards if sec["busquedas"] else [], pushes=list(self.pushes.values()), tarea=self.tarea,
+                    acts=list(self.acts) if mostrar_acts else [], pend=list(self.pend) if mostrar_acts else [])
 
     # ------------------------------------------------------------------ dibujo
     def refresh(self) -> None:
@@ -191,9 +231,9 @@ class MiniPanel(QWidget):
         n, fs = t["items"], t["fs"]
         self.setFixedWidth(t["w"])
         self.setWindowOpacity(max(0.3, min(1.0, c["opacidad"] / 100.0)))
-        hay = bool(d["tarea"]) or any(d[k] for k in ("alarmas", "recs", "timers", "evs", "cards", "pushes"))
+        hay = bool(d["tarea"]) or any(d[k] for k in ("alarmas", "recs", "timers", "evs", "cards", "pushes", "acts"))
         if self._dismissed is not None:                    # cerrada a mano: solo vuelve con algo NUEVO
-            if d["tarea"] or d["cards"] or d["pushes"] or self._firma(d) != self._dismissed:
+            if d["tarea"] or d["cards"] or d["pushes"] or d["acts"] or self._firma(d) != self._dismissed:
                 self._dismissed = None
             else:
                 self.hide()
@@ -220,6 +260,18 @@ class MiniPanel(QWidget):
             out.append(f"<div>{_esc(tk['texto'])}</div>")
             if tk["paso"]:
                 out.append(f"<div style='color:#9aa4b8'>{_esc(tk['paso'])}…</div>")
+        if d["acts"]:
+            now = time.time()
+            out.append(h("⚙️ Orbi está trabajando" if any(a["t1"] is None for a in d["acts"]) else "⚙️ Listo"))
+            hechos = [a for a in d["acts"] if a["t1"] is not None][-2:]
+            for a in hechos:
+                out.append(f"<div style='color:#7f8c8d'>{'✓' if a['ok'] else '✗'} {_esc(a['label'])}</div>")
+            for a in [a for a in d["acts"] if a["t1"] is None][-2:]:
+                seg = int(now - a["t0"])
+                tiempo = f"{seg // 60}:{seg % 60:02d}" if seg >= 60 else f"{seg} s"
+                out.append(f"<div><b>▶ {_esc(a['label'])}</b>{' · en segundo plano' if a['bg'] else ''} <span style='color:#9aa4b8'>{tiempo}</span></div>")
+            if d["pend"]:
+                out.append(f"<div style='color:#9aa4b8'>⏭ sigue: {_esc(', '.join(d['pend'][:3]))}</div>")
         for p in d["pushes"]:
             out.append(h(f"{_esc(p['icono'])} {_esc(p['titulo'])}"))
             for ln in p["lineas"]:
@@ -280,6 +332,9 @@ class MiniPanel(QWidget):
 
     def _tick(self) -> None:
         self._n += 1
+        if self.acts:                                      # hay actividad: se actualiza cada segundo (cronómetro, y aparece a los 1.5 s)
+            self.refresh()
+            return
         if self._n % 15 == 0 or (not self.isVisible() and self._n % 3 == 0):
             self.refresh()
             return
@@ -289,7 +344,7 @@ class MiniPanel(QWidget):
         now = time.time()
         if any(v["hasta"] <= now for v in self.pushes.values()):
             self.refresh(); return
-        if d["timers"] or d["tarea"]:
+        if d["timers"] or d["tarea"] or d["acts"]:
             self._text.setText(self._html(d, TAM[c["tam"]]["items"], TAM[c["tam"]]["fs"]))
         if self.get_anchor:                                # sigue a la bolita si se mueve
             self._place(c)

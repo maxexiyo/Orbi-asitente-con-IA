@@ -8,7 +8,7 @@ Eventos que emite (emit(kind, data)):
 Visión: `send_image(jpeg)` manda un frame a la conversación; `screen_watch = True` manda la pantalla
 sola cada ~2 s (solo si cambió). Las tools pueden devolver {"_image": jpeg} para que la IA lo vea.
 """
-import asyncio, collections, copy, re, time
+import asyncio, collections, copy, json, re, time
 
 import numpy as np
 from google import genai
@@ -149,6 +149,10 @@ class LiveSession:
         self.gate_wait_s = 1.5                        # cuánto retiene la voz de Orbi esperando la transcripción de lo que dijiste
         self._turn_text, self._gate_decision, self._hold, self._hold_txt = "", None, [], []
         self._hold_t0, self._gate_pre_until = 0.0, 0.0
+        self.tool_fg_s = 25.0                # una herramienta que tarda más que esto sigue en SEGUNDO PLANO y la voz te avisa al terminar
+        self.volume = 1.0                    # volumen de la voz de Orbi (1.0 = normal)
+        self._bg_n = 0
+        self.junk_filter = True              # False = la voz suena directo, sin esperar a leer lo que va a decir (config.json: filtro_basura)
         self.junk_wait_s = 0.9               # la voz de Orbi espera hasta tanto a leer su propio texto antes de sonar (para callar basura)
         self._junk_reset()
         self.mic_stall_s = 4.0               # sin audio del micro por tanto tiempo = se trabó (cambió el dispositivo): reabrir
@@ -260,6 +264,7 @@ class LiveSession:
     async def run(self):
         self._task = asyncio.current_task()
         self._out_q = asyncio.Queue()
+        self._junk_reset()                    # sesión nueva: nada retenido ni «descartado» de la conexión anterior
         self._text_q = asyncio.Queue()
         self._img_q = asyncio.Queue(maxsize=4)
         ticker = asyncio.create_task(self._ticker())
@@ -624,10 +629,10 @@ class LiveSession:
 
     def _queue_audio(self, data):
         """Entrada de la voz de Orbi: pasa por el filtro de basura antes de sonar."""
-        if self._jh_state == "junk":
-            return
-        if self._jh_state == "ok":
+        if not self.junk_filter or self._jh_state == "ok":
             self._queue_audio_raw(data)
+            return
+        if self._jh_state == "junk":
             return
         if not self._jh and not self._jh_ptxt:
             self._jh_t0 = time.time()
@@ -686,6 +691,9 @@ class LiveSession:
             while not self._out_q.empty():
                 self._out_q.get_nowait()
             return
+        if not self.junk_filter:
+            self.emit("model_text", text)
+            return
         self._jh_txt += text
         if self._jh_state == "junk":
             return
@@ -713,25 +721,45 @@ class LiveSession:
         self._speaking = False
         return True
 
+    def _scaled(self, part: bytes) -> bytes:
+        v = float(self.volume)
+        if abs(v - 1.0) < 0.02:
+            return part
+        import numpy as np
+        a = np.frombuffer(part, dtype=np.int16).astype(np.float32) * v
+        return np.clip(a, -32768, 32767).astype(np.int16).tobytes()
+
+    def _open_out(self, sd, device):
+        try:
+            return sd.RawOutputStream(samplerate=OUT_RATE, channels=1, dtype="int16", device=device, latency="low"), device
+        except Exception as e:                                  # noqa: BLE001
+            if device is None:
+                raise
+            self.emit("info", f"Bocina {device!r} no disponible ({e}); uso la predeterminada")
+            return sd.RawOutputStream(samplerate=OUT_RATE, channels=1, dtype="int16", latency="low"), None
+
     async def _play_audio(self):
         import sounddevice as sd
         slice_bytes = int(OUT_RATE * 0.05) * 2        # 50 ms
-        device, fails = self.output_device, 0
+        fails = 0
         while True:
             out = None
             try:
-                try:
-                    out = sd.RawOutputStream(samplerate=OUT_RATE, channels=1, dtype="int16", device=device, latency="low")
-                except Exception as e:                              # noqa: BLE001
-                    if device is None:
-                        raise
-                    self.emit("info", f"Bocina {device!r} no disponible ({e}); uso la predeterminada")
-                    device = None
-                    out = sd.RawOutputStream(samplerate=OUT_RATE, channels=1, dtype="int16", latency="low")
+                want = self.output_device
+                out, device = self._open_out(sd, want)
                 out.start()
                 fails = 0
                 while True:
                     data = await self._out_q.get()
+                    if self.output_device != want:                  # cambiaste de bocina en Ajustes: reabre ya, sin perder este audio
+                        for fn in (out.abort, out.close):
+                            try:
+                                fn()
+                            except Exception:                       # noqa: BLE001
+                                pass
+                        want = self.output_device
+                        out, device = self._open_out(sd, want)
+                        out.start()
                     for i in range(0, len(data), slice_bytes):
                         part = data[i:i + slice_bytes]
                         self._out_lvl, self._out_t = rms(part), time.time()
@@ -740,7 +768,7 @@ class LiveSession:
                             await asyncio.sleep(len(part) / (2 * OUT_RATE))
                         else:
                             # con timeout: si Windows cambia de dispositivo de audio, write() se queda colgado para siempre
-                            await asyncio.wait_for(asyncio.to_thread(out.write, part), timeout=self.speaker_stall_s)
+                            await asyncio.wait_for(asyncio.to_thread(out.write, self._scaled(part)), timeout=self.speaker_stall_s)
                         self._last_audio_out = time.time()
             except Exception as e:                                  # noqa: BLE001
                 fails += 1
@@ -839,6 +867,8 @@ class LiveSession:
         if self.name_gate and self._gate_decision is None:
             self._gate_try(final=True)                          # herramientas solo si te dirigías a Orbi
         responses = []
+        if len(tool_call.function_calls or []) > 1:
+            self.emit("tool_plan", [fc.name for fc in tool_call.function_calls])
         for fc in tool_call.function_calls or []:
             if time.time() < self._suppress_until:      # lo pidió una voz que no es la del dueño: no se ejecuta nada
                 print(f"[voz] ignoré la herramienta «{fc.name}» (la frase no era del dueño)")
@@ -847,11 +877,31 @@ class LiveSession:
                 continue
             args = dict(fc.args or {})
             self.emit("tool", (fc.name, args))
+            t0 = time.time()
+            if not self.tool_runner:
+                result = {"error": "sin tool_runner"}
+            else:
+                task = asyncio.ensure_future(asyncio.to_thread(self.tool_runner, fc.name, args))
+                done, _p = await asyncio.wait({task}, timeout=max(5.0, float(self.tool_fg_s)))
+                if task in done:
+                    try:
+                        result = task.result()
+                    except Exception as e:                      # noqa: BLE001
+                        result = {"error": str(e)}
+                else:
+                    # Tarda demasiado: devolver YA la respuesta (si no, Live cierra la sesión por inactividad -> 1011 «Deadline expired»)
+                    # y terminar la herramienta aparte. Cuando acabe, se le avisa al modelo con un mensaje.
+                    self._bg_n += 1
+                    self.emit("tool_bg", (fc.name, args))
+                    asyncio.ensure_future(self._finish_bg(fc.name, args, task, t0))
+                    result = {"resultado": f"«{fc.name}» está tardando; la sigo haciendo en segundo plano y te aviso cuando termine. "
+                                           "Díselo al usuario en una frase corta y sigue la plática normal. NO la repitas ni abras ni uses "
+                                           "su resultado hasta que te avise que terminó.", "en_segundo_plano": True}
             try:
-                result = await asyncio.to_thread(self.tool_runner, fc.name, args) if self.tool_runner \
-                    else {"error": "sin tool_runner"}
-            except Exception as e:
-                result = {"error": str(e)}
+                if not (isinstance(result, dict) and result.get("en_segundo_plano")):
+                    self.emit("tool_end", (fc.name, time.time() - t0, not (isinstance(result, dict) and "error" in result)))
+            except Exception:                                   # noqa: BLE001
+                pass
             image = result.pop("_image", None) if isinstance(result, dict) else None
             if isinstance(result, dict):
                 result.pop("_sin_captura", None)      # llave interna del agente: no tiene sentido para la voz
@@ -872,6 +922,26 @@ class LiveSession:
             await session.send_tool_response(function_responses=responses)
         except Exception as e:
             self.emit("info", f"No pude devolver el resultado de la herramienta (sesión caída): {str(e)[:120]}")
+
+    async def _finish_bg(self, name, args, task, t0):
+        """Termina una herramienta lenta que ya se contestó como «en segundo plano» y le cuenta al modelo cómo salió."""
+        try:
+            res = await task
+        except Exception as e:                                  # noqa: BLE001
+            res = {"error": f"{type(e).__name__}: {str(e)[:150]}"}
+        secs = time.time() - t0
+        ok = not (isinstance(res, dict) and "error" in res)
+        if isinstance(res, dict):
+            res = {k: v for k, v in res.items() if not str(k).startswith("_")}
+        txt = json.dumps(res, ensure_ascii=False, default=str)[:700]
+        self._bg_n = max(0, self._bg_n - 1)
+        self.emit("tool_end", (name, secs, ok))
+        self.emit("tool_bg_done", (name, args, ok, res))
+        msg = (f"[Aviso del sistema, no es el usuario hablando] La tarea en segundo plano «{name}» {'terminó' if ok else 'falló'} "
+               f"({int(secs)} s). Resultado: {txt}\nDile al usuario en UNA frase corta cómo salió (y dónde quedó, si hizo un archivo); "
+               "no leas el resultado completo.")
+        if not self.send_text(msg):
+            print(f"[live] terminó «{name}» en segundo plano pero la sesión estaba cerrada; no se pudo avisar al modelo")
 
     async def _ticker(self):
         last = None

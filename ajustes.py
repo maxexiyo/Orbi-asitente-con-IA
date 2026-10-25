@@ -12,7 +12,7 @@ Se abre desde el menú de la bolita («Ajustes…») o desde el clic derecho de 
                   modo compañero, notificaciones, privacidad). Se guarda en orbi_config_ventana.json y manda sobre config.json;
                   casi todo se aplica al reiniciar Orbi.
 """
-from PySide6.QtCore import QTime, Qt
+from PySide6.QtCore import QObject, QTime, QTimer, Qt, Signal, Slot
 from PySide6.QtWidgets import (QApplication, QCheckBox, QComboBox, QDialog, QFileDialog, QFormLayout, QHBoxLayout, QInputDialog, QLabel,
                                QLineEdit, QListWidget, QListWidgetItem, QMessageBox, QPushButton, QScrollArea, QSlider, QSpinBox,
                                QTabWidget, QTimeEdit, QVBoxLayout, QWidget)
@@ -109,14 +109,81 @@ def _combo(opts, current):
     return c
 
 
+class _ListaBg(QObject):
+    """Pide la lista de bocinas en un hilo y la entrega en el hilo de la ventana (por un slot: nunca tocar la interfaz desde el hilo)."""
+    lista = Signal(list)
+
+    def __init__(self, owner, cb):
+        super().__init__(owner)
+        self._cb = cb
+        self.lista.connect(self._recibir)
+
+    @Slot(list)
+    def _recibir(self, nombres):
+        self._cb(nombres)
+
+
+class _CalendarioDialog(QDialog):
+    """Agregar un calendario por su enlace iCal (.ics): sin Google Cloud ni cuenta, solo lectura."""
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Agregar calendario")
+        self.setMinimumWidth(500)
+        lay = QVBoxLayout(self)
+        info = QLabel("No necesitas Google Cloud: basta el <b>enlace secreto iCal</b> de tu calendario (Orbi solo lo <b>lee</b>).<br><br>"
+                      "<b>Google Calendar</b> (en la computadora): ⚙ Configuración → en la izquierda, tu calendario → "
+                      "<i>Integrar el calendario</i> → copia la <b>«Dirección secreta en formato iCal»</b>.<br>"
+                      "<b>Outlook / Microsoft</b>: Configuración → Calendario → Calendarios compartidos → <i>Publicar un calendario</i> → copia el enlace <b>ICS</b> "
+                      "(si tu escuela no deja publicarlo, no habrá enlace).<br>"
+                      "<span style='color:#c0392b'>Ese enlace es privado: quien lo tenga puede ver tu calendario. No lo compartas.</span>")
+        info.setWordWrap(True); info.setTextFormat(Qt.RichText)
+        lay.addWidget(info)
+        bl = QHBoxLayout()
+        b1 = QPushButton("Abrir configuración de Google Calendar"); b1.clicked.connect(lambda: __import__("webbrowser").open("https://calendar.google.com/calendar/u/0/r/settings"))
+        bl.addWidget(b1); lay.addLayout(bl)
+        f = QFormLayout()
+        self.e_nombre = QLineEdit(); self.e_nombre.setPlaceholderText("Nombre corto, ej. personal o escuela")
+        self.e_url = QLineEdit(); self.e_url.setPlaceholderText("https://calendar.google.com/calendar/ical/…/basic.ics")
+        f.addRow("Nombre:", self.e_nombre); f.addRow("Enlace iCal:", self.e_url)
+        lay.addLayout(f)
+        self.estado = QLabel(""); self.estado.setWordWrap(True); lay.addWidget(self.estado)
+        row = QHBoxLayout(); row.addStretch(1)
+        ok = QPushButton("Probar y guardar"); ok.setDefault(True); ok.clicked.connect(self._guardar)
+        no = QPushButton("Cancelar"); no.clicked.connect(self.reject)
+        row.addWidget(ok); row.addWidget(no); lay.addLayout(row)
+
+    def _guardar(self):
+        nombre, url = self.e_nombre.text().strip(), self.e_url.text().strip()
+        if not nombre or not url.lower().startswith(("https://", "http://", "webcal://")):
+            self.estado.setText("Pon un nombre y el enlace completo (empieza con https://)."); return
+        url = url.replace("webcal://", "https://", 1)
+        QApplication.setOverrideCursor(Qt.WaitCursor)
+        try:
+            import urllib.request
+            req = urllib.request.Request(url, headers={"User-Agent": "Orbi-asistente"})
+            with urllib.request.urlopen(req, timeout=12) as r:
+                head = r.read(4096)
+            ok = b"BEGIN:VCALENDAR" in head
+        except Exception as e:  # noqa: BLE001
+            self.estado.setText(f"No pude abrir el enlace: {type(e).__name__}. Revisa que esté completo."); return
+        finally:
+            QApplication.restoreOverrideCursor()
+        if not ok:
+            self.estado.setText("Ese enlace no parece un calendario iCal (debe terminar en .ics)."); return
+        self.resultado = (nombre, url)
+        self.accept()
+
+
 class AjustesDialog(QDialog):
     def __init__(self, profile: dict, tonos: list, apply, test_tone, clear_memory, mini_defaults: dict, cfg: dict | None = None,
-                 open_memory=None, skills_mod=None, on_skills_changed=None, parent=None):
+                 open_memory=None, skills_mod=None, on_skills_changed=None, extras=None, hub=None, parent=None):
         """apply({"permisos": {...}, "ajustes": {...}}) guarda y aplica · test_tone(nombre) · clear_memory() -> None."""
         super().__init__(parent)
         self.setWindowTitle("Ajustes de Orbi")
-        self.setWindowFlag(Qt.WindowStaysOnTopHint, True)
+        self.setWindowFlag(Qt.WindowMinimizeButtonHint, True)      # se puede minimizar; ya NO se queda encima de todo
         self.setMinimumWidth(560)
+        self.resize(640, 560)
         self._apply, self._test, self._clear = apply, test_tone, clear_memory
         perm = profile.get("permisos") or {}
         aj = profile.get("ajustes") or {}
@@ -251,24 +318,98 @@ class AjustesDialog(QDialog):
         f.addRow("Tono de alarma:", row)
         tabs.addTab(w, "Alarmas")
 
+        # ---------------- Audio (micrófono, volumen y bocina)
+        cfg = cfg or {}
+        w = QWidget(); f = _form(w)
+        u = float(cfg.get("mic_umbral", 0.15) or 0.15)
+        self.au_mic = QSlider(Qt.Horizontal); self.au_mic.setRange(0, 100)
+        self.au_mic.setValue(max(0, min(100, round((0.30 - u) / 0.0026))))
+        nota_mic = QLabel("Más a la derecha = el micrófono capta voces más bajitas (pero también más ruido). Si Orbi se activa solo, bájalo; "
+                          "si no te oye, súbelo. Se aplica al momento.")
+        nota_mic.setWordWrap(True); nota_mic.setStyleSheet("color:#7f8c8d;")
+        f.addRow("Sensibilidad del micrófono:", self.au_mic); f.addRow("", nota_mic)
+        self.au_vol = QSlider(Qt.Horizontal); self.au_vol.setRange(10, 150)
+        self.au_vol.setValue(max(10, min(150, round(float(cfg.get("volumen_voz", 1.0) or 1.0) * 100))))
+        self.au_vol_txt = QLabel(f"{self.au_vol.value()}%")
+        self.au_vol.valueChanged.connect(lambda v: self.au_vol_txt.setText(f"{v}%"))
+        vr = QHBoxLayout(); vr.addWidget(self.au_vol, 1); vr.addWidget(self.au_vol_txt)
+        f.addRow("Volumen de la voz de Orbi:", vr)
+        self._au_actual = str(cfg.get("salida_audio") or "")
+        self.au_dev = QComboBox(); self.au_dev.setSizeAdjustPolicy(QComboBox.AdjustToMinimumContentsLengthWithIcon)
+        self.au_dev.setMinimumContentsLength(28)
+        self._au_llenar([])
+        bd = QPushButton("Actualizar lista"); bd.clicked.connect(self._au_refrescar)
+        dr = QHBoxLayout(); dr.addWidget(self.au_dev, 1); dr.addWidget(bd)
+        f.addRow("Dónde suena Orbi:", dr)
+        self.au_nota = QLabel("La lista se actualiza sola cada pocos segundos mientras esta pestaña está abierta. Un dispositivo conectado "
+                              "DESPUÉS de abrir Orbi se usa al reiniciarlo; «Predeterminado» siempre sigue lo que elija Windows.")
+        self.au_nota.setWordWrap(True); self.au_nota.setStyleSheet("color:#7f8c8d;")
+        f.addRow("", self.au_nota)
+        pend = QLabel("El volumen de las alarmas y de otros sonidos todavía no se ajusta aquí.")
+        pend.setWordWrap(True); pend.setStyleSheet("color:#7f8c8d;")
+        f.addRow("", pend)
+        self._au_bg = _ListaBg(self, self._au_llenar)
+        self._au_tab = tabs.addTab(w, "Audio")
+        self._au_timer = QTimer(self); self._au_timer.timeout.connect(self._au_tick); self._au_timer.start(6000)
+        self._tabs = tabs
+        QTimer.singleShot(300, self._au_refrescar)
+
+        # ---------------- Calendarios (enlaces iCal)
+        cal = (cfg or {}).get("calendarios") if isinstance((cfg or {}).get("calendarios"), dict) else {}
+        self._cal = dict(cal)
+        w = QWidget(); lay = QVBoxLayout(w)
+        info = QLabel("Calendarios que Orbi puede <b>leer</b> (para decirte tu agenda). Se agregan con su enlace iCal: sin Google Cloud ni iniciar sesión. "
+                      "Los cambios se aplican al reiniciar Orbi.")
+        info.setWordWrap(True); info.setTextFormat(Qt.RichText)
+        self.cal_list = QListWidget()
+        lay.addWidget(info); lay.addWidget(self.cal_list, 1)
+        rb = QHBoxLayout()
+        b = QPushButton("➕ Agregar calendario…"); b.clicked.connect(self._cal_add); rb.addWidget(b)
+        b = QPushButton("Quitar el seleccionado"); b.clicked.connect(self._cal_del); rb.addWidget(b)
+        lay.addLayout(rb)
+        tabs.addTab(w, "Calendarios")
+        self._cal_refresh()
+
+        # ---------------- Funciones (lo que antes estaba en el clic derecho de Orbi)
+        items = (extras or {}).get("items") or []
+        ocultar = ("Ajustes", "Cuenta de Google", "Mini ventana:", "Abrir mi memoria")        # ya tienen su propia pestaña
+        self._fn_checks = []
+        fns = [it for it in items if not str(it.get("text", "")).startswith(ocultar)]
+        if fns:
+            w = QWidget(); lay = QVBoxLayout(w)
+            info = QLabel("Todo lo que Orbi sabe hacer y se puede prender o apagar. Las casillas aplican al momento.")
+            info.setWordWrap(True); info.setStyleSheet("color:#7f8c8d;")
+            lay.addWidget(info)
+            for it in fns:
+                if it.get("checkable"):
+                    cb = QCheckBox(it["text"])
+                    try:
+                        cb.setChecked(bool(it["checked"]()) if it.get("checked") else False)
+                    except Exception:  # noqa: BLE001
+                        pass
+                    cb.clicked.connect(lambda _=False, it=it: self._fn_run(it))
+                    lay.addWidget(cb); self._fn_checks.append((cb, it))
+                else:
+                    b = QPushButton(it["text"]); b.clicked.connect(lambda _=False, it=it: self._fn_run(it)); lay.addWidget(b)
+            lay.addStretch(1)
+            tabs.addTab(_scroll(w), "Funciones")
+
+        # ---------------- Cuentas y conectores (correo de varias cuentas + Google)
+        if hub is not None:
+            try:
+                from ajustes_cuentas import CuentasTab
+                tabs.addTab(CuentasTab(hub, extras), "Cuentas y conectores")
+            except Exception as e:  # noqa: BLE001
+                print(f"[ajustes] no pude cargar «Cuentas y conectores»: {type(e).__name__}: {e}")
+
         # ---------------- Skills y plugins
         self._sk, self._sk_changed = skills_mod, on_skills_changed or (lambda: None)
         if self._sk is not None:
-            w = QWidget(); lay = QVBoxLayout(w)
-            info = QLabel("<b>Skills</b>: instrucciones que Orbi carga cuando encajan con lo que pides (no ejecutan código).<br>"
-                          "<b>Plugins</b>: herramientas nuevas hechas con código de Python. Solo instala los de gente de confianza: "
-                          "nacen desactivados y cada uso te pide permiso.<br>Orbi también puede buscar skills por ti en GitHub "
-                          "(dile «busca una skill para…»); siempre te pide tu OK antes de instalar.")
-            info.setWordWrap(True); info.setTextFormat(Qt.RichText)
-            self.sk_list = QListWidget()
-            self.sk_list.itemChanged.connect(self._sk_toggle)
-            lay.addWidget(info); lay.addWidget(self.sk_list, 1)
-            for txt, fn in (("Instalar desde GitHub o enlace…", self._sk_install_url), ("Instalar desde un .zip…", self._sk_install_zip),
-                            ("Instalar desde una carpeta…", self._sk_install_dir), ("Quitar la seleccionada", self._sk_remove),
-                            ("Abrir la carpeta de skills", self._sk.open_folder)):
-                b = QPushButton(txt); b.clicked.connect(fn); lay.addWidget(b)
-            tabs.addTab(w, "Skills y plugins")
-            self._sk_refresh()
+            try:
+                from ajustes_skills import SkillsTab
+                tabs.addTab(SkillsTab(self._sk, self._sk_changed), "Skills y plugins")
+            except Exception as e:  # noqa: BLE001
+                print(f"[ajustes] no pude cargar «Skills y plugins»: {type(e).__name__}: {e}")
 
         bb = QHBoxLayout(); bb.addStretch(1)
         ap = QPushButton("Aplicar"); ap.setDefault(True); ap.clicked.connect(self._aplicar)
@@ -276,79 +417,69 @@ class AjustesDialog(QDialog):
         bb.addWidget(ap); bb.addWidget(ce)
         lay = QVBoxLayout(self); lay.addWidget(tabs); lay.addLayout(bb)
 
-    # ---- skills y plugins
-    def _sk_refresh(self):
-        self.sk_list.blockSignals(True)
-        self.sk_list.clear()
-        for s in self._sk.scan():
-            it = QListWidgetItem(f"{'🧩 Plugin' if s['kind'] == 'plugin' else '📘 Skill'} · {s['name']} — {s['desc'][:80]}")
-            it.setFlags(it.flags() | Qt.ItemIsUserCheckable)
-            it.setCheckState(Qt.Checked if s["enabled"] else Qt.Unchecked)
-            it.setData(Qt.UserRole, (s["name"], s["kind"]))
-            self.sk_list.addItem(it)
-        if self.sk_list.count() == 0:
-            self.sk_list.addItem("(todavía no hay nada instalado)")
-        self.sk_list.blockSignals(False)
+    # ---- audio
+    def _au_llenar(self, nombres):
+        sel = self.au_dev.currentData() if self.au_dev.count() else self._au_actual
+        self.au_dev.blockSignals(True)
+        self.au_dev.clear()
+        self.au_dev.addItem("Predeterminado de Windows (recomendado)", "")
+        for n in nombres:
+            self.au_dev.addItem(n, n)
+        if sel and self.au_dev.findData(sel) < 0:
+            self.au_dev.addItem(f"{sel} (no conectado)", sel)
+        self.au_dev.setCurrentIndex(max(0, self.au_dev.findData(sel or "")))
+        self.au_dev.blockSignals(False)
 
-    def _sk_toggle(self, item):
-        d = item.data(Qt.UserRole)
-        if not d:
-            return
-        name, kind = d
-        on = item.checkState() == Qt.Checked
-        if on and kind == "plugin" and QMessageBox.warning(
-                self, "Activar plugin", f"«{name}» es código de Python que se ejecuta en tu PC con tus permisos.\n"
-                "Actívalo solo si confías en quien lo hizo y revisaste su plugin.py.\n\nCada vez que se use, Orbi te pedirá permiso.\n\n¿Activarlo?",
-                QMessageBox.Yes | QMessageBox.No, QMessageBox.No) != QMessageBox.Yes:
-            self.sk_list.blockSignals(True); item.setCheckState(Qt.Unchecked); self.sk_list.blockSignals(False)
-            return
-        self._sk.set_enabled(name, on)
-        self._sk_changed()
+    def _au_refrescar(self):
+        import threading
+        import audio_devs
+        bg = self._au_bg
+        threading.Thread(target=lambda: bg.lista.emit(audio_devs.list_outputs(fresh=True)), daemon=True).start()
 
-    def _sk_instalar(self, fn):
-        """fn(allow_code) -> resultado. Primero sin código; si trae plugins, avisa y pregunta."""
-        QApplication.setOverrideCursor(Qt.WaitCursor)
+    def _au_tick(self):
+        if self.isVisible() and getattr(self, "_tabs", None) is not None and self._tabs.currentIndex() == self._au_tab:
+            self._au_refrescar()
+
+    # ---- calendarios
+    def _cal_refresh(self):
+        self.cal_list.clear()
+        for n, u in self._cal.items():
+            it = QListWidgetItem(f"📅 {n} — {str(u)[:38]}…")
+            it.setData(Qt.UserRole, n)
+            self.cal_list.addItem(it)
+        if not self._cal:
+            self.cal_list.addItem("(no hay calendarios: usa «Agregar calendario…»)")
+
+    def _cal_add(self):
+        d = _CalendarioDialog(self)
+        if d.exec():
+            n, u = d.resultado
+            self._cal[n] = u
+            self._cal_refresh()
+            QMessageBox.information(self, "Calendarios", "Listo. Pulsa «Aplicar» para guardarlo y reinicia Orbi para que lo use.")
+
+    def _cal_del(self):
+        it = self.cal_list.currentItem()
+        n = it.data(Qt.UserRole) if it else None
+        if n and QMessageBox.question(self, "Quitar", f"¿Quitar el calendario «{n}»?") == QMessageBox.Yes:
+            self._cal.pop(n, None)
+            self._cal_refresh()
+
+    # ---- funciones (antes en el clic derecho)
+    def _fn_run(self, it):
         try:
-            res = fn(False)
-        finally:
-            QApplication.restoreOverrideCursor()
-        if res.get("plugins_no_instalados") and QMessageBox.warning(
-                self, "Plugin con código",
-                "Este paquete trae plugin(s): " + ", ".join(res["plugins_no_instalados"]) + ".\n\nUn plugin ejecuta código de Python en tu PC. "
-                "Instálalo solo si confías en la fuente. Se instalará DESACTIVADO.\n\n¿Instalarlo de todos modos?",
-                QMessageBox.Yes | QMessageBox.No, QMessageBox.No) == QMessageBox.Yes:
-            QApplication.setOverrideCursor(Qt.WaitCursor)
+            it["cb"]()
+        except Exception as e:  # noqa: BLE001
+            QMessageBox.warning(self, "Ajustes", f"{type(e).__name__}: {str(e)[:200]}")
+        QTimer.singleShot(400, self._fn_refrescar)
+
+    def _fn_refrescar(self):
+        for cb, it in self._fn_checks:
             try:
-                res = fn(True)
-            finally:
-                QApplication.restoreOverrideCursor()
-        if res.get("error"):
-            QMessageBox.warning(self, "Skills y plugins", res["error"])
-        else:
-            QMessageBox.information(self, "Skills y plugins", "Instalado: " + (", ".join(res.get("instaladas", [])) or "nada nuevo"))
-            self._sk_changed()
-        self._sk_refresh()
-
-    def _sk_install_url(self):
-        url, ok = QInputDialog.getText(self, "Instalar desde internet", "Enlace de GitHub, .zip o SKILL.md (https):")
-        if ok and url.strip():
-            self._sk_instalar(lambda code: self._sk.install_url(url.strip(), allow_code=code))
-
-    def _sk_install_zip(self):
-        p, _f = QFileDialog.getOpenFileName(self, "Elegir paquete", "", "Paquetes (*.zip)")
-        if p:
-            self._sk_instalar(lambda code: self._sk.install_zip(p, f"zip local: {p}", allow_code=code))
-
-    def _sk_install_dir(self):
-        p = QFileDialog.getExistingDirectory(self, "Elegir carpeta con skills o plugins")
-        if p:
-            self._sk_instalar(lambda code: self._sk.install_folder(p, allow_code=code))
-
-    def _sk_remove(self):
-        it = self.sk_list.currentItem()
-        d = it.data(Qt.UserRole) if it else None
-        if d and QMessageBox.question(self, "Quitar", f"¿Quitar «{d[0]}» de Orbi?") == QMessageBox.Yes:
-            self._sk.remove(d[0]); self._sk_changed(); self._sk_refresh()
+                if it.get("checked"):
+                    cb.setChecked(bool(it["checked"]()))
+            except Exception:  # noqa: BLE001
+                pass
 
     def _warn(self):
         self.aviso.setText("⚠ Orbi podrá enviar, pagar o borrar sin avisarte. Úsalo solo si confías en lo que le pides."
@@ -372,7 +503,9 @@ class AjustesDialog(QDialog):
                                 "pausa_tras_comentario_s": self.g_pausa.value()},
                   "esquivar_al_trabajar": self.g_esq.isChecked(), "preferir_mouse": self.g_mouse.isChecked(),
                   "ocultar_orbi_en_capturas": self.g_ocul.isChecked(), "busqueda_web": self.g_web.isChecked(),
-                  "unidades_externas": self.g_ext.isChecked(),
+                  "unidades_externas": self.g_ext.isChecked(), "calendarios": dict(self._cal),
+                  "mic_umbral": round(0.30 - 0.0026 * self.au_mic.value(), 3), "volumen_voz": round(self.au_vol.value() / 100.0, 2),
+                  "salida_audio": self.au_dev.currentData() or "",
                   "notificaciones": {"autostart": self.n_auto.isChecked(),
                                      "categorias": [k for k, cb in self.n_cat.items() if cb.isChecked()],
                                      "vip": [x.strip() for x in self.n_vip.text().split(",") if x.strip()],

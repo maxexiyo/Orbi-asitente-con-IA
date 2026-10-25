@@ -7,12 +7,17 @@ PLUGIN = carpeta con plugin.json + plugin.py: añade HERRAMIENTAS nuevas a Orbi 
 
 Carpeta: <datos de Orbi>/skills/<nombre>/   (estado de activadas en skills/_estado.json)
 Se instalan desde Ajustes -> «Skills y plugins» (GitHub, .zip o carpeta) o, solo las skills, pidiéndoselo a Orbi.
+También puedes escribir tus propias skills desde Ajustes («Nueva skill…») y editarlas ahí mismo.
+
+Seguridad de los plugins: al activar uno se guarda una huella (SHA-256) de su código; si el código cambia después (una actualización,
+o alguien edita el archivo) el plugin se DESACTIVA solo y hay que revisarlo y activarlo otra vez. Antes de activar, Ajustes muestra qué
+hace su código (usa internet, ejecuta programas, escribe archivos…), leído con un análisis estático: ayuda, pero no es una garantía.
 
 plugin.json:  {"name": "clima", "description": "...", "tools": [{"name": "consultar", "description": "...",
                 "params": {"ciudad": {"type": "STRING", "description": "..."}}, "required": ["ciudad"]}]}
 plugin.py:    def run(tool: str, args: dict) -> dict | str
 """
-import importlib.util, json, os, re, shutil, tempfile, threading, time, unicodedata, urllib.parse, urllib.request, zipfile
+import ast, hashlib, importlib.util, json, os, re, shutil, tempfile, threading, time, unicodedata, urllib.parse, urllib.request, zipfile
 from pathlib import Path
 
 MAX_ZIP = 8_000_000
@@ -54,12 +59,39 @@ def _state() -> dict:
         return {}
 
 
+def _hash_dir(d: Path) -> str:
+    """Huella del código de un plugin (.py y .json): si cambia, hay que volver a activarlo."""
+    h = hashlib.sha256()
+    for f in sorted(d.rglob("*")):
+        if f.is_file() and f.suffix.lower() in (".py", ".json") and f.name != "_origen.json":
+            h.update(f.relative_to(d).as_posix().encode("utf-8"))
+            h.update(f.read_bytes())
+    return h.hexdigest()
+
+
+def _firmas() -> dict:
+    try:
+        return json.loads((root() / "_firmas.json").read_text(encoding="utf-8"))
+    except Exception:                                      # noqa: BLE001
+        return {}
+
+
+def _save_firmas(f: dict) -> None:
+    root().mkdir(parents=True, exist_ok=True)
+    (root() / "_firmas.json").write_text(json.dumps(f, indent=1), encoding="utf-8")
+
+
 def set_enabled(name: str, on: bool) -> None:
     with _lock:
         st = _state()
         st[name] = bool(on)
         root().mkdir(parents=True, exist_ok=True)
         (root() / "_estado.json").write_text(json.dumps(st, ensure_ascii=False, indent=1), encoding="utf-8")
+        d = root() / name
+        if on and (d / "plugin.json").is_file():           # al activar, se guarda la huella del código que el usuario aprobó
+            f = _firmas()
+            f[name] = _hash_dir(d)
+            _save_firmas(f)
 
 
 def scan() -> list:
@@ -75,8 +107,18 @@ def scan() -> list:
                 out.append(dict(name=d.name, desc=desc or n or d.name, kind="skill", enabled=st.get(d.name, True), path=d))
             elif (d / "plugin.json").is_file() and (d / "plugin.py").is_file():
                 meta = json.loads((d / "plugin.json").read_text(encoding="utf-8"))
+                on, changed = bool(st.get(d.name, False)), False
+                if on:                                     # ¿sigue siendo el mismo código que aprobaste?
+                    with _lock:
+                        f = _firmas()
+                        cur = _hash_dir(d)
+                        if d.name not in f:                # plugin activado antes de existir las huellas: se confía en lo que hay hoy
+                            f[d.name] = cur
+                            _save_firmas(f)
+                        elif f[d.name] != cur:
+                            on, changed = False, True
                 out.append(dict(name=d.name, desc=str(meta.get("description", d.name)), kind="plugin",
-                                enabled=st.get(d.name, False), path=d))
+                                enabled=on, path=d, changed=changed))
         except Exception:                                  # noqa: BLE001
             continue
     return out
@@ -343,6 +385,9 @@ def run_plugin(fullname: str, args: dict, ctx) -> dict:
     pname, tname = m.group(1), m.group(2)
     s = next((x for x in scan() if x["kind"] == "plugin" and x["name"].replace("-", "_") == pname and x["enabled"]), None)
     if s is None:
+        if any(x["kind"] == "plugin" and x["name"].replace("-", "_") == pname and x.get("changed") for x in scan()):
+            return {"error": "El código de ese plugin cambió desde que lo activaste, así que lo desactivé por seguridad. "
+                             "Revísalo y vuelve a activarlo en Ajustes → Skills y plugins."}
         return {"error": "Ese plugin no está activado."}
     tool = next((t for t in _plugin_meta(s["path"]).get("tools", []) if _slug(t.get("name", "")).replace("-", "_") == tname), None)
     if tool is None:
@@ -378,3 +423,147 @@ def open_folder() -> None:
         os.startfile(str(r))                                # noqa: S606  (Windows)
     except Exception:                                      # noqa: BLE001
         pass
+
+
+# ------------------------------------------------------------------ detalles, revisión de código, crear / editar / actualizar
+_RIESGO_MOD = {"subprocess": "ejecuta programas del sistema", "shutil": "copia, mueve o borra archivos",
+               "socket": "abre conexiones de red directas", "requests": "usa internet", "urllib": "usa internet", "http": "usa internet",
+               "httpx": "usa internet", "aiohttp": "usa internet", "ftplib": "usa internet", "smtplib": "envía correos",
+               "imaplib": "lee correos", "ctypes": "acceso de bajo nivel al sistema", "winreg": "lee o cambia el registro de Windows",
+               "pyautogui": "controla el mouse o el teclado", "pynput": "controla o espía el teclado y el mouse",
+               "keyboard": "controla o espía el teclado", "mouse": "controla el mouse", "pickle": "carga código serializado",
+               "marshal": "carga código serializado", "webbrowser": "abre páginas web", "sqlite3": "usa bases de datos locales",
+               "winreg_": "", "multiprocessing": "lanza procesos", "threading": ""}
+_RIESGO_CALL = {"eval": "ejecuta código dinámico", "exec": "ejecuta código dinámico", "compile": "ejecuta código dinámico",
+                "__import__": "importa módulos de forma dinámica"}
+_RIESGO_OS = {"system": "ejecuta programas del sistema", "popen": "ejecuta programas del sistema", "startfile": "abre programas o archivos",
+              "remove": "borra archivos", "unlink": "borra archivos", "rmdir": "borra carpetas", "removedirs": "borra carpetas",
+              "rename": "mueve archivos", "replace": "mueve archivos", "kill": "cierra procesos", "environ": "lee variables de entorno"}
+
+
+def plugin_risks(py_text: str) -> list:
+    """Qué parece hacer el código de un plugin (análisis estático: ayuda a decidir, NO es una garantía de seguridad)."""
+    try:
+        tree = ast.parse(py_text)
+    except SyntaxError:
+        return ["no se pudo analizar el código (tiene errores de sintaxis)"]
+    out = set()
+    for n in ast.walk(tree):
+        if isinstance(n, ast.Import):
+            mods = [a.name.split(".")[0] for a in n.names]
+        elif isinstance(n, ast.ImportFrom):
+            mods = [(n.module or "").split(".")[0]]
+        else:
+            mods = []
+        for m in mods:
+            if _RIESGO_MOD.get(m):
+                out.add(_RIESGO_MOD[m])
+        if isinstance(n, ast.Call):
+            f = n.func
+            if isinstance(f, ast.Name) and f.id in _RIESGO_CALL:
+                out.add(_RIESGO_CALL[f.id])
+            if isinstance(f, ast.Name) and f.id == "open" and len(n.args) >= 2 and isinstance(n.args[1], ast.Constant) \
+                    and isinstance(n.args[1].value, str) and any(c in n.args[1].value for c in "wax+"):
+                out.add("escribe archivos")
+            if isinstance(f, ast.Attribute) and isinstance(f.value, ast.Name) and f.value.id == "os" and f.attr in _RIESGO_OS:
+                out.add(_RIESGO_OS[f.attr])
+            if isinstance(f, ast.Attribute) and f.attr in ("write_text", "write_bytes"):
+                out.add("escribe archivos")
+        if isinstance(n, ast.Attribute) and isinstance(n.value, ast.Name) and n.value.id == "os" and n.attr == "environ":
+            out.add(_RIESGO_OS["environ"])
+    return sorted(out)
+
+
+def _find(name: str):
+    return next((x for x in scan() if x["name"] == name), None)
+
+
+def details(name: str) -> dict:
+    """Todo lo que Ajustes muestra de una skill o plugin."""
+    s = _find(name)
+    if s is None:
+        return {"error": "No existe."}
+    d: Path = s["path"]
+    res = dict(name=s["name"], kind=s["kind"], desc=s["desc"], enabled=s["enabled"], changed=bool(s.get("changed")),
+               archivos=[p.relative_to(d).as_posix() for p in sorted(d.rglob("*")) if p.is_file() and not p.name.startswith("_")][:60])
+    try:
+        res["origen"] = json.loads((d / "_origen.json").read_text(encoding="utf-8"))
+    except Exception:                                      # noqa: BLE001
+        res["origen"] = {}
+    if s["kind"] == "plugin":
+        meta = _plugin_meta(d)
+        res["herramientas"] = [(str(t.get("name", "")), str(t.get("description", ""))[:160]) for t in meta.get("tools", [])]
+        try:
+            res["riesgos"] = plugin_risks((d / "plugin.py").read_text(encoding="utf-8", errors="replace"))
+        except OSError:
+            res["riesgos"] = []
+    else:
+        try:
+            res["vista"] = _frontmatter((d / "SKILL.md").read_text(encoding="utf-8", errors="replace"))[2].strip()[:1500]
+        except OSError:
+            res["vista"] = ""
+    return res
+
+
+def source_text(name: str, archivo: str = "") -> dict:
+    """Texto de un archivo de la skill/plugin (por defecto SKILL.md o plugin.py) para revisarlo o editarlo."""
+    s = _find(name)
+    if s is None:
+        return {"error": "No existe."}
+    d: Path = s["path"]
+    archivo = archivo or ("plugin.py" if s["kind"] == "plugin" else "SKILL.md")
+    p = (d / archivo).resolve()
+    try:
+        p.relative_to(d.resolve())
+    except ValueError:
+        return {"error": "Ruta no válida."}
+    if not p.is_file() or p.suffix.lower() not in TEXT_EXT | {".py"}:
+        return {"error": f"No existe «{archivo}».", "archivos": _files(d)}
+    return {"resultado": p.read_text(encoding="utf-8", errors="replace")[:80_000], "archivo": archivo}
+
+
+def create_skill(nombre: str, descripcion: str, instrucciones: str) -> dict:
+    """Crea una skill propia (solo instrucciones, no ejecuta código)."""
+    nombre, descripcion, instrucciones = str(nombre or "").strip(), " ".join(str(descripcion or "").split()), str(instrucciones or "").strip()
+    slug = _slug(nombre)
+    if len(nombre) < 2 or len(descripcion) < 8:
+        return {"error": "Ponle un nombre y una descripción (qué hace y cuándo usarla)."}
+    if len(instrucciones) < 10:
+        return {"error": "Escribe las instrucciones que Orbi debe seguir."}
+    if len(instrucciones) > MAX_SKILL_CHARS:
+        return {"error": f"Las instrucciones son muy largas (máximo {MAX_SKILL_CHARS} caracteres)."}
+    d = root() / slug
+    if d.exists():
+        return {"error": f"Ya existe algo llamado «{slug}»."}
+    d.mkdir(parents=True)
+    (d / "SKILL.md").write_text(f"---\nname: {slug}\ndescription: {descripcion[:300]}\n---\n\n{instrucciones}\n", encoding="utf-8")
+    (d / "_origen.json").write_text(json.dumps({"fuente": "creada en Orbi", "fecha": time.strftime("%Y-%m-%d")}, ensure_ascii=False), encoding="utf-8")
+    return {"creada": slug}
+
+
+def save_skill_text(name: str, text: str) -> dict:
+    """Guarda lo editado de un SKILL.md (tiene que conservar `name` y `description`)."""
+    s = _find(name)
+    if s is None or s["kind"] != "skill":
+        return {"error": "Solo se pueden editar skills (los plugins son código: edítalos con tu editor)."}
+    n, desc, body = _frontmatter(text)
+    if not (n and desc and body.strip()):
+        return {"error": "El texto debe empezar con un encabezado --- con `name:` y `description:`, y luego las instrucciones."}
+    if len(text) > MAX_SKILL_CHARS + 600:
+        return {"error": "Es demasiado largo."}
+    (s["path"] / "SKILL.md").write_text(text, encoding="utf-8")
+    return {"guardada": name}
+
+
+def update(name: str) -> dict:
+    """Vuelve a descargar una skill/plugin desde donde se instaló (si fue un enlace https). Un plugin actualizado queda DESACTIVADO."""
+    s = _find(name)
+    if s is None:
+        return {"error": "No existe."}
+    try:
+        fuente = str(json.loads((s["path"] / "_origen.json").read_text(encoding="utf-8")).get("fuente", ""))
+    except Exception:                                      # noqa: BLE001
+        fuente = ""
+    if not fuente.startswith("https://"):
+        return {"error": f"Esa se instaló desde «{fuente or 'un origen desconocido'}»: reinstálala desde ahí."}
+    return install_url(fuente, allow_code=(s["kind"] == "plugin"))

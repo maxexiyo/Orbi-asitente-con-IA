@@ -359,6 +359,20 @@ STOPWORDS = {"de", "la", "el", "en", "y", "a", "los", "las", "un", "una", "que",
 LAST_INFO = {}                # resumen de la última búsqueda (completa o no, qué faltó) para que Orbi se lo diga al dueño
 
 
+# --- SEGURIDAD: archivos con secretos NUNCA entran al índice (ni se buscan por contenido) ----------------------------------------
+_NOMBRE_SENSIBLE = re.compile(r"(token|secret|credential|credencial|password|passwd|contrase|claves\b|\.env|keystore|_keys?\b|apikey|api_key|private|"
+                              r"id_rsa|\.pem$|\.key$|\.pfx$|\.p12$|\.kdbx$|wallet|seed|config\.json$|orbi_.*\.json$|\.log$)", re.I)
+_DIR_SENSIBLE = {".ssh", ".aws", ".gnupg", ".kube", "AppData"}
+_CONTENIDO_SECRETO = re.compile(r"(AIza[0-9A-Za-z_\-]{20,}|sk-[A-Za-z0-9]{20,}|gsk_[A-Za-z0-9]{20,}|ghp_[A-Za-z0-9]{20,}|xox[bpa]-[A-Za-z0-9-]{10,}|"
+                                r"refresh_token|client_secret|-----BEGIN [A-Z ]*PRIVATE KEY|\"private_key\"|aws_secret_access_key)", re.I)
+
+
+def es_sensible(path) -> bool:
+    """¿Es un archivo con claves, tokens, contraseñas o datos internos de Orbi? Esos no se leen para el índice."""
+    p = Path(path)
+    return bool(_NOMBRE_SENSIBLE.search(p.name)) or any(part in _DIR_SENSIBLE for part in p.parts)
+
+
 class _Fold(dict):
     """Minúsculas y sin acentos, un carácter por carácter (así las posiciones coinciden con el texto original)."""
     def __missing__(self, k):
@@ -398,9 +412,14 @@ _idx = {"loaded": False, "data": {}, "dirty": False}
 def _index_path() -> Path:
     try:
         from paths import APP_DIR
-        return Path(APP_DIR) / "orbi_indice_docs.json.gz"
+        base = Path(APP_DIR)
     except Exception:                                      # noqa: BLE001
-        return Path(__file__).parent / "orbi_indice_docs.json.gz"
+        base = Path(__file__).parent
+    try:
+        (base / "orbi_indice_docs.json.gz").unlink()       # índice viejo (v1): pudo guardar texto de archivos con secretos
+    except OSError:
+        pass
+    return base / "orbi_indice_docs_v2.json.gz"
 
 
 def _index_load() -> dict:
@@ -464,7 +483,7 @@ def search_content(query: str, limit: int = 6, budget_s: float = 15.0, roots=Non
     data = _index_load()
     cand = []
     for f in walk_files(roots):
-        if f.suffix.lower() in exts:
+        if f.suffix.lower() in exts and not es_sensible(f):
             try:
                 st = f.stat()
             except OSError:
@@ -483,7 +502,7 @@ def search_content(query: str, limit: int = 6, budget_s: float = 15.0, roots=Non
                 continue
             try:
                 text, _ = extract(f, limit=INDEX_CHARS * 2)
-                ent = [mtime, size, fold(text[:INDEX_CHARS]), 0]
+                ent = [mtime, size, "" if _CONTENIDO_SECRETO.search(text[:INDEX_CHARS * 2]) else fold(text[:INDEX_CHARS]), 0]
             except ReadError as e:
                 ent = [mtime, size, "", 1 if "escaneado" in str(e) else 0]
             except Exception:                                            # noqa: BLE001
