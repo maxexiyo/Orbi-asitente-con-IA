@@ -41,3 +41,8 @@ dist/
 Thumbs.db
 desktop.ini
 *.bak
+# datos personales de Orbi (no subir)
+orbi_*.json
+orbi_*.json.gz
+orbi_pestanas_token.txt
+organizacion_log.json
