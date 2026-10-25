@@ -34,14 +34,15 @@ models/
 build/
 dist/
 *.zip
-
+skills/
+extension_pestanas/config.js
 
 .vscode/
 .idea/
 Thumbs.db
 desktop.ini
 *.bak
-# datos personales de Orbi (no subir)
+
 orbi_*.json
 orbi_*.json.gz
 orbi_pestanas_token.txt
