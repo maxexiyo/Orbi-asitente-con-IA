@@ -93,6 +93,7 @@ class ToolContext:
     recall: Callable[[str], list] = lambda q: []               # busca en la memoria larga
     alarm_tone: Callable[[str], dict] = lambda nombre: {"error": "Los tonos de alarma no están disponibles."}   # "" = listar
     read_screen: Callable[[str, object], dict] = lambda instr, box: {"error": "Leer la pantalla (OCR) no está disponible."}   # -> {resultado}
+    read_images: Callable[[str, list], dict] = lambda instr, frames: {"error": "Leer varias capturas no está disponible."}   # frames=[(etiqueta, jpeg)] -> {resultado}
     _acciones: list = field(default_factory=list)            # marcas de tiempo (freno de velocidad)
     _clip_cache: str = ""
 
@@ -388,6 +389,14 @@ _tool("leer_pantalla", "OCR: LEE el texto de la pantalla (o de una zona) con un 
                        "y una zona x1,y1,x2,y2 (0-1000).",
       dict(instruccion=S("Qué quieres saber o extraer. Vacío = transcribe todo lo visible, ordenado por zonas"),
            x1=N("Izquierda 0-1000"), y1=N("Arriba 0-1000"), x2=N("Derecha 0-1000"), y2=N("Abajo 0-1000")),
+      [], perm="ver_pantalla")
+_tool("leer_pantalla_larga", "Lee un contenido LARGO que no cabe en una pantalla (artículo, documento, hilo, tabla, página web): toma "
+                             "varias capturas seguidas BAJANDO con la rueda del mouse desde donde está ahora, las analiza todas "
+                             "juntas con un modelo de visión y te devuelve la transcripción o el resumen; al terminar regresa el "
+                             "scroll a donde estaba. El puntero del mouse debe estar sobre el contenido. Si hay que empezar desde "
+                             "arriba, antes presiona ctrl+inicio. Si cabe en una pantalla, usa leer_pantalla.",
+      dict(instruccion=S("Qué quieres saber o extraer. Vacío = transcribe y resume todo en orden"),
+           tramos=I("Cuántas capturas tomar como máximo (2 a 12, por defecto 6)")),
       [], perm="ver_pantalla")
 # --- delegar al agente (voz)
 _tool("tarea_pc", "Delega al AGENTE cualquier tarea en la PC que necesite varios pasos o usar mouse, teclado o ventanas: "
@@ -786,7 +795,8 @@ def _log(name, args, res, dt):
 # --------------------------------------------------------------------------- ejecución
 # Modo todo (Live hace todo): tras cada acción de mouse/teclado/ventanas la IA recibe una captura NUEVA para comprobar
 # qué pasó de verdad (antes iba a ciegas y adivinaba teclas).
-MOUSE_GLIDE_S = 0.3        # segundos que tarda el cursor en llegar al clic (visible); 0 = salto instantáneo. Config: mouse_suave_s
+LARGA_MUESCAS = 7   # muescas de rueda por tramo en leer_pantalla_larga (config: leer_largo_muescas)
+MOUSE_GLIDE_S = 0.3       # segundos que tarda el cursor en llegar al clic (visible); 0 = salto instantáneo. Config: mouse_suave_s
 TODO_CAPTURA = True        # lo ajusta live_orb con "todo_captura_tras_accion" en config.json
 _GUI_ACTIONS = {"hacer_clic", "scroll", "escribir_texto", "presionar_teclas", "enfocar_ventana", "cerrar_ventana",
                 "minimizar_ventana", "abrir_app", "abrir_url", "ejecutar_plan"}
@@ -1100,6 +1110,45 @@ def _run(name: str, args: dict, ctx: ToolContext) -> dict:
         jpeg, _mon, _px = capture_region(box)
         return {"resultado": "Zoom de esa zona a resolución completa (la imagen es SOLO ese recorte, no la pantalla entera).",
                 "_image": jpeg}
+    if name == "leer_pantalla_larga":
+        if not perm("controlar_pc"):
+            return {"error": "Para bajar con el scroll necesito el permiso de controlar la PC. Usa leer_pantalla para lo que se ve ahora."}
+        if not ctx.control_enabled():
+            return {"error": "El control de la PC está pausado por el usuario (menú de la bolita)."}
+        from screen import capture
+        try:
+            tramos = max(2, min(12, int(args.get("tramos") or 6)))
+        except (TypeError, ValueError):
+            tramos = 6
+        pg = _pg()
+        ctx.before_input()
+        frames, movidos, prev, sin_cambio = [], 0, None, False
+        for i in range(tramos):
+            if ctx.cancelled():
+                break
+            jpeg = capture(max_side=1600, quality=80, mark=False)[0]
+            if prev is not None and jpeg == prev:        # la pantalla ya no cambió: se llegó al final del contenido
+                sin_cambio = True
+                break
+            frames.append((f"Tramo {len(frames) + 1}", jpeg))
+            prev = jpeg
+            if i < tramos - 1:
+                pg.scroll(-LARGA_MUESCAS * 120)
+                movidos += 1
+                time.sleep(0.45)                         # deja que termine de desplazarse y cargar
+        subidas = movidos - (1 if sin_cambio else 0)     # la última bajada no movió nada si ya era el final
+        if subidas > 0:                                  # devuelve el scroll a donde estaba
+            try:
+                pg.scroll(LARGA_MUESCAS * 120 * subidas)
+            except Exception:                            # noqa: BLE001
+                pass
+        if not frames:
+            return {"error": "No pude capturar la pantalla."}
+        etiquetas = [f"Tramo {k + 1} de {len(frames)}" for k in range(len(frames))]
+        res = ctx.read_images(str(args.get("instruccion", "") or "")[:300], [(e, f[1]) for e, f in zip(etiquetas, frames)])
+        if isinstance(res, dict) and not res.get("error"):
+            res["tramos"] = len(frames)
+        return res
     if name == "tarea_pc":
         t = str(args.get("tarea", "")).strip()
         if not t:
