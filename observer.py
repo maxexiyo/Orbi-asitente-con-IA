@@ -27,13 +27,17 @@ SENSITIVE = ("contraseña", "password", "banco", "bank", "bbva", "banorte", "san
 
 MEMORIA_PATH = Path(__file__).parent / "orbi_observaciones.json"     # lo que ya comentó: sobrevive a minimizar/abrir ventanas y a reiniciar
 MEMORIA_HORAS = 24            # cuánto se acuerda de un comentario (no lo repite en ese tiempo, aunque cambie la pantalla)
+ESPERA_REPETIR_S = 600        # tras avisar de algo, espera este rato (le da tiempo de corregirlo); si sigue igual en pantalla, avisa otra vez
+MAX_AVISOS = 2                # veces máximas que avisa del MISMO asunto (el primer aviso + un recordatorio)
 SIMILAR = 0.55                # parecido (0-1) entre dos comentarios/evidencias para contarlos como «lo mismo»
 
 PROMPT = """Eres Orbi, un compañero que mira la pantalla de {quien} y SOLO habla cuando de verdad ayuda.
 Tono: {tono}. Ventana activa: «{ventana}».
 {perfil}
-Comentarios que ya hiciste (no los repitas ni digas algo parecido):
+Comentarios que ya hiciste, con cuánto hace (no repitas uno hecho hace poco ni digas algo parecido):
 {previos}
+Si uno de hace MÁS de {espera} min SIGUE igual en la captura (no lo corrigió, seguramente no se dio cuenta), puedes avisarlo UNA
+vez más, con otras palabras y breve. Si ya lo corrigió o ya no está en pantalla, NO digas nada (comentar=false).
 {propio}
 
 Mira la captura. Comenta SOLO si ves algo claramente útil, por ejemplo:
@@ -91,7 +95,7 @@ class Observer:
 
     # ------------------------------------------------------------------
     def _loop(self):
-        while not self._stop.wait(max(5.0, self.check_every)):
+        while not self._stop.wait(max(1.0, self.check_every)):
             try:
                 self._tick()
             except Exception as e:
@@ -128,7 +132,9 @@ class Observer:
         prompt = PROMPT.format(
             quien=quien, tono=TONOS.get(prof.get("tono", "casual"), TONOS["casual"]), ventana=title or "desconocida",
             perfil=("Lo que sabes de él/ella: " + profile_summary(prof)) if profile_summary(prof) else "",
-            previos="\n".join("- " + str(x.get("msg")) for x in self._recientes(10)) or "(ninguno todavía)",
+            previos="\n".join(f"- (hace {max(1, int((time.time() - float(x.get('t', 0))) / 60))} min, avisado {int(x.get('n', 1))}×) {x.get('msg')}"
+                              for x in self._recientes(10)) or "(ninguno todavía)",
+            espera=int(ESPERA_REPETIR_S // 60),
             propio=self._propio())
         from google.genai import types
         try:
@@ -147,9 +153,14 @@ class Observer:
         if data.get("comentar") is True and data.get("seguro") is True and str(data.get("evidencia", "")).strip() \
                 and 3 <= len(msg) <= 300:
             ev = str(data.get("evidencia", "")).strip()
-            if self._ya_dicho(ev, msg):
-                self._cool_until = time.time() + 120               # lo mismo de antes: no vuelvas a preguntarle al modelo en 2 min
-                return None
+            prev = self._buscar_dicho(ev, msg)
+            if prev is not None:
+                edad = time.time() - float(prev.get("t", 0))
+                if edad < ESPERA_REPETIR_S or int(prev.get("n", 1)) >= MAX_AVISOS:
+                    self._cool_until = time.time() + 120           # lo mismo de antes: no vuelvas a preguntarle al modelo en 2 min
+                    return None
+                self._reavisar(prev, msg)                          # pasó el rato y SIGUE ahí: no se dio cuenta -> un recordatorio
+                return msg, data.get("es_mio") is True
             self._recordar(ev, msg)
             return msg, data.get("es_mio") is True
         return None
@@ -185,18 +196,25 @@ class Observer:
         with self._mem_lock:
             return [x for x in self._mem if float(x.get("t", 0)) > lim][-n:]
 
-    def _ya_dicho(self, evidencia: str, mensaje: str) -> bool:
-        """¿Ya comentó esto (o algo casi igual) en las últimas horas? Compara el mensaje y el texto que citó de la pantalla."""
-        for x in self._recientes(40):
+    def _buscar_dicho(self, evidencia: str, mensaje: str):
+        """La entrada de lo que ya comentó sobre esto (o algo casi igual) en las últimas horas, o None."""
+        for x in reversed(self._recientes(40)):
             for a, b in ((mensaje, x.get("msg")), (evidencia, x.get("ev"))):
                 ta, tb = self._toks(a), self._toks(b)
                 if ta and tb and len(ta & tb) / min(len(ta), len(tb)) >= SIMILAR:
-                    return True
-        return False
+                    return x
+        return None
+
+    def _reavisar(self, entrada: dict, mensaje: str):
+        with self._mem_lock:
+            entrada["t"] = time.time()
+            entrada["n"] = int(entrada.get("n", 1)) + 1
+            entrada["msg"] = str(mensaje)[:300]
+            self._mem_save()
 
     def _recordar(self, evidencia: str, mensaje: str):
         with self._mem_lock:
-            self._mem.append(dict(t=time.time(), ev=str(evidencia)[:200], msg=str(mensaje)[:300]))
+            self._mem.append(dict(t=time.time(), n=1, ev=str(evidencia)[:200], msg=str(mensaje)[:300]))
             self._mem = self._mem[-40:]
             self._mem_save()
 

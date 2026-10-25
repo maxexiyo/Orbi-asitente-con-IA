@@ -84,6 +84,41 @@ def es_no_respuesta(texto) -> bool:
     return bool(t) and bool(_NO_RESPUESTA.match(t))
 
 
+_BASURA = re.compile(r"\b(no response|no output|no speech|irrelevant|silence|sin respuesta|no hay respuesta|ninguna respuesta|sin salida|"
+                    r"entrada irrelevante|no es para mi|no me hablan a mi|generated due)\b")
+_MULETILLAS = {"uhm", "um", "uh", "ah", "eh", "mm", "mmm", "mmmm", "hm", "hmm", "oh", "no", "aja", "umm", "ehh", "ahh", "mhm"}
+
+
+def _norm_txt(t) -> str:
+    import unicodedata
+    t = unicodedata.normalize("NFD", str(t).lower())
+    t = "".join(c for c in t if unicodedata.category(c) != "Mn")
+    return re.sub(r"\s+", " ", re.sub(r"[^a-z0-9ñ ]", " ", t)).strip()
+
+
+def es_basura_salida(texto, entrada="", final=False):
+    """¿Lo que Orbi está diciendo es basura que NO debe sonar? -> motivo (str) o None.
+    marca: comentarios/etiquetas («<!-- No response... -->») · sin_respuesta: «no response / sin respuesta...» dicho en voz alta ·
+    muletilla: solo «uhm», «ah», «mmm», «no» (solo se juzga al final del turno) · eco: repite casi igual lo que dijiste."""
+    raw = str(texto or "").strip()
+    if not raw:
+        return None
+    if raw.startswith("<") or "<!--" in raw or "-->" in raw:
+        return "marca"
+    n = _norm_txt(raw)
+    if _BASURA.search(n):
+        return "sin_respuesta"
+    words = n.split()
+    if final and words and len(words) <= 3 and all(w in _MULETILLAS for w in words):
+        return "muletilla"
+    ent = _norm_txt(entrada).split()
+    if len(ent) >= 3 and len(words) >= 3 and abs(len(ent) - len(words)) <= 2:
+        a, b = set(ent), set(words)
+        if len(a & b) / max(1, len(a | b)) >= 0.85:
+            return "eco"
+    return None
+
+
 class LiveSession:
     def __init__(self, keys, model, emit, system_prompt=DEFAULT_SYSTEM, tools=None, tool_runner=None,
                  voice=None, headphones=False, input_device=None, output_device=None):
@@ -100,6 +135,7 @@ class LiveSession:
         self._gate_was_open = True
         self._pre = collections.deque()               # pre-roll: último ~1.6 s de micro mientras la compuerta está cerrada
         self.system_prompt, self.tools, self.tool_runner = system_prompt, tools, tool_runner
+        self.recap_fn = None           # () -> texto con lo último platicado; se agrega al prompt cuando la sesión empieza SIN handle
         self.voice, self.headphones = voice, headphones
         self.input_device, self.output_device = input_device, output_device
         self.proactive = False        # True = pide «proactive audio» a Live (opcional, experimental; ver config.json)
@@ -113,6 +149,8 @@ class LiveSession:
         self.gate_wait_s = 1.5                        # cuánto retiene la voz de Orbi esperando la transcripción de lo que dijiste
         self._turn_text, self._gate_decision, self._hold, self._hold_txt = "", None, [], []
         self._hold_t0, self._gate_pre_until = 0.0, 0.0
+        self.junk_wait_s = 0.9               # la voz de Orbi espera hasta tanto a leer su propio texto antes de sonar (para callar basura)
+        self._junk_reset()
         self.mic_stall_s = 4.0               # sin audio del micro por tanto tiempo = se trabó (cambió el dispositivo): reabrir
         self.speaker_stall_s = 3.0           # una escritura a la bocina que tarda tanto = bocina trabada: reabrir
         self.vad = VoiceDetector()           # live_orb lo reconfigura con mic_umbral, mic_min_ms y mic_ruido_factor
@@ -134,7 +172,6 @@ class LiveSession:
         self.mute_output = False      # True = no reproduce la voz (solo texto en burbuja)
         self.screen_watch = False     # True = manda la pantalla cada ~2 s si cambió (modo "ver todo")
         self.screen_interval = 2.0
-        self.media_resolution = ""       # "", "low", "medium" o "high": cuánto detalle saca Gemini de cada frame (config: live_media_resolution)
         self.frame_max_age_s = 2.0     # guardia de captura vieja: un frame que esperó más que esto en la cola se descarta
         self._tool_img_t = 0.0         # cuándo se mandó la última captura pedida por una tool (los frames anteriores ya no sirven)
         self._handle = None            # handle para reanudar la sesión al reconectar
@@ -303,13 +340,21 @@ class LiveSession:
         self.model = model
         if self._handle_key != key:          # el handle solo sirve con la key que lo creó
             self._handle = None
+        sysi = self.system_prompt
+        if self._handle is None and self.recap_fn:           # sesión nueva (primera vez, reconexión sin handle o handle caducado)
+            try:
+                rec = (self.recap_fn() or "").strip()
+            except Exception:                                # noqa: BLE001
+                rec = ""
+            if rec:
+                sysi = f"{sysi}\n\n{rec}"
         use_pa = bool(self.proactive) and hasattr(types, "ProactivityConfig")
         if self.proactive and not use_pa:
             self.emit("info", "live_proactive_audio: tu versión de google-genai no lo soporta (pip install -U google-genai)")
         client = genai.Client(api_key=key, http_options={"api_version": "v1alpha"}) if use_pa else genai.Client(api_key=key)
         cfg = dict(
             response_modalities=["AUDIO"],
-            system_instruction=self.system_prompt,
+            system_instruction=sysi,
             input_audio_transcription=types.AudioTranscriptionConfig(),
             output_audio_transcription=types.AudioTranscriptionConfig(),
             # comprime el contexto para que la sesión no muera a los 15 min
@@ -334,15 +379,7 @@ class LiveSession:
         tools = self._tools_for(model)
         if tools:
             cfg["tools"] = tools
-        mr = str(self.media_resolution or "").strip().lower()
-        if mr in ("low", "medium", "high") and hasattr(types, "MediaResolution"):
-            cfg["media_resolution"] = getattr(types.MediaResolution, "MEDIA_RESOLUTION_" + mr.upper(), None)
-        try:
-            config = types.LiveConnectConfig(**{k: v for k, v in cfg.items() if v is not None})
-        except Exception as e:                                       # noqa: BLE001  (SDK viejo sin ese campo)
-            print(f"[live] media_resolution no soportado por este SDK ({type(e).__name__}); sigo sin él")
-            cfg.pop("media_resolution", None)
-            config = types.LiveConnectConfig(**cfg)
+        config = types.LiveConnectConfig(**cfg)
 
         async with client.aio.live.connect(model=model, config=config) as session:
             self.emit("connected", model)
@@ -551,7 +588,53 @@ class LiveSession:
                 break
         self._speaking = False
 
+    # ------------------------------------------------------------------ filtro de basura en lo que Orbi dice
+    def _junk_reset(self):
+        self._jh_state, self._jh, self._jh_txt, self._jh_ptxt, self._jh_t0 = None, [], "", [], 0.0
+
+    def _junk_try(self, final: bool = False):
+        """Retiene la voz del turno hasta leer las primeras palabras de lo que va a decir: si es una marca tipo «<!-- No response -->»,
+        una muletilla suelta o un eco de lo que dijiste, se descarta SIN sonar; si es normal, suena (con ~0.3-0.9 s de retraso)."""
+        if self._jh_state is not None:
+            return
+        if not (self._jh or self._jh_ptxt):
+            return
+        now = time.time()
+        timeout = now - self._jh_t0 >= self.junk_wait_s
+        why = es_basura_salida(self._jh_txt, self._turn_text, final=final or timeout)
+        if why:
+            self._jh_state = "junk"
+            self._jh, self._jh_ptxt = [], []
+            while not self._out_q.empty():
+                try:
+                    self._out_q.get_nowait()
+                except Exception:                                # noqa: BLE001
+                    break
+            self._speaking = self._waiting = False
+            print(f"[silencio] descarté lo que iba a decir ({why}): «{self._jh_txt.strip()[:70]}»")
+            return
+        words = _norm_txt(self._jh_txt).split()
+        if final or timeout or (len(words) >= 3 and any(w not in _MULETILLAS for w in words)):
+            self._jh_state = "ok"
+            for d in self._jh:
+                self._queue_audio_raw(d)
+            for t in self._jh_ptxt:
+                self.emit("model_text", t)
+            self._jh, self._jh_ptxt = [], []
+
     def _queue_audio(self, data):
+        """Entrada de la voz de Orbi: pasa por el filtro de basura antes de sonar."""
+        if self._jh_state == "junk":
+            return
+        if self._jh_state == "ok":
+            self._queue_audio_raw(data)
+            return
+        if not self._jh and not self._jh_ptxt:
+            self._jh_t0 = time.time()
+        self._jh.append(data)
+        self._junk_try()
+
+    def _queue_audio_raw(self, data):
         self._speaking = True
         self._waiting = False
         self._last_audio_out = time.time()
@@ -602,8 +685,17 @@ class LiveSession:
             # dijo «silencio»/«no speech»: que no se vea y corta el audio que falta por sonar
             while not self._out_q.empty():
                 self._out_q.get_nowait()
-        else:
-            self.emit("model_text", text)
+            return
+        self._jh_txt += text
+        if self._jh_state == "junk":
+            return
+        if self._jh_state is None:                  # todavía no sabemos si es basura: el texto también espera
+            if not self._jh and not self._jh_ptxt:
+                self._jh_t0 = time.time()
+            self._jh_ptxt.append(text)
+            self._junk_try()
+            return
+        self.emit("model_text", text)
 
     def _gate_reset(self):
         self._turn_text, self._gate_decision, self._hold, self._hold_txt = "", None, [], []
@@ -670,6 +762,8 @@ class LiveSession:
             got_any = False
             async for r in session.receive():
                 got_any = True
+                if self._jh_state is None and (self._jh or self._jh_ptxt):
+                    self._junk_try()
                 sup = time.time() < self._suppress_until
                 cut = time.time() < self._cut_until
                 if r.data or (r.server_content and r.server_content.output_transcription):
@@ -685,6 +779,7 @@ class LiveSession:
                 sc = r.server_content
                 if sc:
                     if sc.interrupted:
+                        self._junk_reset()
                         self._cut_until, self._turn_active = 0.0, False
                         while not self._out_q.empty():
                             self._out_q.get_nowait()
@@ -709,6 +804,8 @@ class LiveSession:
                     if sc.turn_complete:
                         self._cut_until, self._turn_active = 0.0, False
                         self._gate_try(final=True)              # si quedó voz retenida: suena o se descarta ya
+                        self._junk_try(final=True)              # y si todavía esperaba juzgar lo que iba a decir
+                        self._junk_reset()
                         self._waiting = False
                         self._turn_done_t = time.time()
                         self._suppress_until = 0.0

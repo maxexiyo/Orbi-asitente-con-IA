@@ -20,8 +20,8 @@ KEEP_IMAGES = 2                      # solo las últimas N capturas viajan en el
 
 # SETTLE / SETTLE_FLOOR / SLOW_ACTIONS (esperas tras cada acción) viven en pc_tools: las comparten el agente y ejecutar_plan
 # tamaño de las capturas de VERIFICACIÓN (la inicial sigue a 1280 px). live_orb las ajusta con config.json
-SHOT_SIDE = 1366
-SHOT_QUALITY = 72
+SHOT_SIDE = 1024
+SHOT_QUALITY = 60
 PLAN_THINKING = "default"   # el PRIMER paso piensa más (planea toda la tarea); los demás usan THINKING. config.json: agent_plan_thinking
 THINKING = "low"          # cuánto "piensa" el modelo en cada paso ("low" = rápido; "default" = el del modelo). Ver config.json: agent_thinking
 
@@ -40,9 +40,6 @@ Cómo trabajar:
   Usa mouse y teclado solo cuando no haya otra forma.
 - Para revisar un documento o página completa: analizar_documento con fuente='abierto'; si no es un archivo guardado,
   copiar_texto_de_ventana y luego léelo por partes (usa 'desde') o analiza el texto tú mismo.
-- CONTENIDO LARGO EN PANTALLA: si lo que tienes que revisar no cabe en una pantalla (página web, chat, tabla, lista) NO te quedes con lo
-  visible: usa `leer_pantalla_larga` (baja con la rueda, junta todos los tramos y deja la vista como estaba; con `ventanas` recorre varias
-  ventanas), o `scroll` + captura hasta llegar al final. Antes de dar algo por «no está», comprueba que ya viste todo.
 - Antes de escribir en una app, haz clic en el campo correcto y comprueba que quedó enfocado.
 - ESPERA A QUE CARGUE: las apps pesadas (Arduino IDE, Android Studio, Word) crean la ventana antes de poder usarse. Si abrir_app devuelve `cargando`
   o la captura muestra una pantalla de carga, usa `esperar_listo` antes de escribir o hacer clic. Tras escribir, comprueba en la captura que el texto apareció
@@ -135,6 +132,11 @@ class Agent:
         from perfil import call_name
         from perfil import fecha_actual_texto
         system = SYSTEM.format(quien=call_name(prof) or "tu dueño") + "\n\n" + fecha_actual_texto()
+        try:
+            import skills as _sk
+            system += "\n\n" + _sk.prompt_text()
+        except Exception:                                  # noqa: BLE001
+            pass
         from perfil import lessons_text
         if lessons_text(prof):
             system += ("\n\nLECCIONES que el dueño te enseñó antes (aplícalas si la tarea se parece):\n" + lessons_text(prof)
