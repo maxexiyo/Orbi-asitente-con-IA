@@ -1,5 +1,4 @@
 """Mini ventana de Orbi: se despliega JUNTO a la bolita y solo aparece cuando hay algo que mostrar (modo «con_datos»).
-
 Muestra: tarea en curso, avisos/resultados que Orbi empuja con push(), timers (cuenta regresiva), alarmas, recordatorios,
 calendario y resúmenes de búsquedas web con imagen.
 
@@ -8,17 +7,25 @@ mostrar algo con la herramienta mini_ventana, o suena una alarma; calendario, ti
 a la que seguir), secciones {calendario, alarmas, recordatorios, timers, busquedas}, pos (arrastre manual, solo sin bolita).
 
 API que usa live_orb.py:
-  push(icono, titulo, lineas, segundos, clave)  -> muestra un aviso temporal (misma clave = reemplaza)
-  set_tarea(texto, paso) / set_tarea(None)      -> tarea en curso (.tarea es dict o None)
-  hide_now()                                    -> quita avisos y tarea
-  add_web_card(card) · refresh()
+  push(icono, titulo, lineas, segundos, clave, url=None) -> muestra un aviso temporal (misma clave = reemplaza)
+      · cada línea puede ser un str (si trae http(s)://... o una ruta de archivo se vuelve clicable sola)
+        o un dict {"texto": "...", "url": "https://..."}  ó  {"texto": "...", "accion": "correo", "datos": {...}}
+      · url (opcional) hace clicable el título del aviso
+  set_tarea(texto, paso) / set_tarea(None) -> tarea en curso (.tarea es dict o None)
+  hide_now() -> quita avisos y tarea
+  add_web_card(card) · refresh()      (card puede traer "url"; si "fuentes" son URLs también se pueden abrir)
   get_anchor() -> (QPoint centro_bolita, radio, escondida_en_borde)
+  get_events() puede devolver str o dict {"texto": "...", "url": "..."} por evento
+  on_action(accion, datos) -> callback (opcional) que live_orb pasa al crear el panel; se llama al hacer clic en
+      una línea con "accion" (ej. "correo", "notificacion", "evento")
 """
+import html as _html
+import os
+import re
 import time
-from datetime import datetime
-
-from PySide6.QtCore import Qt, QTimer, QPoint
-from PySide6.QtGui import QColor, QPainter, QPixmap, QPen, QBrush
+from datetime import date, datetime, timedelta
+from PySide6.QtCore import Qt, QTimer, QPoint, QUrl, Signal
+from PySide6.QtGui import QColor, QDesktopServices, QPainter, QPixmap, QPen, QBrush
 from PySide6.QtWidgets import QApplication, QHBoxLayout, QLabel, QMenu, QPushButton, QVBoxLayout, QWidget
 from PySide6.QtGui import QGuiApplication
 
@@ -29,6 +36,9 @@ TAM = {"compacta": dict(w=250, fs=11, items=2, img=0), "media": dict(w=310, fs=1
 CARD_TTL_S = 45 * 60
 TIMER_MAX_S = 3 * 3600
 MAX_PUSH = 4
+_URL = re.compile(r"(https?://[^\s<>\"']+)")
+_RUTA = re.compile(r"([A-Za-z]:\\[^\s<>\"|?*]+)")
+LINK_STYLE = "color:#9cc2ff;text-decoration:none"
 
 
 def merged(cfg: dict | None) -> dict:
@@ -52,29 +62,45 @@ def _esc(t) -> str:
     return str(t).replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
 
 
+class _Clickable(QLabel):
+    """QLabel que avisa con clicked al hacer clic izquierdo (para las imágenes); el clic derecho sigue al menú del panel."""
+    clicked = Signal()
+
+    def mousePressEvent(self, e):
+        if e.button() == Qt.LeftButton:
+            self.clicked.emit()
+        else:
+            e.ignore()
+
+
 class MiniPanel(QWidget):
-    def __init__(self, get_cfg, save_cfg, get_alarms, get_events, open_settings=None, get_anchor=None):
+    def __init__(self, get_cfg, save_cfg, get_alarms, get_events, open_settings=None, get_anchor=None, on_action=None):
         super().__init__(None, Qt.Tool | Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint | Qt.WindowDoesNotAcceptFocus)
         self.setAttribute(Qt.WA_TranslucentBackground, True)
         self.setAttribute(Qt.WA_ShowWithoutActivating, True)
         self.get_cfg, self.save_cfg, self.get_alarms, self.get_events = get_cfg, save_cfg, get_alarms, get_events
-        self.open_settings, self.get_anchor = open_settings, get_anchor
+        self.open_settings, self.get_anchor, self.on_action = open_settings, get_anchor, on_action
         self.cards: list = []
-        self.pushes: dict = {}           # clave -> {icono, titulo, lineas, hasta}
-        self.tarea = None                # {"texto", "paso", "t"}
-        self.acts: list = []             # actividad de herramientas: dict(key, label, t0, t1, ok, bg)
-        self.pend: list = []             # lo que sigue (etiquetas) cuando el modelo pide varias herramientas juntas
+        self.pushes: dict = {}   # clave -> {icono, titulo, lineas, hasta, url}
+        self.tarea = None        # {"texto", "paso", "t"}
+        self.acts: list = []     # actividad de herramientas: dict(key, label, t0, t1, ok, bg)
+        self.pend: list = []     # lo que sigue (etiquetas) cuando el modelo pide varias herramientas juntas
         self._drag = None
         self._cache = None
-        self._dismissed = None           # firma de los datos fijos (alarmas, calendario...) que el usuario ya cerró
+        self._dismissed = None   # firma de los datos fijos (alarmas, calendario...) que el usuario ya cerró
+        self._tlinks: dict = {}  # destinos de los enlaces del texto principal (se regeneran en cada _html)
+        self._clinks: dict = {}  # destinos de los enlaces de las tarjetas de búsqueda
         self._lay = QVBoxLayout(self)
         self._lay.setContentsMargins(12, 10, 12, 10)
         self._lay.setSpacing(6)
         self._text = QLabel(); self._text.setTextFormat(Qt.RichText); self._text.setWordWrap(True)
-        self._text.setAttribute(Qt.WA_TransparentForMouseEvents, True)
+        # clicable: solo los enlaces reciben el clic; lo demás (arrastrar, clic derecho) sigue pasando al panel
+        self._text.setTextInteractionFlags(Qt.LinksAccessibleByMouse)
+        self._text.setOpenExternalLinks(False)
+        self._text.linkActivated.connect(lambda h: self._on_link(h, self._tlinks))
         self._lay.addWidget(self._text)
         self._card_boxes: list = []
-        self._close = QPushButton("✕", self)                 # botón de cerrar (antes solo había menú con clic derecho)
+        self._close = QPushButton("✕", self)  # botón de cerrar (antes solo había menú con clic derecho)
         self._close.setFixedSize(20, 20)
         self._close.setCursor(Qt.PointingHandCursor)
         self._close.setFocusPolicy(Qt.NoFocus)
@@ -86,21 +112,95 @@ class MiniPanel(QWidget):
         self._n = 0
         self.refresh()
 
+    # ------------------------------------------------------------------ enlaces clicables
+    @staticmethod
+    def _a(store: dict, inner_html: str, target) -> str:
+        """Envuelve inner_html en un enlace; el destino real (url, ruta, dict de acción o función) se guarda en store."""
+        k = str(len(store))
+        store[k] = target
+        return f"<a href='orbi://{k}' style='{LINK_STYLE}'>{inner_html}</a>"
+
+    def _rich(self, store: dict, txt: str, target=None) -> str:
+        """Texto -> html. Con target, toda la línea es un enlace; sin target, se enlazan solas las URLs y rutas de archivo."""
+        s = _esc(txt)
+        if target:
+            return self._a(store, s, target)
+
+        def url(m):
+            u = _html.unescape(m.group(1)).rstrip(".,;:)!?")
+            cola = _html.unescape(m.group(1))[len(u):]
+            vis = u if len(u) <= 42 else u[:39] + "…"
+            return self._a(store, _esc(vis), u) + _esc(cola)
+
+        s = _URL.sub(url, s)
+        if "orbi://" not in s:  # rutas tipo C:\Users\...\archivo.docx (solo si no había URL, para no mezclar)
+            s = _RUTA.sub(lambda m: self._a(store, m.group(1), _html.unescape(m.group(1))), s)
+        return s
+
+    def _on_link(self, href: str, store: dict) -> None:
+        self._abrir(store.get(str(href).replace("orbi://", "")))
+
+    def _abrir(self, target) -> None:
+        try:
+            if target is None:
+                return
+            if callable(target):
+                target(); return
+            if isinstance(target, dict):
+                if target.get("url"):
+                    self._abrir(target["url"])
+                elif self.on_action and target.get("accion"):
+                    self.on_action(target["accion"], target.get("datos") or {})
+                return
+            t = str(target)
+            if re.match(r"(https?://|mailto:)", t):
+                QDesktopServices.openUrl(QUrl(t))
+            elif os.path.exists(t):  # archivo o carpeta
+                QDesktopServices.openUrl(QUrl.fromLocalFile(t))
+        except Exception:  # noqa: BLE001
+            pass
+
+    @staticmethod
+    def _norm_line(x) -> dict:
+        if isinstance(x, dict):
+            tgt = x.get("url") or ({"accion": x["accion"], "datos": x.get("datos") or {}} if x.get("accion") else None)
+            return {"texto": str(x.get("texto") or x.get("text") or "")[:90], "target": tgt}
+        s = str(x)
+        return {"texto": s[:220 if ("http" in s or ":\\" in s) else 90], "target": None}
+
+    @staticmethod
+    def _ev_url(line: str) -> str:
+        """Si el evento no trae enlace propio, abre Google Calendar en el día del evento («hoy», «mañana» o d/m)."""
+        now = datetime.now()
+        d = now.date()
+        m = re.match(r"\s*(hoy|mañana|(\d{1,2})/(\d{1,2}))", line)
+        if m:
+            if m.group(1) == "mañana":
+                d = d + timedelta(days=1)
+            elif m.group(2):
+                try:
+                    d = date(now.year, int(m.group(3)), int(m.group(2)))
+                    if d < now.date() - timedelta(days=60):
+                        d = date(now.year + 1, d.month, d.day)
+                except ValueError:
+                    pass
+        return f"https://calendar.google.com/calendar/u/0/r/day/{d.year}/{d.month}/{d.day}"
+
     # ------------------------------------------------------------------ datos
     def _solo_orbi(self) -> bool:
         try:
             return merged(self.get_cfg())["modo"] == "orbi"
-        except Exception:                                  # noqa: BLE001
+        except Exception:  # noqa: BLE001
             return False
 
-    def push(self, icono, titulo, lineas, segundos=40, clave=None) -> None:
+    def push(self, icono, titulo, lineas, segundos=40, clave=None, url=None) -> None:
         k = str(clave or "")
         importante = k.startswith("res:") and k[4:] not in ("listar_ventanas", "casa_estado", "wiz_listar", "escuchar_audio_pc")
         if self._solo_orbi() and not (k == "orbi" or k.startswith("alarm:") or importante):
-            return                                         # modo «orbi»: avisos automáticos no abren la ventana; solo lo que Orbi decide
+            return  # modo «orbi»: avisos automáticos no abren la ventana; solo lo que Orbi decide
         if isinstance(lineas, str):
             lineas = [x.strip() for x in lineas.splitlines() if x.strip()]
-        lineas = [str(x)[:90] for x in (lineas or [])][:6]
+        lineas = [self._norm_line(x) for x in (lineas or [])][:6]
         try:
             seg = max(5.0, min(300.0, float(segundos or 40)))
         except (TypeError, ValueError):
@@ -108,7 +208,7 @@ class MiniPanel(QWidget):
         key = clave or f"p{time.time()}"
         self.pushes.pop(key, None)
         self.pushes[key] = dict(icono=str(icono or "📌")[:4], titulo=str(titulo or "Orbi")[:40], lineas=lineas,
-                                hasta=time.time() + seg)
+                                hasta=time.time() + seg, url=url)
         while len(self.pushes) > MAX_PUSH:
             self.pushes.pop(next(iter(self.pushes)))
         self.refresh()
@@ -163,7 +263,7 @@ class MiniPanel(QWidget):
         self.pushes.clear(); self.tarea = None; self.cards = []; self.acts = []; self.pend = []
         try:
             self._dismissed = self._firma(self._collect(merged(self.get_cfg())))
-        except Exception:                                  # noqa: BLE001
+        except Exception:  # noqa: BLE001
             self._dismissed = None
         self.hide()
         self.refresh()
@@ -176,8 +276,10 @@ class MiniPanel(QWidget):
             p = QPixmap()
             if p.loadFromData(card["imagen"]):
                 pix = p
-        self.cards.insert(0, {"consulta": card.get("consulta", ""), "resumen": card.get("resumen", ""), "fuentes": card.get("fuentes", []),
-                              "titulo": card.get("titulo", ""), "pix": pix, "t": card.get("t", time.time())})
+        fuentes = card.get("fuentes", [])
+        url = card.get("url") or next((str(f) for f in fuentes if str(f).startswith("http")), None)
+        self.cards.insert(0, {"consulta": card.get("consulta", ""), "resumen": card.get("resumen", ""), "fuentes": fuentes,
+                              "titulo": card.get("titulo", ""), "pix": pix, "t": card.get("t", time.time()), "url": url})
         del self.cards[6:]
         self.refresh()
 
@@ -187,36 +289,36 @@ class MiniPanel(QWidget):
         alarmas, recs, timers = [], [], []
         try:
             items = self.get_alarms() or []
-        except Exception:                                  # noqa: BLE001
+        except Exception:  # noqa: BLE001
             items = []
         for it in items:
             try:
                 w = datetime.fromisoformat(it["when"])
-            except Exception:                              # noqa: BLE001
+            except Exception:  # noqa: BLE001
                 continue
             left = (w - now).total_seconds()
             if it.get("kind") == "alarma":
                 alarmas.append((w, it))
             elif 0 <= left <= TIMER_MAX_S and it.get("repetir", "no") == "no":
                 timers.append((w, it))
-            elif left <= 6 * 3600:                         # recordatorios lejanos no abren la ventana solos
+            elif left <= 6 * 3600:  # recordatorios lejanos no abren la ventana solos
                 recs.append((w, it))
         try:
             evs = list(self.get_events() or [])
-        except Exception:                                  # noqa: BLE001
+        except Exception:  # noqa: BLE001
             evs = []
         t = time.time()
         self.cards = [k for k in self.cards if t - k["t"] < CARD_TTL_S]
         self.pushes = {k: v for k, v in self.pushes.items() if v["hasta"] > t}
-        if self.tarea and t - self.tarea["t"] > 600:       # tarea olvidada: se limpia sola
+        if self.tarea and t - self.tarea["t"] > 600:  # tarea olvidada: se limpia sola
             self.tarea = None
-        self.acts = [a for a in self.acts if a["t1"] is None or t - a["t1"] < 7]            # lo terminado se queda 7 s
+        self.acts = [a for a in self.acts if a["t1"] is None or t - a["t1"] < 7]  # lo terminado se queda 7 s
         running = [a for a in self.acts if a["t1"] is None]
         if not running and not self.acts:
             self.pend = []
         # no parpadear con herramientas rápidas: sale si algo lleva >1.5 s, hay algo en segundo plano o ya van 2 o más pasos
         mostrar_acts = bool(self.acts) and (any(t - a["t0"] > 1.5 for a in running) or any(a["bg"] for a in running)
-                                           or len(self.acts) >= 3)
+                                            or len(self.acts) >= 3)
         # alarmas/timers/recordatorios cercanos y calendario abren la ventana en modo «con_datos» solo si son relevantes pronto
         alarmas = [(w, i) for w, i in alarmas if (w - now).total_seconds() <= 3 * 3600]
         return dict(alarmas=alarmas if sec["alarmas"] else [], recs=recs if sec["recordatorios"] else [],
@@ -234,7 +336,7 @@ class MiniPanel(QWidget):
         self.setFixedWidth(t["w"])
         self.setWindowOpacity(max(0.3, min(1.0, c["opacidad"] / 100.0)))
         hay = bool(d["tarea"]) or any(d[k] for k in ("alarmas", "recs", "timers", "evs", "cards", "pushes", "acts"))
-        if self._dismissed is not None:                    # cerrada a mano: solo vuelve con algo NUEVO
+        if self._dismissed is not None:  # cerrada a mano: solo vuelve con algo NUEVO
             if d["tarea"] or d["cards"] or d["pushes"] or d["acts"] or self._firma(d) != self._dismissed:
                 self._dismissed = None
             else:
@@ -253,6 +355,9 @@ class MiniPanel(QWidget):
             self.show()
 
     def _html(self, d: dict, n: int, fs: int) -> str:
+        self._tlinks.clear()  # los destinos se regeneran junto con el html (cada refresco/tick)
+        st = self._tlinks
+
         def h(txt):
             return f"<div style='color:#8fb4ff;font-weight:bold;margin-top:4px'>{txt}</div>"
         out = []
@@ -275,9 +380,12 @@ class MiniPanel(QWidget):
             if d["pend"]:
                 out.append(f"<div style='color:#9aa4b8'>⏭ sigue: {_esc(', '.join(d['pend'][:3]))}</div>")
         for p in d["pushes"]:
-            out.append(h(f"{_esc(p['icono'])} {_esc(p['titulo'])}"))
+            ttl = f"{_esc(p['icono'])} {_esc(p['titulo'])}"
+            if p.get("url"):
+                ttl = self._a(st, ttl, p["url"])
+            out.append(h(ttl))
             for ln in p["lineas"]:
-                out.append(f"<div>{_esc(ln)}</div>")
+                out.append(f"<div>{self._rich(st, ln['texto'], ln['target'])}</div>")
         if d["timers"]:
             out.append(h("⏱ Timers"))
             for w, it in d["timers"][:n]:
@@ -294,14 +402,18 @@ class MiniPanel(QWidget):
                 out.append(f"<div>{dia} {w:%H:%M} — {_esc(it.get('texto', '')[:34])}</div>")
         if d["evs"]:
             out.append(h("📅 Calendario"))
-            for line in d["evs"][:n]:
-                out.append(f"<div>{_esc(str(line)[:48])}</div>")
+            for ev in d["evs"][:n]:
+                txt, url = (str(ev.get("texto", "")), ev.get("url")) if isinstance(ev, dict) else (str(ev), None)
+                url = url or self._ev_url(txt)
+                shown = _esc(re.sub(r"\s*\(id:[^)]*\)", "", txt)[:48])  # el id interno no le sirve al usuario
+                out.append(f"<div>{self._a(st, shown, url)}</div>")
         return "".join(out) or "<div style='color:#9aa4b8'>Nada pendiente por ahora ✨</div>"
 
     def _rebuild_cards(self, cards: list, c: dict, t: dict, fs: int) -> None:
         for w in self._card_boxes:
             self._lay.removeWidget(w); w.deleteLater()
         self._card_boxes = []
+        self._clinks.clear()
         if not cards:
             return
         head = QLabel("🔎 Búsquedas recientes"); head.setStyleSheet(f"color:#8fb4ff;font-weight:bold;font-size:{fs}px;")
@@ -309,15 +421,31 @@ class MiniPanel(QWidget):
         for k in cards[: 2 if c["tam"] == "grande" else 1]:
             row = QWidget(); hl = QHBoxLayout(row); hl.setContentsMargins(0, 0, 0, 0); hl.setSpacing(8)
             if k["pix"] is not None and t["img"]:
-                im = QLabel(); im.setFixedSize(t["img"], t["img"])
+                im = _Clickable(); im.setFixedSize(t["img"], t["img"])
                 im.setPixmap(k["pix"].scaled(t["img"], t["img"], Qt.KeepAspectRatioByExpanding, Qt.SmoothTransformation))
                 im.setScaledContents(False)
+                if k.get("url"):
+                    im.setCursor(Qt.PointingHandCursor)
+                    im.clicked.connect(lambda u=k["url"]: self._abrir(u))
                 hl.addWidget(im, 0, Qt.AlignTop)
             tx = QLabel(); tx.setWordWrap(True); tx.setTextFormat(Qt.RichText)
+            tx.setTextInteractionFlags(Qt.LinksAccessibleByMouse); tx.setOpenExternalLinks(False)
+            tx.linkActivated.connect(lambda h_: self._on_link(h_, self._clinks))
             lim = 110 if c["tam"] == "compacta" else 170 if c["tam"] == "media" else 240
-            fu = (" · ".join(k["fuentes"][:2])) if k["fuentes"] else ""
-            tx.setText(f"<b>{_esc((k['titulo'] or k['consulta'])[:40])}</b><br><span style='color:#cfd6e6'>{_esc(k['resumen'][:lim])}…</span>"
-                       + (f"<br><span style='color:#7f8aa3;font-size:{max(9, fs - 3)}px'>{_esc(fu[:60])}</span>" if fu else ""))
+            partes = []
+            for f in (k["fuentes"] or [])[:2]:
+                f = str(f)
+                if f.startswith("http"):
+                    host = re.sub(r"^https?://(www\.)?", "", f).split("/")[0]
+                    partes.append(self._a(self._clinks, _esc(host[:30]), f))
+                else:
+                    partes.append(_esc(f[:30]))
+            fu = " · ".join(partes)
+            ttl = _esc((k["titulo"] or k["consulta"])[:40])
+            if k.get("url"):
+                ttl = self._a(self._clinks, ttl, k["url"])
+            tx.setText(f"<b>{ttl}</b><br><span style='color:#cfd6e6'>{_esc(k['resumen'][:lim])}…</span>"
+                       + (f"<br><span style='color:#7f8aa3;font-size:{max(9, fs - 3)}px'>{fu}</span>" if fu else ""))
             tx.setStyleSheet(f"color:#e8ecf5;font-size:{fs - 1}px;")
             hl.addWidget(tx, 1)
             self._lay.addWidget(row); self._card_boxes.append(row)
@@ -334,7 +462,7 @@ class MiniPanel(QWidget):
 
     def _tick(self) -> None:
         self._n += 1
-        if self.acts:                                      # hay actividad: se actualiza cada segundo (cronómetro, y aparece a los 1.5 s)
+        if self.acts:  # hay actividad: se actualiza cada segundo (cronómetro, y aparece a los 1.5 s)
             self.refresh()
             return
         if self._n % 15 == 0 or (not self.isVisible() and self._n % 3 == 0):
@@ -348,7 +476,7 @@ class MiniPanel(QWidget):
             self.refresh(); return
         if d["timers"] or d["tarea"] or d["acts"]:
             self._text.setText(self._html(d, TAM[c["tam"]]["items"], TAM[c["tam"]]["fs"]))
-        if self.get_anchor:                                # sigue a la bolita si se mueve
+        if self.get_anchor:  # sigue a la bolita si se mueve
             self._place(c)
 
     # ------------------------------------------------------------------ posición: junto a la bolita
@@ -357,18 +485,18 @@ class MiniPanel(QWidget):
         if self.get_anchor:
             try:
                 anchor = self.get_anchor()
-            except Exception:                              # noqa: BLE001
+            except Exception:  # noqa: BLE001
                 anchor = None
         if anchor:
             ctr, r, escondida = anchor
             scr = QGuiApplication.screenAt(ctr) or QGuiApplication.primaryScreen()
             g = scr.availableGeometry()
             gap = int(r * 1.5) + 8
-            if escondida:                                  # bolita asomada en el borde: la ventana va hacia el lado de la pantalla
+            if escondida:  # bolita asomada en el borde: la ventana va hacia el lado de la pantalla
                 x = ctr.x() - gap - self.width() if ctr.x() > g.center().x() else ctr.x() + gap
             else:
                 x = ctr.x() + gap
-                if x + self.width() > g.right() - 8:       # no cabe a la derecha: va a la izquierda
+                if x + self.width() > g.right() - 8:  # no cabe a la derecha: va a la izquierda
                     x = ctr.x() - gap - self.width()
             y = ctr.y() - self.height() // 2
             x = max(g.left() + 8, min(x, g.right() - self.width() - 8))

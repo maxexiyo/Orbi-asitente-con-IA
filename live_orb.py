@@ -43,7 +43,7 @@ from PySide6.QtWidgets import QApplication, QMenu, QMessageBox, QSystemTrayIcon
 
 import llm
 from agent import Agent
-from attention import Attention, WakeWord
+from attention import Attention, WakeWord, matches_wake
 from speaker import VoiceID
 from chatbox import ChatBox
 from config import load_config, gemini_keys
@@ -156,6 +156,12 @@ def main():
         _perfil._TODO_PROMPT += " Si el usuario te pide expresamente usar el mouse o hacer clic en algo, hazlo sin discutir."
         _agm.SYSTEM = _agm.SYSTEM.replace("Usa mouse y teclado solo cuando no haya otra forma.",
                                           "Usa mouse y teclado solo cuando no haya otra forma, o si el usuario te pide expresamente usar el mouse.")
+    _AVISO_UI = (" Antes de escribir o hacer clic en una app, mira la pantalla y comprueba que ya cargó (sin cursor de espera ni "
+                 "pantalla de carga). Después de escribir, verifica con una captura que el texto apareció antes de decir que quedó; "
+                 "si una herramienta devuelve aviso_carga o aviso_verificar, hazle caso: mira la pantalla y repite. "
+                 "Si tu dueño habla con otra persona (su mamá, un amigo) o dice que no le hablas a ti, quédate callado hasta que te llame por tu nombre.")
+    _perfil._TODO_PROMPT += _AVISO_UI
+    _agm.SYSTEM += _AVISO_UI
     if todo:
         print("[modo prueba] Live hace todo: la voz tiene mouse, teclado y ventanas, y no delega al agente")
     try:
@@ -219,7 +225,7 @@ def main():
         from notifications import Announcer, NotificationWatcher
         ncfg = cfg.get("notificaciones", {}) if isinstance(cfg.get("notificaciones"), dict) else {}
         announcer = Announcer(
-            ncfg, speak=lambda text: emit("notification", text),
+            ncfg, speak=lambda text, lote=None: emit("notification", (text, list(lote or []))),
             get_rules=lambda: st["profile"].get("reglas_notif", []),
             my_names=lambda: [st["profile"].get("nombre", ""), st["profile"].get("apodo", "")],
             is_busy=lambda: st["state"] in ("speaking", "thinking") or agent.running,
@@ -763,12 +769,87 @@ def main():
     reglas.hacer = _rutina_hacer
     reglas.pedir = lambda nombre, texto: emit("regla_orbi", (nombre, texto))
 
+    # ---------------------------------------------- esperar a que la app cargue antes de teclear o hacer clic (#62)
+    _ACCIONES_UI = {"escribir_texto", "presionar_teclas", "hacer_clic"}
+
+    def _firma_pantalla():
+        from PIL import ImageGrab
+        return list(ImageGrab.grab().convert("L").resize((48, 27)).getdata())
+
+    def _dif(a, b) -> float:
+        return sum(abs(x - y) for x, y in zip(a, b)) / max(1, len(a))
+
+    def _app_ocupada() -> bool:
+        """Cursor de «cargando» o ventana al frente sin responder."""
+        try:
+            import ctypes
+            from ctypes import wintypes
+            u = ctypes.WinDLL("user32", use_last_error=True)
+            u.LoadCursorW.restype = ctypes.c_void_p
+            u.LoadCursorW.argtypes = [ctypes.c_void_p, ctypes.c_void_p]
+
+            class _CI(ctypes.Structure):
+                _fields_ = [("cbSize", wintypes.DWORD), ("flags", wintypes.DWORD), ("hCursor", ctypes.c_void_p),
+                            ("pt", wintypes.POINT)]
+            ci = _CI(); ci.cbSize = ctypes.sizeof(_CI)
+            if u.GetCursorInfo(ctypes.byref(ci)) and ci.hCursor in (u.LoadCursorW(None, 32514), u.LoadCursorW(None, 32650)):
+                return True                                    # IDC_WAIT / IDC_APPSTARTING
+            return bool(u.IsHungAppWindow(u.GetForegroundWindow()))
+        except Exception:                                      # noqa: BLE001
+            return False
+
+    def _esperar_ui(max_s: float):
+        """Espera a que la pantalla deje de cambiar y la app no esté «cargando». -> (segundos esperados, estable)."""
+        if sys.platform != "win32":
+            return 0.0, True
+        t0, prev = time.time(), None
+        cancel = getattr(ctx, "cancelled", None)
+        try:
+            while time.time() - t0 < max_s:
+                if callable(cancel) and cancel():
+                    break
+                f = _firma_pantalla()
+                if prev is not None and _dif(prev, f) < 1.5 and not _app_ocupada():
+                    return time.time() - t0, True
+                prev = f
+                time.sleep(0.3)
+        except Exception as e:                                 # noqa: BLE001
+            print("[espera-ui]", type(e).__name__, str(e)[:80])
+            return 0.0, True
+        return time.time() - t0, False
+
+    def _tool_runner(nombre, args, *r, **kw):
+        kw.setdefault("ctx", ctx)
+        if nombre not in _ACCIONES_UI or not cfg.get("esperar_ui", True):
+            return run_tool(nombre, args, *r, **kw)
+        seg, estable = _esperar_ui(float(cfg.get("esperar_ui_max_s", 8.0)))
+        antes = None
+        if nombre == "escribir_texto" and sys.platform == "win32":
+            try:
+                antes = _firma_pantalla()
+            except Exception:                                  # noqa: BLE001
+                antes = None
+        res = run_tool(nombre, args, *r, **kw)
+        if isinstance(res, dict) and not res.get("error"):
+            if not estable:
+                res["aviso_carga"] = (f"La app seguía cargando tras esperar {seg:.0f} s: es probable que la acción no haya surtido "
+                                      "efecto. Mira la pantalla (ver_pantalla) y repítela cuando ya cargó.")
+            elif antes is not None:
+                time.sleep(0.5)
+                try:
+                    if _dif(antes, _firma_pantalla()) < 0.3:
+                        res["aviso_verificar"] = ("Tras escribir, la pantalla no cambió: puede que el texto no se haya escrito "
+                                                  "(campo sin foco o app sin responder). Compruébalo con ver_pantalla antes de decir que quedó.")
+                except Exception:                              # noqa: BLE001
+                    pass
+        return res
+
     # ---------------------------------------------- voz (Gemini Live)
     session = LiveSession(
         pool, live_models, emit,
         system_prompt=build_system_prompt(profile),
         tools=None if a.no_tools else build_tools(profile, "live", flags()),
-        tool_runner=functools.partial(run_tool, ctx=ctx),
+        tool_runner=_tool_runner,
         voice=cfg.get("live_voice"),
         headphones=a.headphones or cfg.get("headphones", False),
     )
@@ -805,7 +886,7 @@ def main():
     attn = Attention(profile.get("escucha_modo", "palabra"), window=float(cfg.get("conversation_window_s", 25)))
     followup_s = float(cfg.get("seguimiento_s", 12))     # segundos de ventana tras terminar de hablar Orbi (para un seguimiento)
     session.proactive = bool(cfg.get("live_proactive_audio", False))   # opcional: que el modelo decida solo cuándo callar
-    default_aliases = ("orvi", "orbe", "horbi", "horvi", "orby")
+    default_aliases = ("orvi", "orbe", "horbi", "horvi", "orby", "urbi", "orvy", "orbit", "orbis")
     wake = WakeWord(lambda text: emit("wake", text), emit, word=profile.get("palabra_clave", "orbi"),
                     aliases=tuple(cfg.get("wake_aliases", default_aliases)),
                     threshold=float(cfg.get("wake_threshold", 0.74)))
@@ -820,13 +901,32 @@ def main():
         t = _ud.normalize("NFD", str(t).lower())
         return _re_n.sub(r"[^a-z0-9 ]", " ", "".join(c for c in t if _ud.category(c) != "Mn"))
 
+    _OTRA_PERSONA = _re_n.compile(r"\b(no te hablo|no es contigo|no hablo contigo|no hablaba contigo|no te estoy hablando|"
+                                  r"hablo con mi|hablando con mi|le hablo a)\b")
+    _VOCATIVOS = set(cfg.get("otras_personas", ("mama", "mami", "papa", "papi", "hermano", "hermana", "abuela", "abuelo",
+                                                 "tia", "tio", "ma")))
+
     def addressed(text) -> bool:
-        if time.time() < st.get("follow_until", 0.0):
-            return True                                  # sigue la conversación que acaba de tener con Orbi
-        palabras = set(_norm(text).split())
-        return any(_norm(n).strip() in palabras for n in (wake.word, *wake.aliases) if _norm(n).strip())
+        ahora = time.time()
+        n = _norm(text)
+        palabras = set(n.split())
+        con_nombre = (any(_norm(x).strip() in palabras for x in (wake.word, *wake.aliases) if _norm(x).strip())
+                      or matches_wake(text, wake.word, wake.aliases, float(cfg.get("wake_threshold", 0.74))))   # «Orbe», «Urbi», «Orbit»…
+        if _OTRA_PERSONA.search(n) and not con_nombre:     # «no te hablo a ti» / «estoy hablando con mi mamá»: solo vuelve con su nombre
+            st["solo_nombre_hasta"] = ahora + float(cfg.get("solo_nombre_min", 10)) * 60
+            st["follow_until"] = 0.0
+            try:
+                attn.close()
+            except Exception:                              # noqa: BLE001
+                pass
+            return False
+        if con_nombre:
+            return True
+        if ahora < st.get("follow_until", 0.0) and ahora >= st.get("solo_nombre_hasta", 0.0):
+            return not (palabras & _VOCATIVOS)             # sigue la conversación con Orbi, salvo que le hables a mamá, papá...
+        return False
     session.addressed_check = addressed
-    session.gate_wait_s = float(cfg.get("nombre_espera_s", 1.5))
+    session.gate_wait_s = float(cfg.get("nombre_espera_s", 2.2))
     # fin de turno (cuánto silencio espera Live antes de darte por terminado)
     session.barge = bool(cfg.get("interrumpir_con_voz", False))          # (apagado: los aplausos lo cortaban) interrumpirlo con la voz sin audífonos
     session.barge_min = float(cfg.get("barge_min", 0.22))               # voz mínima para interrumpir (sube si te corta por ruido)
@@ -940,8 +1040,77 @@ def main():
         attn.open(); orb.wake(); orb.set_emotion("happy", 1.5); orb.say("Te escucho 🎤", 2)
 
     def is_away() -> bool:
-        """True si llevas rato sin mover el mouse ni escribir: en ese caso Orbi no habla (solo muestra la burbuja)."""
+        """True si llevas rato sin mover el mouse ni escribir, o si dijiste que te ibas («al rato regreso»): Orbi no habla (solo burbuja)."""
+        if st.get("ausente"):
+            return True
         return idle_seconds() > float(cfg.get("idle_silence_s", 180))
+
+    # ---------------------------------------------- ausencia (#68): inactividad real o «al rato regreso» -> evento para las reglas
+    _SALIDA = _re_n.compile(
+        r"\b(al rato (regreso|vuelvo|vengo)|ahorita (regreso|vuelvo|vengo)|ya (vengo|regreso|vuelvo)|"
+        r"(vuelvo|regreso|vengo) (en|al|luego|pronto)|voy (al bano|a comer|a cenar|a desayunar|por (comida|agua|algo))|"
+        r"me voy (un rato|a )|dejo la (compu|pc|computadora)|no tardo|voy y vengo|permiso un (momento|segundo|rato))\b")
+    _VUELTA = _re_n.compile(r"\bya (regrese|volvi|llegue|estoy de vuelta)\b")
+    _DURACION = _re_n.compile(r"\ben (\d+|un|una|dos|tres|cinco|diez|quince|veinte|treinta|media) (segundo|segundos|minuto|minutos|hora|horas)\b")
+    _NUM = {"un": 1, "una": 1, "dos": 2, "tres": 3, "cinco": 5, "diez": 10, "quince": 15, "veinte": 20, "treinta": 30, "media": 0.5}
+
+    def _evento_regla(nombre: str, info: dict):
+        """Avisa a las reglas (disparador «ausente» / «regreso»). Necesita reglas.on_evento (ver reglas.py)."""
+        try:
+            f = getattr(reglas, "on_evento", None)
+            if f:
+                f(nombre, info)
+        except Exception as e:                                  # noqa: BLE001
+            print(f"[reglas] evento {nombre}:", type(e).__name__, str(e)[:100])
+
+    def _marcar_ausente(manual: bool, minutos=None, frase: str = ""):
+        ahora = time.time()
+        st["ausente"] = dict(desde=ahora, manual=manual, salio=not manual, minutos=minutos)
+        print(f"[ausencia] {'avisó que se iba' if manual else 'inactivo'}" + (f" (~{minutos} min)" if minutos else ""))
+        _evento_regla("ausente", dict(motivo="aviso" if manual else "inactivo", minutos=minutos, frase=frase[:80]))
+
+    def _marcar_regreso():
+        a = st.get("ausente")
+        if not a:
+            return
+        st["ausente"] = None
+        seg = int(time.time() - a["desde"])
+        print(f"[ausencia] regresó tras {seg} s")
+        _evento_regla("regreso", dict(segundos=seg, minutos=round(seg / 60, 1), motivo="aviso" if a["manual"] else "inactivo"))
+        if cfg.get("saludo_regreso", False):
+            orb.wake(); orb.set_emotion("happy", 2); orb.say("👋", 2)
+
+    def _detectar_salida(texto: str):
+        n = _norm(texto)
+        if not n.strip():
+            return
+        if st.get("ausente") and _VUELTA.search(n):
+            _marcar_regreso(); return
+        if st.get("ausente") or not _SALIDA.search(n):
+            return
+        mins = None
+        d = _DURACION.search(n)
+        if d:
+            v = float(d.group(1)) if d.group(1).isdigit() else float(_NUM.get(d.group(1), 1))
+            u = d.group(2)
+            mins = round(v / 60, 2) if u.startswith("seg") else round(v * 60, 1) if u.startswith("hora") else v
+        _marcar_ausente(True, mins, texto)
+
+    def _tick_ausencia():
+        ahora, idle, a = time.time(), idle_seconds(), st.get("ausente")
+        if a is None:
+            if idle >= float(cfg.get("ausente_s", 300)):
+                _marcar_ausente(False, round(idle / 60, 1))
+                st["ausente"]["desde"] = ahora - idle
+            return
+        if a["manual"] and not a["salio"]:
+            if idle >= 8:
+                a["salio"] = True                                    # soltó mouse y teclado: de verdad se fue
+            elif ahora - a["desde"] > (90 if (a.get("minutos") or 5) <= 2 else 900):
+                st["ausente"] = None                                 # dijo que se iba pero siguió usando la PC
+            return
+        if idle < 3.0:
+            _marcar_regreso()
 
     def show_my_text() -> bool:
         return bool(st["profile"].get("mostrar_mi_texto", False))
@@ -1304,6 +1473,7 @@ def main():
     def on_text(text):
         orb.wake()
         orb.say("✍️ " + text, 3)
+        _detectar_salida(text)
         st["last"] = None
         attn.open()                                # si le escribes, también cuenta como que le hablas
         if st["connected"] and session.send_text(text):
@@ -1333,6 +1503,7 @@ def main():
     # reglas: sesión activa / ventanas (cada 5 s) y correo (cada ~3 min, en un hilo porque la red puede tardar)
     def _reglas_tick():
         try:
+            _tick_ausencia()
             from windows import foreground_info
             fi = foreground_info()
             reglas.tick(idle_seconds(), fi.get("title", ""), fi.get("exe", ""))
@@ -1399,7 +1570,58 @@ def main():
                 print(f"[mini] calendario no disponible: {str(e)[:80]}")
         threading.Thread(target=work, daemon=True).start()
 
+    def _enfocar_por_titulo(frag: str) -> bool:
+        """Trae al frente la primera ventana visible cuyo título contenga frag (Windows)."""
+        if sys.platform != "win32" or not frag:
+            return False
+        import ctypes
+        from ctypes import wintypes
+        u = ctypes.windll.user32
+        hallada = []
+        proc = ctypes.WINFUNCTYPE(ctypes.c_bool, wintypes.HWND, wintypes.LPARAM)
+
+        def cb(h, _lp):
+            if u.IsWindowVisible(h):
+                n = u.GetWindowTextLengthW(h)
+                if n:
+                    b = ctypes.create_unicode_buffer(n + 1)
+                    u.GetWindowTextW(h, b, n + 1)
+                    if frag.lower() in b.value.lower():
+                        hallada.append(h)
+                        return False
+            return True
+        u.EnumWindows(proc(cb), 0)
+        if not hallada:
+            return False
+        h = hallada[0]
+        if u.IsIconic(h):
+            u.ShowWindow(h, 9)
+        u.keybd_event(0x12, 0, 0, 0); u.SetForegroundWindow(h); u.keybd_event(0x12, 0, 2, 0)   # truco Alt: deja pasar al frente
+        return True
+
+    def _correo_dato(m: dict) -> dict:
+        """Enlace al correo en la web, si se puede deducir: id de Gmail (hex) o la cuenta (Gmail / Outlook)."""
+        mid, cta = str(m.get("id", "") or ""), str(m.get("cuenta") or m.get("account") or "").lower()
+        if _re.fullmatch(r"[0-9a-f]{12,20}", mid):
+            return {"url": f"https://mail.google.com/mail/u/0/#all/{mid}"}
+        if any(x in cta for x in ("hotmail", "outlook", "live.", "ceti")):
+            return {"url": "https://outlook.office.com/mail/"}
+        if any(x in cta for x in ("gmail", "googlemail")):
+            return {"url": "https://mail.google.com/mail/u/0/#inbox"}
+        return {}
+
+    def panel_action(accion, datos):
+        try:
+            if accion == "notificacion":
+                _enfocar_por_titulo(str((datos or {}).get("app", "")))
+            elif accion == "correo" and (datos or {}).get("url"):
+                import webbrowser
+                webbrowser.open(datos["url"])
+        except Exception as e:                               # noqa: BLE001
+            print("[mini] acción:", type(e).__name__, str(e)[:80])
+
     panel = minipanel.MiniPanel(
+        on_action=panel_action,
         get_cfg=lambda: ajuste("mini"), save_cfg=lambda c: guardar_ajuste("mini", c),
         get_alarms=alarms.listing, get_events=lambda: _evs["lines"], open_settings=lambda: open_ajustes(),
         get_anchor=lambda: (orb.anchor(), R0, bool(orb.edge) and not orb.revealed))
@@ -1515,9 +1737,14 @@ def main():
             lineas = [str(x) for x in r]
         elif isinstance(r, str):
             lineas = [x.strip() for x in r.replace("\r", "").split("\n") if x.strip()]
+        if nombre == "ver_agenda":                          # cada evento abre Google Calendar en su día
+            lineas = [{"texto": _re.sub(r"\s*\[[^\]]*\]\s*$", "", _re.sub(r"\s*\(id:[^)]*\)", "", ln)),
+                       "url": minipanel.MiniPanel._ev_url(ln)} for ln in lineas]
         for m in res.get("correos") or []:                  # solo remitente y asunto: nunca el cuerpo del correo
             if isinstance(m, dict):
-                lineas.append(f"{str(m.get('de', ''))[:28]} — {m.get('asunto', '')}")
+                _t = f"{str(m.get('de', ''))[:28]} — {m.get('asunto', '')}"
+                _d = _correo_dato(m)
+                lineas.append({"texto": _t, **_d} if _d else _t)
         if lineas:
             panel.push(info[0], info[1], lineas[:6], info[2], clave="res:" + nombre)
 
@@ -1561,6 +1788,7 @@ def main():
             if show_my_text():
                 orb.say("🎤 " + st["user"].strip()[-180:], 6)
         elif kind == "turn_complete":
+            _detectar_salida(st["user"])                       # «al rato regreso»: marca ausencia para las reglas
             if st["user"].strip() and st["model"].strip():
                 st.setdefault("turns", []).append({"tu": st["user"].strip(), "orbi": st["model"].strip()})
                 save_session(st["turns"])
@@ -1700,8 +1928,12 @@ def main():
                 session.send_text("[Resultado de la tarea en la PC] " + resumen +
                                   " — Díselo a tu dueño ahora, en una frase corta y natural.")
         elif kind == "notification":
+            data, _lote = data if isinstance(data, tuple) else (data, [])
             orb.wake(); orb.set_emotion("surprised", 2); orb.say("🔔 " + str(data), 7)
-            panel.push("🔔", "Notificación", [str(data)], 25, clave="notif")
+            # clicable: al tocar una línea se trae al frente la ventana de esa app (solo app y remitente, nunca el contenido)
+            _ln = [{"texto": f"{n.get('app', '')}: {n.get('titulo', '')}"[:90], "accion": "notificacion",
+                    "datos": {"app": n.get("app", "")}} for n in _lote[:4]] or [str(data)]
+            panel.push("🔔", "Notificación", _ln, 25, clave="notif")
             if st["connected"] and not st["muted"] and not is_away():
                 session.send_text("[Notificación] " + str(data) + ". Avísale a tu dueño en una frase corta, "
                                   "sin leer el contenido de los mensajes.")
@@ -1793,7 +2025,7 @@ def main():
                 panel.hide_now()
             else:
                 panel.push(data.get("icono") or "📌", data.get("titulo") or "Orbi", data.get("lineas"), data.get("segundos") or 45,
-                           clave="orbi")
+                           clave="orbi", url=data.get("url"))
         elif kind == "correo_nuevo":
             items, o = data
             n = len(items)
@@ -1801,7 +2033,8 @@ def main():
             orb.wake(); orb.set_emotion("happy", 3)
             orb.say(f"📧 {primero['de']}: {primero['asunto']}" if n == 1 else f"📧 {n} correos nuevos (el último de {primero['de']})", 7)
             panel.push("📧", "Correo nuevo" if n == 1 else f"{n} correos nuevos",
-                       [f"{x['de'][:24]}: {x['asunto'][:56]}" for x in items[:4]], 60, clave="orbi")
+                       [({"texto": f"{x['de'][:24]}: {x['asunto'][:56]}", **_correo_dato(x)} if _correo_dato(x)
+                         else f"{x['de'][:24]}: {x['asunto'][:56]}") for x in items[:4]], 60, clave="orbi")
             if o.get("voz") and st["state"] not in ("speaking", "thinking") and not agent.running:
                 lista = "; ".join(f"de {x['de']}, «{x['asunto']}»" for x in items[:3])
                 session.send_text(f"[Aviso del sistema, no es el usuario hablando] Llegó correo nuevo: {lista}. Avísale en UNA frase corta "

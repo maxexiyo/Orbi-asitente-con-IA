@@ -678,7 +678,9 @@ class LiveSession:
             for t in self._hold_txt:
                 self._emit_model_text(t)
             self._hold, self._hold_txt = [], []
-        elif final or ((self._hold or self._hold_txt) and time.time() - self._hold_t0 >= self.gate_wait_s):
+        elif final or ((self._hold or self._hold_txt) and time.time() - self._hold_t0 >=
+                       (self.gate_wait_s if self._turn_text.strip() else self.gate_wait_s * 2.5)):
+            # sin transcripción todavía no sabemos qué dijiste (a veces llega tarde): espera más antes de darlo por «no era para Orbi»
             self._gate_decision = False
             self._hold, self._hold_txt = [], []                 # lo retenido nunca llegó a sonar ni a verse
             self._suppress_until = time.time() + 10.0           # nada de voz, texto ni herramientas para este turno

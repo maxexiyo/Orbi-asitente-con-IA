@@ -312,7 +312,11 @@ class Announcer:
         if len(recent) >= self.max_per_min:
             return                                           # límite: quedan en la lista, se pueden consultar
         self._spoken.append(t)
-        self.speak(self.summarize(batch))
+        texto = self.summarize(batch)
+        try:
+            self.speak(texto, batch)                         # el lote va aparte para que la mini ventana pueda hacerlo clicable
+        except TypeError:                                    # speak antiguo de un solo argumento
+            self.speak(texto)
 
     def summarize(self, batch: list) -> str:
         groups = {}
