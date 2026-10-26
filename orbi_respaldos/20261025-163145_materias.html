@@ -1,0 +1,62 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Catálogo de materias — Asesorías CETI</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="../materias/materias.css">
+</head>
+<body>
+
+  <header class="navbar">
+    <div class="marca">
+      <span class="logo">CT</span>
+      <span>Asesorías CETI</span>
+    </div>
+    <nav class="menu" aria-label="Menú principal">
+      <a href="../asesor/asesor.html">Inicio</a>
+      <a href="materias.html" class="activo" aria-current="page">Materias</a>
+      <a href="../perfil/perfil.html">Mi perfil</a>
+    </nav>
+    <button id="btnSalir" class="salir" type="button" style="margin-left: auto; background: transparent; color: #fff; border: 1px solid rgba(255,255,255,.4); border-radius: 6px; padding: 6px 14px; font: inherit; cursor: pointer;">Salir</button>
+  </header>
+
+  <main class="contenido">
+
+    <h1>Catálogo de materias</h1>
+    <p class="sub">Busca una materia por su nombre o su clave para ver cuántos asesores la imparten.</p>
+
+    <form id="buscador" class="buscador" role="search">
+      <div class="campo campo-buscar">
+        <label for="busqueda">Buscar materia</label>
+        <input type="search" id="busqueda" name="busqueda" placeholder="Ej. Cálculo o MAT-201"
+               maxlength="50" autocomplete="off">
+      </div>
+      <div class="campo campo-orden">
+        <label for="orden">Ordenar por</label>
+        <select id="orden" name="orden">
+          <option value="nombre">Nombre (A-Z)</option>
+          <option value="rezago">Mayor índice de rezago</option>
+        </select>
+      </div>
+      <button type="submit" class="boton">Buscar</button>
+    </form>
+
+    <p id="contador" class="contador" aria-live="polite"></p>
+
+    <div id="mensaje" class="mensaje" role="status" hidden></div>
+
+    <section id="lista" class="lista" aria-label="Lista de materias"></section>
+
+  </main>
+
+  <script src="../compartido/sesion.js"></script>
+  <script src="../materias/materias.js"></script>
+  <script>
+    document.getElementById('btnSalir').addEventListener('click', Sesion.salir);
+  </script>
+</body>
+</html>

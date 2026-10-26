@@ -34,6 +34,8 @@ from typing import Callable
 from urllib.parse import quote_plus, urlparse
 
 import docs_reader as DR
+import imagenes_ops as IO     # editar imágenes (Pillow)
+import archivos_edicion as AE   # editar archivos existentes (top-level para que PyInstaller lo incluya)
 
 ROOT = Path(__file__).parent
 
@@ -534,12 +536,51 @@ _tool("organizar_carpeta", "ORGANIZA una carpeta (Descargas, Escritorio, una car
            vista_previa=B("true = solo mostrar el plan sin mover nada")), ["carpeta"], perm="archivos")
 _tool("deshacer_organizacion", "Deshace el último lote de movimientos o renombres que hizo Orbi (mover, renombrar, organizar): "
                                "regresa los archivos a donde estaban.", perm="archivos")
-_tool("escribir_archivo", "Crea un archivo de TEXTO (.txt, .md, .csv, .json...) con el contenido exacto que le pases, o agrega al final de "
-                          "uno existente (agregar=true), sin abrir ningún programa. Nunca sobrescribe. Para Word usa redactar_documento.",
+_tool("escribir_archivo", "Crea un archivo NUEVO de texto o CÓDIGO (.txt, .md, .csv, .json, .html, .css, .js, .py, .php, .ino, .kt...) con el "
+                          "contenido exacto que le pases, o agrega al final de uno existente (agregar=true), sin abrir ningún programa. "
+                          "SÍ puedes crear código y scripts de programación (.js, .py, .sh). Si el archivo ya existe NO lo pisa (crea «nombre (2)»): "
+                          "para cambiar uno existente usa editar_archivo. Scripts de Windows (.bat, .ps1, .vbs): usa crear_script_windows. "
+                          "Para Word usa redactar_documento.",
       dict(ruta=S("Nombre o ruta, ej. 'notas.txt' o 'Documentos/CETI/lista.md'"), contenido=S("Texto completo del archivo"),
            agregar=B("true = agregar al final de un archivo que ya existe")), ["ruta", "contenido"], perm="archivos")
+_tool("editar_archivo", "EDITA un archivo de texto/código que YA existe (html, js, css, py, php, json, txt, md, ino...) cambiando un trozo "
+                        "exacto, sin abrir ningún programa. Deja respaldo automático. Primero léelo con leer_archivo y copia `buscar` "
+                        "TAL CUAL (con espacios y sangría). Si `buscar` sale varias veces, agrega líneas alrededor o usa todas=true.",
+      dict(ruta=S("Nombre o ruta del archivo"), buscar=S("Texto exacto que hay que cambiar"), reemplazo=S("Texto nuevo (vacío = quitar el trozo)"),
+           todas=B("true = cambiar todas las coincidencias")), ["ruta", "buscar", "reemplazo"], perm="archivos")
+_tool("reescribir_archivo", "REEMPLAZA todo el contenido de un archivo de texto/código que ya existe (con respaldo). Solo si cambia casi "
+                            "todo; para cambios normales usa editar_archivo.",
+      dict(ruta=S("Nombre o ruta del archivo"), contenido=S("Contenido completo nuevo")), ["ruta", "contenido"], perm="archivos")
+_tool("extraer_de_html", "Saca el <script> (a un .js) o el <style> (a un .css) que está DENTRO de un .html a su propio archivo y deja el "
+                         "enlace en el HTML. Úsala para «separa el js del html».",
+      dict(ruta=S("El archivo .html"), tipo=S("script (por defecto) | style"), archivo=S("Opcional: nombre del archivo nuevo"),
+           numero=I("Si hay varios bloques, cuál (1 por defecto)")), ["ruta"], perm="archivos")
+_tool("restaurar_archivo", "Regresa un archivo que Orbi editó a su versión anterior (la del último respaldo). Sin ruta, el último que se editó.",
+      dict(ruta=S("Opcional: nombre del archivo")), perm="archivos")
+_tool("crear_script_windows", "Crea un script NUEVO de Windows (.bat, .cmd, .ps1, .vbs, .reg...). Le muestra el código completo al dueño y "
+                              "solo se guarda si lo aprueba; NUNCA se ejecuta. Para .js, .py, .sh y demás código usa escribir_archivo.",
+      dict(ruta=S("Nombre o ruta, ej. 'limpiar.bat'"), contenido=S("Código completo del script")), ["ruta", "contenido"], perm="archivos")
+_tool("editar_imagen", "EDITA una imagen (png, jpg, webp, bmp, gif) sin abrir ningún programa: recortar, redimensionar, rotar, voltear, "
+                       "blanco y negro, sepia, invertir, brillo, contraste, color, nitidez, desenfocar y poner texto. Guarda una COPIA nueva "
+                       "(nunca toca el original) y devuelve su ruta. Para meterla a un Word: redactar_documento con ![descripción](nombre.png). "
+                       "Coordenadas de 0 a 1000 sobre la imagen. `operaciones` es una lista que se aplica en orden.",
+      dict(ruta=S("Nombre o ruta de la imagen"),
+           operaciones={"type": "ARRAY", "description": "Pasos en orden, ej. [{tipo:'recortar',x1:0,y1:0,x2:1000,y2:600},{tipo:'redimensionar',ancho:800}]",
+                        "items": {"type": "OBJECT", "properties": dict(
+                            tipo={"type": "STRING", "enum": list(IO.TIPOS)},
+                            ancho=I("redimensionar: píxeles (si das solo uno, el otro se ajusta)"), alto=I("redimensionar: píxeles"),
+                            porcentaje=N("redimensionar: 50 = a la mitad"),
+                            x1=N("recortar 0-1000"), y1=N("recortar 0-1000"), x2=N("recortar 0-1000"), y2=N("recortar 0-1000"),
+                            grados=N("rotar: sentido del reloj"), direccion=S("voltear: horizontal | vertical"),
+                            factor=N("brillo/contraste/color/nitidez: 1 = igual, 1.3 = +30%, 0.7 = -30%"), radio=N("desenfocar"),
+                            texto=S("texto a poner"), x=N("texto 0-1000 (centro)"), y=N("texto 0-1000 (centro)"),
+                            tamano=I("texto: alto en píxeles"), color=S("texto o fondo al rotar: nombre en inglés o #rrggbb")),
+                                  "required": ["tipo"]}},
+           salida=S("Opcional: nombre del archivo nuevo"), formato=S("Opcional: png | jpg | webp | bmp | gif")),
+      ["ruta", "operaciones"], perm="archivos")
 _tool("redactar_documento", "CREA un documento de WORD (.docx) completo y lo guarda, SIN abrir Word ni teclear nada (es instantáneo y no "
-                            "se corta). Úsala SIEMPRE que pidan hacer/escribir/redactar un documento, tarea, ensayo, resumen, carta, "
+                            "se corta). Admite TABLAS (| a | b | con fila |---|---|) e IMÁGENES (![descripción](archivo.png), solo archivos que ya existan; "
+                            "para editarlas antes usa editar_imagen). Úsala SIEMPRE que pidan hacer/escribir/redactar un documento, tarea, ensayo, resumen, carta, "
                             "reporte, informe o similar. Pasa `instrucciones` con TODO lo que pidió el usuario (tema, extensión, tono, "
                             "puntos, datos, formato, nombre del archivo); otro modelo lo redacta completo, con títulos y listas. Solo si "
                             "el usuario te dictó el texto exacto, pásalo en `contenido` y se guarda tal cual. `agregar_a` añade al "
@@ -872,6 +913,12 @@ def _run(name: str, args: dict, ctx: ToolContext) -> dict:
         msg = _brake(ctx)
         if msg:
             return {"error": msg}
+
+    # ---------------- editar archivos existentes (archivos_edicion.py); los scripts de Windows piden OK en pantalla
+    if name in ("editar_archivo", "reescribir_archivo", "extraer_de_html", "restaurar_archivo", "crear_script_windows"):
+        return AE.ejecutar(name, args, ctx)
+    if name == "editar_imagen":
+        return IO.ejecutar(name, args)
 
     # ---------------- siempre disponibles
     if name == "obtener_hora":
@@ -1807,6 +1854,9 @@ def _files(name: str, args: dict, ctx: ToolContext) -> dict:
         if not contenido:
             if not instr:
                 return {"error": "Dime de qué trata el documento (`instrucciones`) o pásame el texto exacto en `contenido`."}
+            instr += ("\n\n(Formato del documento: markdown simple. Si hace falta una TABLA usa la sintaxis | col | col | con una fila "
+                      "|---|---| debajo del encabezado. Imágenes: SOLO si te mencionan archivos de imagen que ya existen, ponlos en una línea "
+                      "sola así: ![descripción](nombre_del_archivo.png). Nunca inventes archivos de imagen.)")
             r = ctx.write(instr, "documento", ("DOCUMENTO ACTUAL A AMPLIAR:\n" + base_txt[:60000]) if base_txt else "", palabras)
             if r.get("error"):
                 return {"error": r["error"]}

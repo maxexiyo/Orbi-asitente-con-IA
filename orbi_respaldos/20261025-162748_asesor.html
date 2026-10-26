@@ -1,0 +1,66 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Panel del asesor — Asesorías CETI</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="../materias/materias.css">
+  <style>
+    .salir { margin-left: auto; background: transparent; color: #fff; border: 1px solid rgba(255,255,255,.4);
+             border-radius: 6px; padding: 6px 14px; font: inherit; cursor: pointer; }
+    .salir:hover { background: rgba(255,255,255,.12); }
+    .atajos { display: grid; gap: 16px; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); margin-top: 24px; }
+    .atajo { display: block; background: var(--card); border: 1px solid var(--line); border-radius: 10px;
+             padding: 20px; color: var(--text); text-decoration: none; }
+    .atajo:hover { border-color: var(--amber); }
+    .atajo h2 { margin: 0 0 6px; font-size: 1.05rem; font-family: var(--font-head); }
+    .atajo p { margin: 0; color: var(--muted); font-size: .92rem; }
+  </style>
+</head>
+<body>
+
+  <header class="navbar">
+    <div class="marca">
+      <span class="logo">CT</span>
+      <span>Asesorías CETI</span>
+    </div>
+    <nav class="menu" aria-label="Menú principal">
+      <a href="asesor.html" class="activo" aria-current="page">Inicio</a>
+      <a href="materias.html">Materias</a>
+      <a href="../perfil/perfil.html">Mi perfil</a>
+    </nav>
+    <button id="btnSalir" class="salir" type="button">Salir</button>
+  </header>
+
+  <main class="contenido">
+    <h1>Panel del asesor</h1>
+    <p class="sub" id="saludo">Cargando…</p>
+
+    <section class="atajos">
+      <a class="atajo" href="disponibilidad.html">
+        <h2>Mi disponibilidad</h2>
+        <p>Marca los bloques de horario en los que puedes dar asesorías.</p>
+      </a>
+      <a class="atajo" href="materias.html">
+        <h2>Catálogo de materias</h2>
+        <p>Consulta las materias y cuántos asesores las imparten.</p>
+      </a>
+    </section>
+  </main>
+
+  <script src="../compartido/sesion.js"></script>
+  <script>
+    document.getElementById('btnSalir').addEventListener('click', Sesion.salir);
+    Sesion.cargar()
+      .then(function (usuario) {
+        document.getElementById('saludo').textContent = 'Hola, ' + usuario.nombre + '.';
+      })
+      .catch(function () {
+        document.getElementById('saludo').textContent = 'No se pudo cargar tu sesión. Revisa que el servidor esté encendido.';
+      });
+  </script>
+</body>
+</html>

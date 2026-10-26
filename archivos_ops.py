@@ -5,13 +5,13 @@
 Reglas de seguridad (a propósito):
   - Solo dentro de Documentos, Escritorio y Descargas (y sus subcarpetas). Nunca las carpetas raíz mismas.
   - NUNCA borra y NUNCA sobrescribe: si el nombre ya existe, el nuevo lleva « (2)», « (3)»...
-  - Nada de crear archivos ejecutables/scripts (mismos BLOCKED_EXT de pc_tools).
+  - Nada de crear ejecutables ni scripts de Windows aquí (BLOCKED_EXT); el código normal (.js, .py...) sí. Scripts de Windows: archivos_edicion, con OK.
   - Cada movimiento queda en `organizacion_log.json` (junto a Orbi) para poder DESHACERLO.
   - Archivos abiertos en otro programa (Word, etc.) se saltan y se reportan: Windows no deja moverlos.
 
 El .docx se escribe con zipfile (sin python-docx), así que también funciona en el .exe.
 """
-import json, os, re, shutil, time, zipfile
+import io, json, os, random, re, shutil, time, uuid, zipfile
 from datetime import datetime
 from pathlib import Path
 from xml.sax.saxutils import escape
@@ -21,8 +21,10 @@ from paths import APP_DIR
 
 LOG_PATH = APP_DIR / "organizacion_log.json"
 LOG_MAX_BATCHES = 30
-BLOCKED_EXT = {".exe", ".bat", ".cmd", ".com", ".msi", ".scr", ".ps1", ".vbs", ".vbe", ".js", ".jse",
-               ".wsf", ".lnk", ".jar", ".reg", ".dll", ".py", ".pyw", ".hta", ".cpl", ".sh", ".apk"}
+# Ejecutables y scripts de WINDOWS: aquí no se crean. Los scripts de texto (.bat, .ps1, .vbs...) se crean/editan con
+# archivos_edicion (crear_script_windows), que muestra el código y pide el OK del dueño. El código normal (.js, .py, .sh...) sí se permite.
+BLOCKED_EXT = {".exe", ".bat", ".cmd", ".com", ".msi", ".scr", ".ps1", ".vbs", ".vbe", ".jse",
+               ".wsf", ".lnk", ".jar", ".reg", ".dll", ".hta", ".cpl", ".apk"}
 SKIP_NAMES = {"desktop.ini", "thumbs.db", ".ds_store"}
 RECIENTE_S = 20          # un archivo tocado hace menos de esto probablemente se está escribiendo: se salta al organizar
 
@@ -274,7 +276,8 @@ def _destino_nuevo(ruta: str, ext_defecto: str) -> Path:
     if not Path(nombre).suffix:
         nombre += ext_defecto
     if Path(nombre).suffix.lower() in BLOCKED_EXT:
-        raise OpError("Por seguridad no creo programas ni scripts (.exe, .bat, .py...).")
+        raise OpError("Los scripts de Windows (.bat, .ps1, .vbs...) se crean con crear_script_windows, que te pide OK con vista previa. "
+                      "Los ejecutables (.exe, .dll...) no los creo.")
     if len(parts) == 1 and not Path(ruta).is_absolute():
         base = next((r for r in DR.file_roots() if r.name.lower() in ("documents", "documentos")), None)
         if base is None:
@@ -339,27 +342,135 @@ _DOC_RELS = """<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 </Relationships>"""
 
 
-def _runs(texto: str) -> str:
-    """**negrita** y *cursiva* -> runs de Word."""
+def _runs(texto: str, negrita: bool = False) -> str:
+    """**negrita** y *cursiva* -> runs de Word. `negrita=True` pone todo en negrita (encabezados de tabla)."""
     out = []
     for parte in re.split(r"(\*\*[^*]+\*\*|\*[^*\s][^*]*\*)", texto):
         if not parte:
             continue
-        rpr = ""
+        rpr = "<w:rPr><w:b/></w:rPr>" if negrita else ""
         if parte.startswith("**") and parte.endswith("**") and len(parte) > 4:
             parte, rpr = parte[2:-2], "<w:rPr><w:b/></w:rPr>"
         elif parte.startswith("*") and parte.endswith("*") and len(parte) > 2:
-            parte, rpr = parte[1:-1], "<w:rPr><w:i/></w:rPr>"
+            parte, rpr = parte[1:-1], ("<w:rPr><w:b/><w:i/></w:rPr>" if negrita else "<w:rPr><w:i/></w:rPr>")
         out.append(f'<w:r>{rpr}<w:t xml:space="preserve">{escape(parte)}</w:t></w:r>')
     return "".join(out)
 
 
-def _parrafos_xml(contenido: str) -> str:
-    """Markdown simple -> párrafos: # título, ## y ### encabezados, - o * viñetas, 1. numeradas, **negrita**, líneas en blanco."""
-    xml, primero = [], True
-    for raw in str(contenido).replace("\r\n", "\n").replace("\r", "\n").split("\n"):
-        ln = raw.rstrip()
+_NS_IMG = {"wp": "http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing",
+           "a": "http://schemas.openxmlformats.org/drawingml/2006/main",
+           "pic": "http://schemas.openxmlformats.org/drawingml/2006/picture",
+           "r": "http://schemas.openxmlformats.org/officeDocument/2006/relationships"}
+_IMG_REL = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/image"
+_IMG_RE = re.compile(r"^\s*!\[([^\]]*)\]\((.+)\)\s*$")
+_SEP_RE = re.compile(r"^\s*\|?\s*:?-+:?\s*(\|\s*:?-+:?\s*)*\|?\s*$")
+IMG_MAX_ANCHO_IN, IMG_MAX_ALTO_IN = 6.0, 8.0   # la página tiene 6.5" útiles
+
+
+def _imagen_xml(ref: str, alt: str, medios: list) -> str:
+    """![descripción](ruta) -> párrafo centrado con la imagen incrustada. `medios` acumula lo que hay que meter al .docx."""
+    from PIL import Image
+    p = resolver_archivo(ref.strip().strip('"'))
+    if p.is_dir():
+        raise OpError(f"«{ref}» es una carpeta, no una imagen.")
+    try:
+        im = Image.open(p)
+        im.load()
+    except Exception:  # noqa: BLE001
+        raise OpError(f"No pude abrir la imagen «{p.name}» (¿es png, jpg, gif, bmp o webp?).")
+    ext = p.suffix.lower()
+    if ext in (".png", ".jpg", ".jpeg", ".gif", ".bmp"):
+        data = p.read_bytes()
+        ext = ".jpg" if ext == ".jpeg" else ext
+    else:                                   # webp, tiff...: Word los abre mal -> a PNG
+        buf = io.BytesIO()
+        (im if im.mode in ("RGB", "RGBA", "L", "LA", "P") else im.convert("RGBA")).save(buf, "PNG")
+        data, ext = buf.getvalue(), ".png"
+    w_px, h_px = im.size
+    try:
+        dpi = float((im.info.get("dpi") or (96, 96))[0]) or 96.0
+    except (TypeError, ValueError):
+        dpi = 96.0
+    dpi = min(max(dpi, 72.0), 600.0)
+    w_in, h_in = w_px / dpi, h_px / dpi
+    k = min(1.0, IMG_MAX_ANCHO_IN / w_in, IMG_MAX_ALTO_IN / h_in)
+    cx, cy = max(1, int(w_in * k * 914400)), max(1, int(h_in * k * 914400))
+    uid = uuid.uuid4().hex[:10]
+    rid, parte = f"rIdOrbi{uid}", f"orbi_{uid}{ext}"
+    medios.append({"rid": rid, "parte": parte, "datos": data, "ext": ext.lstrip(".")})
+    n = random.randint(1000, 2_000_000_000)
+    alt_x = escape(alt or p.stem, {'"': "&quot;"})
+    ns = _NS_IMG
+    return (f'<w:p><w:pPr><w:keepNext/><w:jc w:val="center"/></w:pPr><w:r><w:drawing>'
+            f'<wp:inline distT="0" distB="0" distL="0" distR="0" xmlns:wp="{ns["wp"]}">'
+            f'<wp:extent cx="{cx}" cy="{cy}"/><wp:docPr id="{n}" name="Imagen {n}" descr="{alt_x}"/>'
+            f'<wp:cNvGraphicFramePr><a:graphicFrameLocks xmlns:a="{ns["a"]}" noChangeAspect="1"/></wp:cNvGraphicFramePr>'
+            f'<a:graphic xmlns:a="{ns["a"]}"><a:graphicData uri="{ns["pic"]}">'
+            f'<pic:pic xmlns:pic="{ns["pic"]}"><pic:nvPicPr><pic:cNvPr id="0" name="{escape(parte)}"/><pic:cNvPicPr/></pic:nvPicPr>'
+            f'<pic:blipFill><a:blip r:embed="{rid}" xmlns:r="{ns["r"]}"/><a:stretch><a:fillRect/></a:stretch></pic:blipFill>'
+            f'<pic:spPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="{cx}" cy="{cy}"/></a:xfrm>'
+            f'<a:prstGeom prst="rect"><a:avLst/></a:prstGeom></pic:spPr></pic:pic>'
+            f'</a:graphicData></a:graphic></wp:inline></w:drawing></w:r></w:p>')
+
+
+def _celdas(linea: str) -> list:
+    t = linea.strip().replace("\\|", "\x00")
+    if t.startswith("|"):
+        t = t[1:]
+    if t.endswith("|"):
+        t = t[:-1]
+    return [c.replace("\x00", "|").strip() for c in t.split("|")]
+
+
+def _tabla_xml(filas: list, alin: list) -> str:
+    """Tabla de Word: primera fila = encabezado (negrita y fondo azul claro). Ocupa todo el ancho útil."""
+    ncol = max(len(f) for f in filas)
+    ancho = 9360 // ncol
+    borde = "".join(f'<w:{l} w:val="single" w:sz="4" w:space="0" w:color="A6A6A6"/>'
+                    for l in ("top", "left", "bottom", "right", "insideH", "insideV"))
+    grid = "".join('<w:gridCol w:w="%d"/>' % ancho for _ in range(ncol))
+    xml = [f'<w:tbl><w:tblPr><w:tblW w:w="5000" w:type="pct"/><w:tblBorders>{borde}</w:tblBorders><w:tblLayout w:type="autofit"/>'
+           f'<w:tblCellMar><w:left w:w="100" w:type="dxa"/><w:right w:w="100" w:type="dxa"/></w:tblCellMar></w:tblPr>'
+           f'<w:tblGrid>{grid}</w:tblGrid>']
+    for i, fila in enumerate(filas):
+        fila = fila + [""] * (ncol - len(fila))
+        xml.append("<w:tr>" + ("<w:trPr><w:tblHeader/></w:trPr>" if i == 0 else ""))
+        for j, c in enumerate(fila):
+            sh = '<w:shd w:val="clear" w:color="auto" w:fill="D9E2F3"/>' if i == 0 else ""
+            jc = {"c": "center", "r": "right"}.get(alin[j] if j < len(alin) else "l", "left")
+            xml.append(f'<w:tc><w:tcPr><w:tcW w:w="{ancho}" w:type="dxa"/>{sh}</w:tcPr>'
+                       f'<w:p><w:pPr><w:spacing w:before="40" w:after="40"/><w:jc w:val="{jc}"/></w:pPr>{_runs(c, negrita=(i == 0))}</w:p></w:tc>')
+        xml.append("</w:tr>")
+    xml.append('</w:tbl><w:p><w:pPr><w:spacing w:after="0"/></w:pPr></w:p>')   # Word pide un párrafo después de la tabla
+    return "".join(xml)
+
+
+def _parrafos_xml(contenido: str, medios: list = None) -> str:
+    """Markdown simple -> párrafos: # título, ## y ### encabezados, - o * viñetas, 1. numeradas, **negrita**, tablas con | y
+    ![descripción](ruta) para imágenes (las incrusta; se acumulan en `medios`)."""
+    medios = medios if medios is not None else []
+    lineas = [x.rstrip() for x in str(contenido).replace("\r\n", "\n").replace("\r", "\n").split("\n")]
+    xml, primero, i = [], True, 0
+    while i < len(lineas):
+        ln = lineas[i]
         if not ln.strip():
+            i += 1
+            continue
+        mi = _IMG_RE.match(ln)
+        if mi:
+            xml.append(_imagen_xml(mi.group(2), mi.group(1).strip(), medios))
+            primero, i = False, i + 1
+            continue
+        if "|" in ln and i + 1 < len(lineas) and "|" in lineas[i + 1] and _SEP_RE.match(lineas[i + 1]):
+            enc = _celdas(ln)
+            alin = ["c" if c.startswith(":") and c.endswith(":") else "r" if c.endswith(":") else "l"
+                    for c in (x.replace(" ", "") for x in _celdas(lineas[i + 1]))]
+            filas, i = [enc], i + 2
+            while i < len(lineas) and lineas[i].strip() and "|" in lineas[i]:
+                filas.append(_celdas(lineas[i]))
+                i += 1
+            xml.append(_tabla_xml(filas, alin))
+            primero = False
             continue
         m = re.match(r"^(#{1,3})\s+(.*)$", ln)
         if m:
@@ -374,21 +485,40 @@ def _parrafos_xml(contenido: str) -> str:
             xml.append(f'<w:p><w:pPr><w:pStyle w:val="ListParagraph"/></w:pPr>{_runs(n + ". " + t)}</w:p>')
         else:
             xml.append(f'<w:p><w:pPr><w:jc w:val="both"/></w:pPr>{_runs(ln.strip())}</w:p>')
-        primero = False
+        primero, i = False, i + 1
     return "".join(xml)
 
 
+_IMG_CT = {"png": "image/png", "jpg": "image/jpeg", "gif": "image/gif", "bmp": "image/bmp"}
+
+
+def _ct_con_imagenes(ct: str, medios: list) -> str:
+    """Declara en [Content_Types].xml las extensiones de imagen que faltan."""
+    for ext in sorted({m["ext"] for m in medios}):
+        if not re.search(rf'Extension="{ext}"', ct, re.I):
+            ct = ct.replace("</Types>", f'<Default Extension="{ext}" ContentType="{_IMG_CT.get(ext, "image/png")}"/></Types>')
+    return ct
+
+
+def _rels_con_imagenes(rels: str, medios: list) -> str:
+    add = "".join(f'<Relationship Id="{m["rid"]}" Type="{_IMG_REL}" Target="media/{m["parte"]}"/>' for m in medios)
+    return rels.replace("</Relationships>", add + "</Relationships>")
+
+
 def _escribir_docx(path: Path, contenido: str) -> None:
-    body = _parrafos_xml(contenido)
+    medios = []
+    body = _parrafos_xml(contenido, medios)
     sect = '<w:sectPr><w:pgSz w:w="12240" w:h="15840"/><w:pgMar w:top="1440" w:right="1440" w:bottom="1440" w:left="1440" w:header="708" w:footer="708" w:gutter="0"/></w:sectPr>'
     doc = f'<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n<w:document {_NS}><w:body>{body}{sect}</w:body></w:document>'
     tmp = path.with_name(path.name + ".tmp")
     with zipfile.ZipFile(tmp, "w", zipfile.ZIP_DEFLATED) as z:
-        z.writestr("[Content_Types].xml", _CT)
+        z.writestr("[Content_Types].xml", _ct_con_imagenes(_CT, medios))
         z.writestr("_rels/.rels", _RELS)
         z.writestr("word/document.xml", doc)
         z.writestr("word/styles.xml", _STYLES)
-        z.writestr("word/_rels/document.xml.rels", _DOC_RELS)
+        z.writestr("word/_rels/document.xml.rels", _rels_con_imagenes(_DOC_RELS, medios))
+        for m in medios:
+            z.writestr(f"word/media/{m['parte']}", m["datos"])
     os.replace(tmp, path)
 
 
@@ -397,13 +527,21 @@ def _agregar_docx(path: Path, contenido: str) -> None:
     with zipfile.ZipFile(path) as z:
         items = {n: z.read(n) for n in z.namelist()}
     xml = items["word/document.xml"].decode("utf-8")
-    nuevo = _parrafos_xml(contenido)
+    medios = []
+    nuevo = _parrafos_xml(contenido, medios)
     i = xml.rfind("<w:sectPr")
     if i < 0:
         i = xml.rfind("</w:body>")
     if i < 0:
         raise OpError("No pude entender la estructura de ese .docx.")
     items["word/document.xml"] = (xml[:i] + nuevo + xml[i:]).encode("utf-8")
+    if medios:
+        if "word/_rels/document.xml.rels" not in items or "[Content_Types].xml" not in items:
+            raise OpError("Ese .docx no tiene la estructura que necesito para meterle imágenes.")
+        items["[Content_Types].xml"] = _ct_con_imagenes(items["[Content_Types].xml"].decode("utf-8"), medios).encode("utf-8")
+        items["word/_rels/document.xml.rels"] = _rels_con_imagenes(items["word/_rels/document.xml.rels"].decode("utf-8"), medios).encode("utf-8")
+        for m in medios:
+            items[f"word/media/{m['parte']}"] = m["datos"]
     tmp = path.with_name(path.name + ".tmp")
     with zipfile.ZipFile(tmp, "w", zipfile.ZIP_DEFLATED) as z:
         for n, data in items.items():
