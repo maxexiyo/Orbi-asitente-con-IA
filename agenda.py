@@ -43,8 +43,16 @@ class Agenda:
             if k.upper().startswith("ORBI_CAL_") and v:
                 self.cals.setdefault(k[9:].lower(), v.strip())
         self.google = None                                          # google_api.GoogleAccount (lo pone live_orb)
+        self.hub = None                                             # correo_cuentas.CorreoHub: las cuentas de Ajustes -> Cuentas (lo pone live_orb)
         self._cache = {}                                            # nombre -> (t, texto ics)
         self._lock = threading.Lock()
+
+    def _hub(self, cuenta: str = ""):
+        """El hub de correo de varias cuentas si tiene cuentas, salvo que se pida una cuenta del .env/config antiguo."""
+        h = self.hub
+        if h is None or not h.has_accounts:
+            return None
+        return None if (cuenta or "").lower().strip() in self.mail else h
 
     def _g(self):
         """La cuenta de Google si ya iniciaste sesión; si no, None (se usan los enlaces ICS y el IMAP de siempre)."""
@@ -120,6 +128,9 @@ class Agenda:
             lines.append(f"{dia} {hora} — {titulo}" + (f" ({lugar})" if lugar else "") + f" [{name}]"
                          + (f" (id:{eid})" if eid else ""))
         res = {"resultado": lines or "No hay eventos en ese periodo."}
+        if not lines:
+            res["indicacion"] = ("No hay nada" + (" en ese calendario" if calendario else "") + ". Si solo se miró hoy (dias=1), "
+                                 "prueba otra vez con dias=7 antes de decir que no tiene eventos.")
         if errs:
             res["avisos"] = errs
         return res
@@ -153,6 +164,9 @@ class Agenda:
         return out
 
     def unread(self, cuenta: str = "", n: int = 5) -> dict:
+        h = self._hub(cuenta)
+        if h is not None:
+            return h.unread(cuenta, n)
         g = self._use_google(cuenta)
         if g is not None:
             return g.unread(n)
@@ -168,6 +182,9 @@ class Agenda:
         return {"resultado": f"{total} sin leer en «{name}».", "correos": items}
 
     def search(self, texto: str, cuenta: str = "", n: int = 5) -> dict:
+        h = self._hub(cuenta)
+        if h is not None:
+            return h.search(texto, cuenta, n)
         g = self._use_google(cuenta)
         if g is not None:
             return g.search(texto, n)
@@ -187,6 +204,9 @@ class Agenda:
         return {"resultado": f"{len(items)} resultado(s) en «{name}».", "correos": items}
 
     def read(self, id_: str, cuenta: str = "", max_chars: int = 900) -> dict:
+        h = self._hub(cuenta)
+        if h is not None and "-" in str(id_):                         # los ids del hub llevan la cuenta: «2-4821»
+            return h.read(str(id_), cuenta, max_chars)
         g = self._use_google(cuenta) if not str(id_).isdigit() else None   # ids de Gmail API son hex, los de IMAP son números
         if g is not None:
             return g.read(str(id_), max_chars)

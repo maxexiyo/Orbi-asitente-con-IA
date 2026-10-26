@@ -109,6 +109,8 @@ def _perm(ctx, name: str) -> bool:
 MODOS_OK = ("preguntar", "permitir", "auto")
 CRITICAS = ("pago", "pagar", "banco", "transferencia", "permanente", "borrar", "eliminar", "correo", "cochera", "portón", "puerta",
             "compra", "comprar")                        # lo que «automático» sigue preguntando aunque sea delicado
+
+EXCLUIR_CONFIRMACION = ("bluetooth", "wi-fi", "batería")   # acciones que no requieren confirmación del usuario
 SENSIBLES = ("administrador de tareas", "task manager", "regedit", "editor del registro", "powershell", "símbolo del sistema",
              "cmd.exe", "terminal", "configuración", "settings", "panel de control", "control de cuentas", "seguridad de windows")
 
@@ -199,6 +201,8 @@ def _delicada(ctx, name: str, args: dict, keys=None):
 def _confirm_delicada(ctx, motivo: str, detalle: str) -> bool:
     modo = _modo_delicadas(ctx)
     if modo == "permitir":
+        return True
+    if any(ex in f"{motivo} {detalle}".lower() for ex in EXCLUIR_CONFIRMACION):
         return True
     if modo == "auto" and not any(k in f"{motivo} {detalle}".lower() for k in CRITICAS):
         return True
@@ -1195,6 +1199,12 @@ def _run(name: str, args: dict, ctx: ToolContext) -> dict:
 
     # ---------------- cuenta de Google conectada (administrar calendario y correo)
     if name in GOOGLE_TOOLS:
+        hub = getattr(ctx.agenda, "hub", None) if ctx.agenda is not None else None
+        if name in ("correo_marcar_leido", "correo_archivar", "correo_papelera", "correo_enviar") and hub is not None and hub.has_accounts():
+            try:
+                return _google_tool(name, args, ctx, hub)            # el hub tiene los mismos métodos (mark_read, archive, trash, send...)
+            except Exception as e:                                   # noqa: BLE001
+                return {"error": hub.err(e)}
         g = getattr(ctx.agenda, "google", None) if ctx.agenda is not None else None
         if g is None or not g.logged_in:
             return {"error": "Primero hay que conectar tu cuenta de Google: clic derecho en Orbi > «Cuenta de Google»."}

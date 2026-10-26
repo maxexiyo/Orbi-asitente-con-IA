@@ -345,7 +345,14 @@ class AjustesDialog(QDialog):
                               "DESPUÉS de abrir Orbi se usa al reiniciarlo; «Predeterminado» siempre sigue lo que elija Windows.")
         self.au_nota.setWordWrap(True); self.au_nota.setStyleSheet("color:#7f8c8d;")
         f.addRow("", self.au_nota)
-        pend = QLabel("El volumen de las alarmas y de otros sonidos todavía no se ajusta aquí.")
+        self.au_alm = QSlider(Qt.Horizontal); self.au_alm.setRange(10, 150)
+        self.au_alm.setValue(max(10, min(150, round(float(cfg.get("volumen_alarmas", 1.0) or 1.0) * 100))))
+        self.au_alm_txt = QLabel(f"{self.au_alm.value()}%")
+        self.au_alm.valueChanged.connect(lambda v: self.au_alm_txt.setText(f"{v}%"))
+        ar = QHBoxLayout(); ar.addWidget(self.au_alm, 1); ar.addWidget(self.au_alm_txt)
+        f.addRow("Volumen de las alarmas:", ar)
+        pend = QLabel("Las alarmas suenan por la bocina predeterminada de Windows, y el tono «Clásico (pitidos)» no cambia de volumen. "
+                      "Pulsa «Aplicar» y usa «▶ Probar» en la pestaña Alarmas para oírlo.")
         pend.setWordWrap(True); pend.setStyleSheet("color:#7f8c8d;")
         f.addRow("", pend)
         self._au_bg = _ListaBg(self, self._au_llenar)
@@ -505,7 +512,7 @@ class AjustesDialog(QDialog):
                   "ocultar_orbi_en_capturas": self.g_ocul.isChecked(), "busqueda_web": self.g_web.isChecked(),
                   "unidades_externas": self.g_ext.isChecked(), "calendarios": dict(self._cal),
                   "mic_umbral": round(0.30 - 0.0026 * self.au_mic.value(), 3), "volumen_voz": round(self.au_vol.value() / 100.0, 2),
-                  "salida_audio": self.au_dev.currentData() or "",
+                  "salida_audio": self.au_dev.currentData() or "", "volumen_alarmas": round(self.au_alm.value() / 100.0, 2),
                   "notificaciones": {"autostart": self.n_auto.isChecked(),
                                      "categorias": [k for k, cb in self.n_cat.items() if cb.isChecked()],
                                      "vip": [x.strip() for x in self.n_vip.text().split(",") if x.strip()],

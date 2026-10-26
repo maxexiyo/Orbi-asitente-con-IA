@@ -20,6 +20,7 @@ SR = 22050
 DEFAULT = "Campana"
 CLASSIC = "Clásico (pitidos)"          # el de siempre: se hace con pitidos de winsound, sin archivo
 
+VOLUME = 1.0                           # volumen de las alarmas (1.0 = normal); lo pone live_orb desde Ajustes -> Audio
 _lock = threading.Lock()
 _timer = {"t": None}
 
@@ -175,11 +176,33 @@ def play_loop(name: str) -> bool:
         return False
     try:
         with _lock:
-            ws.PlaySound(str(p), ws.SND_FILENAME | ws.SND_ASYNC | ws.SND_LOOP)
+            ws.PlaySound(str(_con_volumen(p)), ws.SND_FILENAME | ws.SND_ASYNC | ws.SND_LOOP)
         return True
     except Exception as e:                                  # noqa: BLE001
         print(f"[tonos] no pude reproducir «{name}»: {e}")
         return False
+
+
+def _con_volumen(p: Path) -> Path:
+    """Copia del .wav con el volumen aplicado (winsound no tiene control de volumen). Se guarda en tonos/_vol/ y se reutiliza."""
+    v = round(float(VOLUME), 2)
+    if abs(v - 1.0) < 0.02:
+        return p
+    try:
+        q = DIR / "_vol" / f"{p.stem}_{int(v * 100)}.wav"
+        if not q.exists() or q.stat().st_mtime < p.stat().st_mtime:
+            q.parent.mkdir(exist_ok=True)
+            with wave.open(str(p), "rb") as r:
+                params, frames = r.getparams(), r.readframes(r.getnframes())
+            if params.sampwidth == 2:
+                a = np.frombuffer(frames, dtype="<i2").astype(np.float32) * v
+                frames = np.clip(a, -32768, 32767).astype("<i2").tobytes()
+            with wave.open(str(q), "wb") as w:
+                w.setparams(params); w.writeframes(frames)
+        return q
+    except Exception as e:                                  # noqa: BLE001
+        print(f"[tonos] no pude ajustar el volumen: {e}")
+        return p
 
 
 def stop() -> None:

@@ -8,6 +8,7 @@ google_client_secret.json
 orbi_pestanas_token.txt
 *.key
 keys.json
+orbi_respaldos/
 
 
 orbi_*.json

@@ -94,7 +94,9 @@ class MiniPanel(QWidget):
             return False
 
     def push(self, icono, titulo, lineas, segundos=40, clave=None) -> None:
-        if self._solo_orbi() and not (clave == "orbi" or str(clave or "").startswith("alarm:")):
+        k = str(clave or "")
+        importante = k.startswith("res:") and k[4:] not in ("listar_ventanas", "casa_estado", "wiz_listar", "escuchar_audio_pc")
+        if self._solo_orbi() and not (k == "orbi" or k.startswith("alarm:") or importante):
             return                                         # modo «orbi»: avisos automáticos no abren la ventana; solo lo que Orbi decide
         if isinstance(lineas, str):
             lineas = [x.strip() for x in lineas.splitlines() if x.strip()]

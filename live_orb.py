@@ -807,6 +807,11 @@ def main():
             session.volume = max(0.0, min(1.5, float(cfg.get("volumen_voz", 1.0))))
         except (TypeError, ValueError):
             pass
+        try:
+            import tonos as _tn
+            _tn.VOLUME = max(0.0, min(1.5, float(cfg.get("volumen_alarmas", 1.0))))
+        except Exception:                                   # noqa: BLE001
+            pass
         nombre = str(cfg.get("salida_audio") or "").strip()
         idx = _ad.resolve_index(nombre) if nombre else None
         session.output_device = idx
@@ -1419,6 +1424,11 @@ def main():
                     print(f"[ajustes] correo de varias cuentas no disponible: {e}")
             _hub_cache["h"] = h
         return _hub_cache["h"]
+
+    try:
+        agenda.hub = _correo_hub()                          # el correo de Ajustes -> Cuentas lo usan las herramientas de Orbi
+    except Exception as e:                                  # noqa: BLE001
+        print(f"[correo] no pude cargar las cuentas: {e}")
 
     def open_ajustes():
         w = _dlg["w"]
