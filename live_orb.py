@@ -245,8 +245,49 @@ def main():
         ev.wait(timeout=90)                       # sin respuesta = no
         return box[0]
 
+    def confirm_correo(info: dict):
+        """Vista previa EDITABLE de un correo antes de enviarlo. -> dict(para, asunto, cuerpo) si lo apruebas (con tus cambios), o None."""
+        ev, box = threading.Event(), [None]
+        bridge.ask.emit((info, ev, box))
+        ev.wait(timeout=300)                      # tienes 5 minutos para leerlo / editarlo; sin respuesta = no se envía
+        return box[0]
+
+    def _dialogo_correo(info: dict):
+        from PySide6.QtWidgets import QDialog, QFormLayout, QLabel, QLineEdit, QPlainTextEdit, QPushButton, QHBoxLayout, QVBoxLayout
+        d = QDialog()
+        d.setWindowTitle("Orbi quiere enviar este correo")
+        d.setWindowFlag(Qt.WindowStaysOnTopHint, True)
+        d.setMinimumWidth(560)
+        lay = QVBoxLayout(d)
+        top = QLabel("<b>Revisa el correo.</b> No se envía hasta que pulses «Enviar». Puedes cambiar lo que quieras.")
+        top.setWordWrap(True); top.setTextFormat(Qt.RichText)
+        lay.addWidget(top)
+        f = QFormLayout()
+        f.addRow("De:", QLabel(info.get("desde") or "(cuenta predeterminada)"))
+        e_para = QLineEdit(info.get("para", "")); e_asu = QLineEdit(info.get("asunto", ""))
+        f.addRow("Para:", e_para); f.addRow("Asunto:", e_asu)
+        lay.addLayout(f)
+        cuerpo = QPlainTextEdit(info.get("cuerpo", "")); cuerpo.setMinimumHeight(220)
+        lay.addWidget(cuerpo)
+        row = QHBoxLayout(); row.addStretch(1)
+        b_no = QPushButton("✖ No enviar"); b_ok = QPushButton("✅ Enviar")
+        b_no.setDefault(True); b_no.clicked.connect(d.reject); b_ok.clicked.connect(d.accept)
+        row.addWidget(b_no); row.addWidget(b_ok); lay.addLayout(row)
+        d.show(); d.raise_(); d.activateWindow(); QApplication.alert(d)
+        if d.exec() == QDialog.Accepted:
+            return dict(para=e_para.text().strip(), asunto=e_asu.text().strip(), cuerpo=cuerpo.toPlainText())
+        return None
+
     def on_ask(payload):
         texto, ev, box = payload
+        if isinstance(texto, dict):                                     # vista previa de un correo
+            orb.wake(); orb.set_emotion("thinking", 3)
+            orb.say("✉️ Revisa el correo antes de enviarlo", 6)
+            try:
+                box[0] = _dialogo_correo(texto)
+            finally:
+                ev.set()
+            return
         orb.wake(); orb.set_emotion("thinking", 3)
         orb.say("⚠️ Necesito tu OK: mira la ventana en pantalla", 6)
         m = QMessageBox(QMessageBox.Warning, "Orbi pide permiso", texto, QMessageBox.Yes | QMessageBox.No)
@@ -702,7 +743,7 @@ def main():
 
     ctx = ToolContext(
         alarms=alarms, locate=locate, read_screen=read_screen, alarm_tone=set_alarm_tone, wiz=wiz, agenda=agenda, listen_pc=listen_pc, translate_screen=translate_screen,
-        emit=emit, confirm=confirm, get_profile=lambda: st["profile"], remember=remember, recall=recall, remind=remind,
+        emit=emit, confirm=confirm, confirm_correo=confirm_correo, get_profile=lambda: st["profile"], remember=remember, recall=recall, remind=remind,
         learn=learn, set_rule=set_rule, on_skills_changed=lambda: setattr(session, "system_prompt", build_system_prompt(st["profile"])),
         reglas=reglas,
         control_enabled=lambda: st["control"], analyze=analyze, describe_image=describir_imagen, write=redactar, research=research, before_input=before_input, ha=ha, notif=notif,
@@ -1429,6 +1470,14 @@ def main():
         agenda.hub = _correo_hub()                          # el correo de Ajustes -> Cuentas lo usan las herramientas de Orbi
     except Exception as e:                                  # noqa: BLE001
         print(f"[correo] no pude cargar las cuentas: {e}")
+    try:
+        if agenda.hub is not None:
+            from correo_aviso import CorreoAvisos
+            _avisos_correo = CorreoAvisos(agenda.hub, lambda items, o: emit("correo_nuevo", (items, o)), lambda: cfg,
+                                          _perfil.ROOT / "orbi_correo_visto.json")
+            _avisos_correo.start()
+    except Exception as e:                                  # noqa: BLE001
+        print(f"[correo] no pude iniciar los avisos de correo nuevo: {e}")
 
     def open_ajustes():
         w = _dlg["w"]
@@ -1745,6 +1794,18 @@ def main():
             else:
                 panel.push(data.get("icono") or "📌", data.get("titulo") or "Orbi", data.get("lineas"), data.get("segundos") or 45,
                            clave="orbi")
+        elif kind == "correo_nuevo":
+            items, o = data
+            n = len(items)
+            primero = items[0]
+            orb.wake(); orb.set_emotion("happy", 3)
+            orb.say(f"📧 {primero['de']}: {primero['asunto']}" if n == 1 else f"📧 {n} correos nuevos (el último de {primero['de']})", 7)
+            panel.push("📧", "Correo nuevo" if n == 1 else f"{n} correos nuevos",
+                       [f"{x['de'][:24]}: {x['asunto'][:56]}" for x in items[:4]], 60, clave="orbi")
+            if o.get("voz") and st["state"] not in ("speaking", "thinking") and not agent.running:
+                lista = "; ".join(f"de {x['de']}, «{x['asunto']}»" for x in items[:3])
+                session.send_text(f"[Aviso del sistema, no es el usuario hablando] Llegó correo nuevo: {lista}. Avísale en UNA frase corta "
+                                  "(quién y de qué trata). No leas el correo ni hagas nada con él salvo que te lo pida.")
         elif kind == "tool_plan":
             panel.act_plan([_label(n) for n in data])
         elif kind == "tool_end":

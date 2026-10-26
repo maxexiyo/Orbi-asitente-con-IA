@@ -50,7 +50,8 @@ class Agenda:
     def _hub(self, cuenta: str = ""):
         """El hub de correo de varias cuentas si tiene cuentas, salvo que se pida una cuenta del .env/config antiguo."""
         h = self.hub
-        if h is None or not h.has_accounts:
+        v = getattr(h, "has_accounts", False) if h is not None else False
+        if h is None or not (v() if callable(v) else v):                # propiedad o método, según la versión
             return None
         return None if (cuenta or "").lower().strip() in self.mail else h
 

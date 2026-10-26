@@ -302,6 +302,16 @@ class AjustesDialog(QDialog):
         f.addRow("", self.n_sil); f.addRow("Horario de silencio:", hr)
         self.n_leer = QCheckBox("Que Orbi lea el contenido de los mensajes (si no, solo dice de quién)"); self.n_leer.setChecked(bool(nt.get("leer_contenido", False)))
         f.addRow("", self.n_leer)
+        ca = (cfg or {}).get("correo_avisos") if isinstance((cfg or {}).get("correo_avisos"), dict) else {}
+        self.c_aviso = QCheckBox("Avisarme cuando llegue un correo nuevo (de tus cuentas de Ajustes → Cuentas y conectores)")
+        self.c_aviso.setChecked(bool(ca.get("activo", False)))
+        self.c_cada = _ValorPersonalizable([(60, "Cada minuto"), (120, "Cada 2 minutos"), (300, "Cada 5 minutos"), (600, "Cada 10 minutos")],
+                                           ca.get("cada_s", 120), 30, 3600)
+        self.c_voz = QCheckBox("Decírmelo en voz alta (si no, solo sale en la burbuja y en la mini ventana)")
+        self.c_voz.setChecked(bool(ca.get("voz", False)))
+        self.c_imp = QCheckBox("Solo personas y avisos importantes (ignora promociones y cuentas automáticas)")
+        self.c_imp.setChecked(bool(ca.get("solo_importantes", True)))
+        f.addRow("", self.c_aviso); f.addRow("Revisar el correo:", self.c_cada); f.addRow("", self.c_voz); f.addRow("", self.c_imp)
         nn = QLabel("Las notificaciones también necesitan el permiso «notificaciones» en la configuración inicial de Orbi.")
         nn.setWordWrap(True); nn.setStyleSheet("color:#7f8c8d;"); f.addRow("", nn)
         tabs.addTab(_scroll(w), "Notificaciones")
@@ -511,6 +521,8 @@ class AjustesDialog(QDialog):
                   "esquivar_al_trabajar": self.g_esq.isChecked(), "preferir_mouse": self.g_mouse.isChecked(),
                   "ocultar_orbi_en_capturas": self.g_ocul.isChecked(), "busqueda_web": self.g_web.isChecked(),
                   "unidades_externas": self.g_ext.isChecked(), "calendarios": dict(self._cal),
+                  "correo_avisos": {"activo": self.c_aviso.isChecked(), "cada_s": self.c_cada.value(), "voz": self.c_voz.isChecked(),
+                                    "solo_importantes": self.c_imp.isChecked()},
                   "mic_umbral": round(0.30 - 0.0026 * self.au_mic.value(), 3), "volumen_voz": round(self.au_vol.value() / 100.0, 2),
                   "salida_audio": self.au_dev.currentData() or "", "volumen_alarmas": round(self.au_alm.value() / 100.0, 2),
                   "notificaciones": {"autostart": self.n_auto.isChecked(),
