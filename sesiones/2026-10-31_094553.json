@@ -1,0 +1,19 @@
+{
+ "id": "2026-10-31_094553",
+ "inicio": "2026-10-31T09:45:53",
+ "continua": null,
+ "turnos": [
+  {
+   "t": "2026-10-31T10:11:06",
+   "tu": "Orbi, hola.",
+   "orbi": "Hola Omar, ¿qué tal? Listo para lo que sigue."
+  },
+  {
+   "t": "2026-10-31T10:19:12",
+   "tu": "Orbi",
+   "orbi": "¿Qué pasó, Omar? Aquí sigo atento."
+  }
+ ],
+ "herramientas": [],
+ "fin": "2026-10-31T10:19:12"
+}

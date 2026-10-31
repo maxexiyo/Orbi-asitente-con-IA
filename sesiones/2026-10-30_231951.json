@@ -1,0 +1,68 @@
+{
+ "id": "2026-10-30_231951",
+ "inicio": "2026-10-30T23:19:51",
+ "continua": null,
+ "turnos": [
+  {
+   "t": "2026-10-30T23:33:17",
+   "tu": "ña",
+   "orbi": "detected>"
+  },
+  {
+   "t": "2026-10-30T23:40:46",
+   "tu": "Orbe, marca todos mis correos como leídos, por favor.",
+   "orbi": "Como te comenté hace un momento, no puedo marcar todos tus correos como leídos de forma automática; tendríamos que hacerlo uno por uno."
+  }
+ ],
+ "herramientas": [
+  {
+   "t": "2026-10-30T23:26:35",
+   "herramienta": "ver_agenda",
+   "args": "{}",
+   "ok": true,
+   "error": "",
+   "seg": 2.7
+  },
+  {
+   "t": "2026-10-30T23:27:00",
+   "herramienta": "listar_alarmas",
+   "args": "{}",
+   "ok": true,
+   "error": "",
+   "seg": 0.0
+  },
+  {
+   "t": "2026-10-30T23:27:10",
+   "herramienta": "correo_no_leidos",
+   "args": "{'cantidad': 5}",
+   "ok": true,
+   "error": "",
+   "seg": 35.2
+  },
+  {
+   "t": "2026-10-30T23:27:12",
+   "herramienta": "correo_leer",
+   "args": "{'id': '2-3561', 'cuenta': 'ceti'}",
+   "ok": true,
+   "error": "",
+   "seg": 0.7
+  },
+  {
+   "t": "2026-10-30T23:27:57",
+   "herramienta": "dashboard",
+   "args": "{'accion': 'mostrar', 'titulo': 'Operaciones del sistema', 'paneles': '[{\"tipo\":\"lista\",\"etiqueta\":\"OPERACIONES\",\"titulo\":\"Office Ops\",\"lineas\":[\"Script de control\",\"Reglas de Orbi\",\"Perfiles de Chrom",
+   "ok": true,
+   "error": "",
+   "seg": 0.0
+  },
+  {
+   "t": "2026-10-30T23:28:33",
+   "herramienta": "dashboard",
+   "args": "{'titulo': 'Resumen del día', 'paneles': '[{\"tipo\":\"lista\",\"etiqueta\":\"AGENDA\",\"titulo\":\"Hoy\",\"lineas\":[\"Sin eventos programados\"]},{\"tipo\":\"cifra\",\"etiqueta\":\"CORREO\",\"titulo\":\"Sin leer\",\"valor\":\"125",
+   "ok": true,
+   "error": "",
+   "seg": 0.0
+  }
+ ],
+ "fin": "2026-10-30T23:40:46"
+}

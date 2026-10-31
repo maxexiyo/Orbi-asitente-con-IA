@@ -1057,6 +1057,12 @@ def main():
         _continuar_sesion()
 
     # ---------------------------------------------- voz (Gemini Live)
+    try:                                              # micrófono: nunca el de unos audífonos/bocina Bluetooth (corta su audio); ver bt_audio.py
+        import bt_audio
+        _mic_idx = bt_audio.elegir_entrada(cfg)
+    except Exception as e:                            # noqa: BLE001
+        _mic_idx = None
+        print(f"[audio] bt_audio no disponible ({type(e).__name__}): uso el micrófono predeterminado")
     session = LiveSession(
         pool, live_models, emit,
         system_prompt=build_system_prompt(profile),
@@ -1064,6 +1070,7 @@ def main():
         tool_runner=_tool_runner,
         voice=cfg.get("live_voice"),
         headphones=a.headphones or cfg.get("headphones", False),
+        input_device=_mic_idx,
     )
 
     def _recap() -> str:
@@ -1098,9 +1105,10 @@ def main():
     attn = Attention(profile.get("escucha_modo", "palabra"), window=float(cfg.get("conversation_window_s", 25)))
     followup_s = float(cfg.get("seguimiento_s", 12))     # segundos de ventana tras terminar de hablar Orbi (para un seguimiento)
     session.proactive = bool(cfg.get("live_proactive_audio", False))   # opcional: que el modelo decida solo cuándo callar
-    default_aliases = ("orvi", "orbe", "horbi", "horvi", "orby", "urbi", "orvy", "orbit", "orbis")
+    default_aliases = ("orvi", "orbe", "horbi", "horvi", "orby", "urbi", "orvy", "orbit", "orbis", "horno", "orno", "orvit",
+                       "robi", "hornby", "orbita", "orbitas", "urbi", "orbin")      # cómo suele transcribir Gemini «Orbi» (lo que agregues en wake_aliases se SUMA a esta lista)
     wake = WakeWord(lambda text: emit("wake", text), emit, word=profile.get("palabra_clave", "orbi"),
-                    aliases=tuple(cfg.get("wake_aliases", default_aliases)),
+                    aliases=tuple(dict.fromkeys([*default_aliases, *(cfg.get("wake_aliases") or ())])),
                     threshold=float(cfg.get("wake_threshold", 0.74)))
     # Vosk (palabra clave «Orbi» + huella de voz) APAGADO por defecto: gasta CPU y Gemini no trae reconocimiento de voces propio.
     # "usar_vosk": true en config.json lo vuelve a encender (hace falta `pip install vosk`).
@@ -1143,6 +1151,47 @@ def main():
                     return True
         return False
 
+    # ---- MODO AMBIENTE («Escucha: siempre»): te oye todo el tiempo pero NO contesta a menos que de verdad le pidas o le preguntes algo.
+    # Un clasificador rápido (modelo de análisis, sin pensar) decide SI/NO por cada frase; ante la duda, NO. Mientras decide, la voz de
+    # Orbi queda retenida (como en el filtro por nombre) y si la respuesta es NO ni se oye ni se ve. Se apaga con "ambiente": false.
+    _amb = {"txt": "", "res": None, "busy": False, "t": 0.0}
+    _AMB_PROMPT = (
+        "Eres el filtro de un asistente de voz de escritorio llamado Orbi. Su dueño tiene el micrófono SIEMPRE abierto y habla con otras "
+        "personas, consigo mismo, o se oye música, videos y llamadas. Decide si la frase de abajo es algo a lo que Orbi DEBE contestar.\n"
+        "SI: le pide u ordena algo al asistente (abrir, buscar, poner, recordar, mover, escribir, explicar, cuánto es...), le hace una "
+        "pregunta directa, o (solo si Orbi acaba de hablar) claramente sigue la plática con él.\n"
+        "NO: habla con otra persona (mamá, amigos, llamada, juego), piensa en voz alta, comenta o se queja, narra lo que hace, lee en voz "
+        "alta, repite lo que dice un video o canción, frases sueltas o cortadas, o menciona una acción SIN pedírsela a Orbi "
+        "(«tengo que abrir Word», «voy a buscar eso», «qué flojera»). Ante la duda, NO.\n"
+        "Responde SOLO «SI» o «NO».\n"
+        "Orbi acaba de hablar: {conv}\n{ultimo}Frase: «{txt}»\nRespuesta:")
+
+    def _ambiente_clasifica(txt: str, en_conv: bool, ultimo: str) -> None:
+        res = False                                       # si falla el modelo, no contesta (mejor callado que metiche)
+        try:
+            from google.genai import types
+            prompt = _AMB_PROMPT.format(conv="sí" if en_conv else "no", txt=txt[:300],
+                                        ultimo=f"Lo último que dijo Orbi: «{ultimo[:160]}»\n" if (en_conv and ultimo) else "")
+            r, _m = llm.generate(pool, cfg.get("ambiente_models") or cfg["analysis_models"], prompt,
+                                 types.GenerateContentConfig(temperature=0.0, max_output_tokens=8), thinking="low")
+            res = (r.text or "").strip().upper().replace("Í", "I").startswith("SI")
+        except Exception as e:                            # noqa: BLE001
+            print(f"[ambiente] no pude decidir ({type(e).__name__}): no contesto")
+        _amb.update(txt=txt, res=res, busy=False)
+        print(f"[ambiente] {'CONTESTO' if res else 'no contesto'}: «{txt[:70]}»")
+
+    def _ambiente(text, en_conv: bool) -> bool:
+        t = " ".join(_norm(text).split())
+        if len(t.split()) < 2:
+            return False                                  # una palabra suelta nunca la activa
+        if _amb["txt"] == t and _amb["res"] is not None:
+            return bool(_amb["res"])
+        if not _amb["busy"] and time.time() - _amb["t"] > 0.7:
+            _amb.update(busy=True, t=time.time(), res=None)
+            ultimo = ((st.get("turns") or [{}])[-1].get("orbi") or "") if en_conv else ""
+            threading.Thread(target=_ambiente_clasifica, args=(t, en_conv, ultimo), daemon=True).start()
+        return False                                      # todavía decidiendo: la compuerta reintenta con el siguiente trozo
+
     def addressed(text) -> bool:
         ahora = time.time()
         n = _norm(text)
@@ -1161,7 +1210,11 @@ def main():
         if con_nombre:
             return True
         if ahora < st.get("follow_until", 0.0) and ahora >= st.get("solo_nombre_hasta", 0.0):
-            return not (palabras & _VOCATIVOS)             # sigue la conversación con Orbi, salvo que le hables a mamá, papá...
+            if palabras & _VOCATIVOS:
+                return False                               # le hablas a mamá, papá...
+            return _ambiente(text, True) if st.get("ambiente") else True      # sigue la conversación con Orbi
+        if st.get("ambiente") and ahora >= st.get("solo_nombre_hasta", 0.0):
+            return _ambiente(text, False)                  # modo ambiente: solo si de verdad hay algo que contestar
         return False
     session.addressed_check = addressed
     session.gate_wait_s = float(cfg.get("nombre_espera_s", 2.2))
@@ -1249,7 +1302,12 @@ def main():
         want = st["profile"].get("escucha_modo", "palabra")
         wake.word = st["profile"].get("palabra_clave", "orbi")
         name_mode = False
-        if want == "palabra" and not usar_vosk:
+        amb = want == "siempre" and bool(cfg.get("ambiente", True))
+        st["ambiente"] = amb
+        session.gate_wait_s = float(cfg.get("ambiente_espera_s", 3.5)) if amb else float(cfg.get("nombre_espera_s", 2.2))
+        if amb:
+            eff, name_mode = "siempre", True            # te oye siempre; el filtro decide si contesta (nombre, seguimiento o clasificador)
+        elif want == "palabra" and not usar_vosk:
             if cfg.get("nombre_gate", True):
                 eff, name_mode = "siempre", True        # te oye siempre, pero solo contesta si dices su nombre
             else:
@@ -1261,10 +1319,12 @@ def main():
         else:
             eff = want
         session.name_gate = name_mode
-        if eff != st["eff_mode"] or name_mode != st.get("name_mode"):
-            st["eff_mode"], st["name_mode"] = eff, name_mode
+        if eff != st["eff_mode"] or name_mode != st.get("name_mode") or amb != st.get("amb_prev"):
+            st["eff_mode"], st["name_mode"], st["amb_prev"] = eff, name_mode, amb
             attn.set_mode(eff)
-            if name_mode:
+            if amb:
+                orb.say("Modo ambiente 🎧 Te oigo siempre y solo contesto si de verdad me hablas o me pides algo", 5)
+            elif name_mode:
                 orb.say(f"Te oigo siempre, pero solo te contesto si dices «{wake.word.capitalize()}» 👂", 5)
             elif eff == "palabra":
                 orb.say(f"Ahora solo te escucho cuando digas «{wake.word.capitalize()}» 👂", 4)
@@ -1459,7 +1519,7 @@ def main():
         orb.say("¡Listo, ya me actualicé! ✨\n(Si cambiaste permisos de herramientas, reinicia Orbi para que apliquen del todo)", 7)
 
     # ---------------------------------------------- bailar con la música (se analiza en tu PC; nada se manda a la IA)
-    dance = dict(obj=None, warned=False, audio="", cancion="", genero="")
+    dance = dict(obj=None, warned=False, audio="", cancion="", genero="", media=None, media_titulo="")
 
     def dance_apply():
         """Elige cómo baila: por el género de la canción si se reconoce (título de Spotify/YouTube); si no, por tempo y graves."""
@@ -1487,7 +1547,7 @@ def main():
             return
         import cancion
         try:
-            tit = cancion.actual()
+            tit = dance.get("media_titulo") or cancion.actual()
         except Exception:                                    # noqa: BLE001
             tit = ""
         if tit != dance["cancion"]:
@@ -1521,9 +1581,23 @@ def main():
                                       min_golpes=int(cfg.get("bailar_min_golpes", 8)), mantener_s=float(cfg.get("bailar_espera_s", 3.0)),
                                       voz_pausas=float(cfg.get("bailar_voz_pausas", 0.8)), on_style=lambda e: emit("dance_style", e))
             dance["obj"].start()
+            try:                                             # reproducir / pausar / cambiar de canción: reacciona al instante
+                import media_events
+                dance["media"] = media_events.MediaWatcher(lambda p: emit("media_state", p), lambda t, a: emit("media_track", (t, a)),
+                                                           debug=bool(cfg.get("bailar_debug")))
+                if not dance["media"].start():
+                    dance["media"] = None
+                    print("[baile] sin eventos de música (pausa/cambio de canción se notan más lento). Para activarlos: "
+                          "pip install winrt-runtime winrt-Windows.Media.Control winrt-Windows.Foundation winrt-Windows.Foundation.Collections")
+            except Exception as e:                           # noqa: BLE001
+                dance["media"] = None
+                print(f"[baile] eventos de música no disponibles: {type(e).__name__}: {str(e)[:80]}")
             if avisar: orb.say("Listo, bailo cuando suene música 🎵", 3)
         elif not on and dance["obj"] is not None:
             dance["obj"].stop(); dance["obj"] = None; orb.set_dancing(False)
+            if dance.get("media"):
+                dance["media"].stop(); dance["media"] = None
+            dance["media_titulo"] = ""
             if avisar: orb.say("Ya no bailo 😌", 2)
 
     app.aboutToQuit.connect(lambda: set_dance(False, False, False))
@@ -1656,7 +1730,7 @@ def main():
                         lambda: st["profile"].get("escucha_modo") == "palabra")
     orb.add_menu_action("Escucha: solo con atajo", lambda: set_listen_mode("atajo"), True,
                         lambda: st["profile"].get("escucha_modo") == "atajo")
-    orb.add_menu_action("Escucha: siempre", lambda: set_listen_mode("siempre"), True,
+    orb.add_menu_action("Escucha: siempre (modo ambiente)", lambda: set_listen_mode("siempre"), True,
                         lambda: st["profile"].get("escucha_modo") == "siempre")
     orb.add_menu_action("Respuestas con voz", toggle_voice, True, lambda: not session.mute_output)
     orb.add_menu_action("Mostrar lo que me dices (texto)", toggle_my_text, True, show_my_text)
@@ -1877,6 +1951,25 @@ def main():
     ev_timer = QTimer(); ev_timer.timeout.connect(refresh_events); ev_timer.start(5 * 60_000)
     QTimer.singleShot(6000, refresh_events)
 
+    # ---------------------------------------------- dashboard HUD (varios paneles a la vez; la bolita no cambia, solo se va a la esquina)
+    import hud_panels
+    _dash_orb = {"pos": None}
+
+    def _dash_move_orb(corner):
+        if _dash_orb["pos"] is None:                         # recuerda dónde estaba (solo la primera vez si se reemplaza el dashboard)
+            _dash_orb["pos"] = orb.anchor()
+        orb.move_to_global(corner.x(), corner.y(), 700)
+
+    def _dash_restore_orb():
+        p0, _dash_orb["pos"] = _dash_orb["pos"], None
+        if p0 is not None:
+            orb.move_to_global(p0.x(), p0.y(), 700)
+
+    dash = hud_panels.HudDashboard(
+        get_anchor=lambda: (orb.anchor(), R0, bool(orb.edge) and not orb.revealed), on_action=panel_action,
+        get_opacity=lambda: minipanel.merged(ajuste("mini"))["opacidad"],
+        move_orb=_dash_move_orb, restore_orb=_dash_restore_orb)
+
     def aplicar_ajustes(nuevo: dict):
         """Guarda lo elegido en la ventana de Ajustes y lo aplica ya (sin reiniciar)."""
         prof = st["profile"]
@@ -2083,6 +2176,16 @@ def main():
                 dance_song_check()                           # al empezar a bailar: ¿qué canción es?
             else:
                 dance["cancion"] = dance["genero"] = ""
+        elif kind == "media_state":                          # True sonando · False pausa · None sin reproductor
+            if dance["obj"] is not None:
+                dance["obj"].media_state(data)
+            if data is False:
+                orb.set_dancing(False)                       # pausaron: deja de bailar YA (sin esperar a que el audio se calme)
+        elif kind == "media_track":                          # cambió la canción: nuevo tempo y nuevo género, sin esperar al sondeo de 5 s
+            dance["media_titulo"] = (f"{data[1]} - {data[0]}" if data[1] else data[0])
+            if dance["obj"] is not None:
+                dance["obj"].reset_ritmo()
+            dance_song_check()
         elif kind == "dance_style":
             dance["audio"] = data; dance_apply()
         elif kind == "dance_genre":
@@ -2269,6 +2372,12 @@ def main():
             orb.wake(); orb.set_emotion("surprised", 3); orb.say("⏰ " + str(data), 8)
         elif kind == "tool_result":
             mostrar_resultado(data[0], data[2])
+        elif kind == "dashboard_mostrar":
+            if data.get("accion") == "ocultar":
+                dash.ocultar()
+            else:
+                panel.hide()                                  # la mini ventana no se encima con el dashboard
+                dash.mostrar(data.get("titulo") or "Orbi", data.get("paneles") or [], data.get("segundos") or 90)
         elif kind == "panel_mostrar":
             if data.get("accion") == "ocultar":
                 panel.hide_now()

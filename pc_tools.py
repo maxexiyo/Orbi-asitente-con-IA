@@ -332,7 +332,7 @@ _tool("definir_rutina", "Crea una RUTINA estilo Alexa: un disparador + una o var
       "programa) · notificacion (`filtro` = app o palabras) · internet (`estado` caida|regreso) · frase (`filtro` = frases que la "
       "activan, separadas por coma). `acciones` es la lista de lo que hace, cada una con `tipo`: «decir» (`texto` que dice por voz) · "
       "«herramienta» (`herramienta` + `argumentos` en JSON; solo abrir_app, abrir_url, abrir_carpeta, abrir_archivo, buscar_en_web, "
-      "volumen, multimedia, casa_controlar, wiz_controlar, mini_ventana, poner_recordatorio, poner_alarma, minimizar_ventana, "
+      "volumen, multimedia, casa_controlar, wiz_controlar, mini_ventana, dashboard, poner_recordatorio, poner_alarma, minimizar_ventana, "
       "enfocar_ventana, organizar_carpeta) · «orbi» (`texto` = algo en libre que le pides a Orbi, que usa cualquier herramienta; sirve "
       "para clima, resumir, escribir, etc.). En los textos puedes usar {app} {titulo} {texto} {bateria} {hora}. Para correo, "
       "recordatorios, volver a la PC o ventanas en primer plano usa definir_regla. NUNCA inventes datos: si falta la hora, los días "
@@ -369,6 +369,20 @@ _tool("mini_ventana", "Abre la MINI VENTANA que se despliega junto a ti para mos
       "no las repitas. NUNCA la abras para correcciones de ortografía, errores que notaste en la pantalla ni comentarios sobre lo que el usuario está haciendo: eso se dice con voz y ya.",
       dict(titulo=S("Título corto"), lineas=S("Las líneas a mostrar, separadas por saltos de línea (máx. 6, cortas)"),
            segundos=N("Cuánto tiempo mostrarla (por defecto 45)"), icono=S("Un emoji opcional"),
+           accion={"type": "STRING", "enum": ["mostrar", "ocultar"]}), [], scopes=("live", "agent"))
+_tool("dashboard", "Abre el DASHBOARD: varios paneles estilo HUD a la vez en la pantalla (la bolita se hace a la esquina mientras tanto). "
+      "Úsalo SOLO cuando la respuesta tiene VARIAS partes que se entienden mejor viéndolas juntas: resumen del día (agenda + correos + alarmas), "
+      "estado de varias cosas, comparaciones, avance de tareas. Para algo corto o de una sola lista usa `mini_ventana`, y para charla, voz. "
+      "PRIMERO consigue los datos reales con tus herramientas (ver_agenda, correo_no_leidos, listar_alarmas...) y NUNCA inventes cifras. "
+      "`paneles` es un JSON (texto) con una lista de hasta 8 paneles. Cada panel tiene `tipo`, `etiqueta` (rótulo chico, ej. AGENDA), `titulo` y: "
+      "lista → `lineas` (cortas; cada una puede ser un texto o {\"texto\",\"url\"} para que se pueda abrir con un clic) · "
+      "texto → `texto` · cifra → `valor`, `unidad`, `texto` · barras → `valores` y `etiquetas` · "
+      "progreso → `items` [{\"etiqueta\",\"valor\" 0-100}] · imagen → `imagen` (ruta o URL), `texto`, `url`. "
+      "Ejemplo: [{\"tipo\":\"lista\",\"etiqueta\":\"AGENDA\",\"titulo\":\"Hoy\",\"lineas\":[\"10:00 Clase\",\"14:00 Práctica\"]},"
+      "{\"tipo\":\"cifra\",\"etiqueta\":\"ALARMA\",\"titulo\":\"Próxima\",\"valor\":\"45\",\"unidad\":\"min\"}]. "
+      "Se cierra solo (accion='ocultar' lo quita ya). Dices lo importante por voz en una frase; los paneles son para verlo, no para repetirlo.",
+      dict(titulo=S("Título corto del dashboard, ej. «Resumen del día»"), paneles=S("JSON con la lista de paneles (ver descripción)"),
+           segundos=N("Cuánto tiempo dejarlo abierto (por defecto 90)"),
            accion={"type": "STRING", "enum": ["mostrar", "ocultar"]}), [], scopes=("live", "agent"))
 _tool("cancelar_alarma", "Cancela alarmas/recordatorios: por texto, por hora (ej. '07:30'), por id o 'todas'.",
       dict(cual=S("texto, hora, id o 'todas'")), ["cual"])
@@ -1186,6 +1200,25 @@ def _run(name: str, args: dict, ctx: ToolContext) -> dict:
         ctx.emit("panel_mostrar", dict(accion="mostrar", titulo=titulo or "Orbi", lineas=lineas, segundos=seg,
                                        icono=str(args.get("icono", "") or "📌")[:4]))
         return {"resultado": "Listo: lo puse en la mini ventana, junto a mí."}
+    if name == "dashboard":
+        accion = str(args.get("accion", "mostrar") or "mostrar").lower()
+        if accion.startswith(("ocult", "cerr")):
+            ctx.emit("dashboard_mostrar", dict(accion="ocultar"))
+            return {"resultado": "Dashboard cerrado."}
+        try:
+            import hud_panels
+        except ImportError as e:                              # noqa: BLE001
+            return {"error": f"No se pudo cargar el dashboard ({str(e)[:60]})."}
+        paneles, err = hud_panels.parse_paneles(args.get("paneles"))
+        if err:
+            return {"error": err + " Pásame `paneles` como JSON: una lista de paneles con tipo, titulo y sus datos."}
+        try:
+            seg = float(args.get("segundos") or 90)
+        except (TypeError, ValueError):
+            seg = 90.0
+        ctx.emit("dashboard_mostrar", dict(accion="mostrar", titulo=str(args.get("titulo", "") or "Orbi").strip()[:40],
+                                           paneles=paneles, segundos=seg))
+        return {"resultado": f"Listo: abrí el dashboard con {len(paneles)} panel(es). Dile lo más importante en una frase; no leas todo."}
     if name == "recursos":
         try:
             import recursos
@@ -1849,20 +1882,49 @@ def _img_info(p, ctx) -> dict:
 
 def _resolver_imagen(ctx, modo: str):
     """Función que consigue una imagen para una diapositiva: fotos de internet (web:), ilustraciones con IA (ia:) o un enlace directo.
-    Si la fuente pedida falla, prueba la otra (siempre que `modo` lo permita)."""
+    Si la fuente pedida falla, prueba la otra (siempre que `modo` lo permita).
+    Las ilustraciones con IA tardan ~30-60 s cada una. office_ops las pide en paralelo y corta a los 85 s; aquí además, si la IA va
+    lenta 2 veces, lo que falte se pide como fotos de internet (rápidas) en vez de esperar otra tanda que ya no alcanza."""
+    import concurrent.futures as _cf
+    import time as _t
+    IA_MAX_S, TOTAL_S = 80.0, 85.0
+    est = {"t0": None, "lentas": 0}
+
+    def _ia(texto: str, aspecto: str, limite: float) -> dict:
+        ex = _cf.ThreadPoolExecutor(max_workers=1)
+        try:
+            return ex.submit(ctx.make_image, texto, aspecto).result(timeout=limite)
+        except _cf.TimeoutError:
+            return {"error": f"la ilustración con IA tardó más de {int(limite)} s", "_lenta": True}
+        finally:
+            ex.shutdown(wait=False)                      # si sigue corriendo se abandona; ya no frena la presentación
+
     def resolver(tipo: str, texto: str, alt: str, aspecto: str) -> dict:
         import imagenes_web as IW
+        if est["t0"] is None:
+            est["t0"] = _t.time()
+        resta = TOTAL_S - (_t.time() - est["t0"])
         if tipo == "url":
             return IW.descargar_y_guardar(texto, alt or "imagen")
+        if resta < 8:
+            return {"error": "se acabó el tiempo para imágenes; esta diapositiva queda sin imagen"}
         orden = [k for k in (["web", "ia"] if tipo == "web" else ["ia", "web"]) if modo == "auto" or modo == k]
         ultimo = "esa fuente de imágenes no está activa"
         for k in orden:
             try:
                 if k == "web":
                     return IW.buscar_y_guardar(texto if tipo == "web" else (alt or texto[:60]), alt or texto[:40])
-                r = ctx.make_image(texto if tipo == "ia" else (alt or texto), aspecto)
+                if est["lentas"] >= 2:
+                    ultimo = "las ilustraciones con IA están tardando demasiado"
+                    continue
+                t1 = _t.time()
+                r = _ia(texto if tipo == "ia" else (alt or texto), aspecto, min(IA_MAX_S, resta))
                 if r.get("ruta"):
+                    if _t.time() - t1 > 30:
+                        est["lentas"] += 1
                     return r
+                if r.get("_lenta"):
+                    est["lentas"] += 1
                 ultimo = r.get("error", ultimo)
             except IW.ImgError as e:
                 ultimo = str(e)
@@ -2090,15 +2152,22 @@ def _files(name: str, args: dict, ctx: ToolContext) -> dict:
             if es_ppt and modo_img != "ninguna":
                 instr += f"\n\nIMÁGENES: {modo_img} (" + {"auto": "puedes pedir fotos con web: e ilustraciones con ia:",
                                                          "web": "solo fotos con web:", "ia": "solo ilustraciones con ia:"}[modo_img] + ")."
+                if modo_img in ("auto", "ia"):
+                    instr += ("\nLas ilustraciones con ia: tardan ~40 s CADA UNA: pide como máximo 3 en toda la presentación (portada incluida) "
+                              "y el resto de imágenes como fotos con web:.")
+            _tw = time.time()
             r = ctx.write(instr, "presentacion" if es_ppt else "hoja", "\n\n".join(fuentes), 0)
+            _t_redactar = time.time() - _tw
             if r.get("error"):
                 return {"error": r["error"]}
             contenido = r.get("texto", "")
+        _t_ar = time.time()
         if es_ppt:
             res = OFF.escribir_pptx(agregar_a or str(args.get("archivo", "")), contenido, str(args.get("tema", "") or "azul"),
                                     agregar=bool(agregar_a), resolver=_resolver_imagen(ctx, modo_img) if modo_img != "ninguna" else None)
         else:
             res = OFF.escribir_xlsx(agregar_a or str(args.get("archivo", "")), contenido, agregar=bool(agregar_a))
+        print(f"[{name}] redactar {locals().get('_t_redactar', 0.0):.0f}s · {'imágenes + ' if es_ppt else ''}archivo {time.time() - _t_ar:.0f}s")
         if "error" in res:
             return res
         if args.get("abrir") is True:

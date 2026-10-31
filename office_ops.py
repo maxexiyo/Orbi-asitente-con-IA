@@ -820,7 +820,7 @@ def _resolver_imagenes(slides: list, resolver, tope_s: float = 85.0) -> dict:
             continue
         pend.append((s, tipo, txt))
     if pend:
-        ex = cf.ThreadPoolExecutor(max_workers=4)
+        ex = cf.ThreadPoolExecutor(max_workers=min(6, max(1, len(pend))))     # todas juntas: en 2 tandas la 2.ª ya no alcanzaba en tope_s
         futs = {}
         for s, tipo, txt in pend:
             asp = "3:4" if s["tipo"] == "portada" else ("1:1" if s["items"] else "16:9")

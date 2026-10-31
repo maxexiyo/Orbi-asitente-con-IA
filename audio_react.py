@@ -8,8 +8,14 @@ REGULARES (60-210 BPM), de graves o de ataques en todo el espectro (para música
 habla. El habla (videos, clases, llamadas) se reconoce porque tiene muchas pausas cortas entre palabras y una envolvente que
 «late» al ritmo de las sílabas (~4-6 veces por segundo); la música casi no tiene pausas. Además estima el tempo (BPM) y elige
 un estilo de baile (`estilo`: suave, balanceo, grave, pop, fiesta, intenso).
+
+RITMO ESTABLE: los golpes sueltos (bombo, caja, platillos, rellenos de batería) ya NO mueven a Orbi uno por uno, porque así daba
+saltos a lo loco. Se mide el TEMPO de la canción (autocorrelación de la «fuerza de ataque» de los últimos ~8 s, con preferencia por
+tempos razonables para no confundir el doble o la mitad) y Orbi baila con un metrónomo propio a ese tempo, que se engancha con
+suavidad a los golpes reales. Si el tempo cambia se tarda ~2 s en seguirlo (no brinca con un solo relleno), y por encima de ~150 BPM
+baila a la mitad de velocidad. Si la música no tiene un pulso claro, vuelve al método de antes (un movimiento por golpe).
 """
-import threading, time
+import math, threading, time
 from collections import deque
 
 RATE = 44100
@@ -50,6 +56,7 @@ class AudioReact:
         self._stop.set()
 
     # ------------------------------------------------------------------ análisis (se puede probar sin soundcard)
+    LEAD_S = 0.055                             # la detección llega ~60 ms tarde: el metrónomo se adelanta ese poco
     ENV_N = 128                                # bloques de envolvente que se miran para distinguir habla (~3 s)
 
     def _reset(self):
@@ -67,6 +74,22 @@ class AudioReact:
         self._mod = 0.0                           # qué tanto «late» la envolvente al ritmo del habla (0..1)
         self._speech_since = None
         self._last_beat = 0.0
+        # --- tempo estable + metrónomo
+        self._ons = deque(maxlen=400)             # fuerza de ataque por bloque (~9 s)
+        self._ons_t = deque(maxlen=400)
+        self._prev_bass = 0.0
+        self._ons_avg = 1.0                       # promedio móvil de la fuerza de ataque (para detectar picos)
+        self._tempo_bpm = 0.0                         # BPM estable (70-180) mientras hay pulso claro
+        self._conf = 0.0                          # qué tan periódico es el sonido (0..1)
+        self._locked = False                      # ¿hay pulso claro? entonces el metrónomo manda
+        self._weak = 0; self._cand = None
+        self._t_est = 0.0
+        self._next = None; self._realign = False  # próximo golpe del metrónomo
+        self._peak = 0.0; self._ev_t = -9.0
+        self.clock_beats = 0
+        self._quiet_since = None                  # desde cuándo hay silencio seguido
+        self._fast = False                        # recién le dieron play: empieza a bailar con menos golpes
+        self._now = 0.0
         self.total_beats = 0                      # (para diag_audio.py)
         self.dancing = False
         self._last_music = 0.0
@@ -107,6 +130,15 @@ class AudioReact:
         fsd = (sum((x - fm) ** 2 for x in self._flux_hist) / len(self._flux_hist)) ** 0.5 if self._flux_hist else 0.0
         self._flux_hist.append(flux)
 
+        self._now = now
+        if rms > SILENCE_RMS:
+            self._quiet_since = None
+        elif self._quiet_since is None:
+            self._quiet_since = now
+        if self.dancing and self._quiet_since is not None and now - self._quiet_since > self.QUIET_STOP_S:   # pausaron: no esperar los ~4 s de antes
+            self._para(now, "silencio")
+            return
+        self._onset(now, bass, avg, flux, fm, rms)
         bass_beat = (avg > 0 and bass > avg * self.ratio and bass > 0.0003 and frac > 0.03)
         flux_beat = (len(self._flux_hist) > 20 and flux > fm + 1.5 * max(fsd, 0.02 * fm) and flux > fm * 1.6 and flux > 1.0)
         if rms > SILENCE_RMS and bass_beat and now - self._last_bass > 0.24:
@@ -116,10 +148,12 @@ class AudioReact:
             self._last_beat = now
             self.total_beats += 1
             self._beats.append(now)
-            if self.dancing:
+            if self.dancing and not self._locked:           # sin pulso claro: un movimiento por golpe, como antes
                 self.on_beat(min(1.0, max(bass / (avg * 3.0 + 1e-9), flux / (fm * 3.0 + 1e-9))))
 
         self._habla(now)
+        if self.dancing and self._locked:
+            self._clock(now)
         music = self._keep_dancing(now) if self.dancing else self._is_music(now)
         if music:
             self._last_music = now
@@ -129,8 +163,8 @@ class AudioReact:
             else:
                 if self._since is None:
                     self._since = now
-                if now - self._since >= self.hold:          # tiene que parecer música varios segundos seguidos
-                    self.dancing = True; self.on_dance(True)
+                if now - self._since >= (min(self.hold, 1.0) if self._fast else self.hold):   # tiene que parecer música varios segundos seguidos
+                    self.dancing = True; self._fast = False; self.on_dance(True)
                     self._estilo(now, forzar=True)
                     if self.debug: print(f"[baile] empieza ({self.bpm:.0f} BPM, estilo {self.estilo})")
         elif now - self._last_music > 1.5:
@@ -139,6 +173,152 @@ class AudioReact:
                                  f"habla={self.speechy} pausas/s={self._pause_rate(now):.2f} mod={self._mod:.2f})")
         elif self.dancing:
             self._estilo(now)
+
+    # --- eventos de música (los manda live_orb.py desde media_events.py) --------------------------------------------
+    QUIET_STOP_S = 0.6                            # silencio seguido que corta el baile (un break de EDM casi nunca dura tanto)
+
+    def _para(self, now, motivo: str) -> None:
+        if self.dancing:
+            self.dancing = False; self._since = None; self.on_dance(False)
+            if self.debug: print(f"[baile] para ({motivo})")
+        self._beats.clear(); self._bbeats.clear()
+        self.reset_ritmo()
+
+    def media_state(self, playing) -> None:
+        """Pausa → deja de bailar al instante (una sola vez). NO bloquea nada más: para empezar a bailar no hace falta ningún evento de
+        «play», basta con que el audio suene como música. Un «play» solo acelera el arranque un poquito."""
+        if playing is False:
+            self._para(self._now, "pausa")
+            self._fast = True                   # si el audio sigue (otra app), vuelve a bailar rápido; si de verdad se calló, no hay nada que detectar
+        elif playing:
+            self._fast = True
+
+    def reset_ritmo(self) -> None:
+        """Canción nueva: olvida el tempo y la fase para volver a medirlos (si no, se tarda en soltar el de la canción anterior)."""
+        self._tempo_bpm, self._locked, self._next, self._cand, self._weak = 0.0, False, None, None, 0
+        self._ons.clear(); self._ons_t.clear()
+
+    # --- tempo estable y metrónomo ---------------------------------------------------------------------------------
+    def _onset(self, now, bass, avg, flux, fm, rms):
+        """Guarda la «fuerza de ataque» de este bloque (subida de graves + subida del espectro) y cada ~0.5 s re-estima el tempo."""
+        pb = max(0.0, bass - self._prev_bass) / (avg + 1e-6) if avg > 0 else 0.0
+        self._prev_bass = bass
+        pf = flux / (fm + 1e-6) if fm > 0 else 0.0
+        o = (min(6.0, pb) + 0.5 * min(6.0, pf)) if rms > SILENCE_RMS else 0.0
+        self._ons.append(o); self._ons_t.append(now)
+        self._ons_avg = self._ons_avg * 0.97 + o * 0.03
+        self._peak = max(self._peak, o)
+        if o > max(1.2, self._ons_avg * 2.2) and now - self._ev_t > 0.12:      # ataque claro: sirve para engancharse al ritmo
+            self._ev_t = now
+            self._pll(now)
+        if now - self._t_est >= 0.5 and len(self._ons) >= 150:
+            self._t_est = now
+            try:
+                self._estima_tempo(now)
+            except Exception:                                  # noqa: BLE001
+                pass
+
+    def _estima_tempo(self, now):
+        import numpy as np
+        x = np.asarray(self._ons, dtype="float64")
+        n = len(x)
+        dt = (self._ons_t[-1] - self._ons_t[0]) / max(1, n - 1)
+        if dt <= 0 or float(x.std()) < 1e-6:
+            return self._track(now, 0.0, 0.0)
+        fps = 1.0 / dt
+        if float(np.percentile(x, 99)) < 2.0:                  # no hay ataques de verdad (pad, ruido, silencio): no hay pulso que seguir
+            return self._track(now, 0.0, 0.0)
+        x = x - x.mean()
+        f = np.fft.rfft(x, 2 * n)
+        ac = np.fft.irfft(f * np.conj(f))[:n]
+        ac = ac / (ac[0] + 1e-12) * (n / np.maximum(1.0, n - np.arange(n)))       # normalizada y sin sesgo por la ventana corta
+        lmin, lmax = int(fps * 60.0 / 180.0), int(fps * 60.0 / 70.0) + 1          # 180 BPM ... 70 BPM
+        best, best_l = 0.0, 0
+        for l in range(max(2, lmin), lmax + 1):
+            sc = ac[l] + (0.5 * ac[2 * l] if 2 * l < n else 0.0) + (0.25 * ac[4 * l] if 4 * l < n else 0.0)   # el pulso real se repite en 2x y 4x
+            bpm = 60.0 * fps / l
+            w = math.exp(-0.5 * (math.log2(bpm / 105.0) / 0.75) ** 2)              # prefiere tempos «normales» (evita el doble o la mitad)
+            if sc * w > best:
+                best, best_l = sc * w, l
+        if not best_l:
+            return self._track(now, 0.0, 0.0)
+        l = float(best_l)                                                          # afinar entre muestras (interpolación parabólica)
+        if 2 <= best_l < n - 1:
+            y0, y1, y2 = ac[best_l - 1], ac[best_l], ac[best_l + 1]
+            den = y0 - 2 * y1 + y2
+            if den < 0:
+                l += max(-0.5, min(0.5, 0.5 * (y0 - y2) / den))
+        self._conf = float(ac[best_l])
+        self._track(now, 60.0 * fps / l, self._conf)
+
+    def _track(self, now, bpm, conf):
+        """Sigue el tempo con calma: ajustes chicos se suavizan; un cambio grande solo se acepta si se repite ~2 s; el doble o la mitad se ignoran."""
+        if conf < 0.16 or bpm <= 0:
+            self._weak += 1
+            if self._weak >= 10 and self._locked:                  # ~5 s sin pulso claro: vuelve al método por golpes
+                self._locked, self._tempo_bpm, self._next = False, 0.0, None
+                if self.debug: print("[baile] sin pulso claro: un movimiento por golpe")
+            return
+        self._weak = 0
+        cur = self._tempo_bpm
+        if not cur:
+            self._tempo_bpm, self._locked, self._realign, self._cand = bpm, True, True, None
+            if self.debug: print(f"[baile] tempo {bpm:.0f} BPM (pulso {conf:.2f})")
+            return
+        r = bpm / cur
+        if abs(r - 1.0) < 0.04:
+            self._tempo_bpm = cur * 0.85 + bpm * 0.15
+            self._cand = None
+        elif 0.47 < r < 0.53 or 1.9 < r < 2.1 or 0.65 < r < 0.69 or 1.45 < r < 1.52:    # doble/mitad/3:2: no cuenta como cambio de tempo
+            return
+        else:
+            if self._cand and abs(bpm / self._cand[0] - 1.0) < 0.04:
+                self._cand = ((self._cand[0] + bpm) / 2.0, self._cand[1] + 1)
+            else:
+                self._cand = (bpm, 1)
+            if self._cand[1] >= 4:                                  # ~2 s seguidos con otro tempo
+                if self.debug: print(f"[baile] tempo {cur:.0f} -> {self._cand[0]:.0f} BPM")
+                self._tempo_bpm, self._realign, self._cand = self._cand[0], True, None
+
+    def _periodo(self) -> float:
+        per = 60.0 / max(60.0, self._tempo_bpm)
+        return per * 2.0 if self._tempo_bpm > 150.0 else per        # muy rápido: baila a la mitad (si no, parece que tiembla)
+
+    def _fase(self, now, per) -> float:
+        """Próximo instante de golpe, alineado con donde caen los ataques de los últimos ~4 s."""
+        import numpy as np
+        k = min(len(self._ons), int(4.0 / 0.0232))
+        ts = np.fromiter(list(self._ons_t)[-k:], dtype="float64")
+        os_ = np.fromiter(list(self._ons)[-k:], dtype="float64")
+        phis = np.linspace(0.0, per, 48, endpoint=False)
+        m = (ts[:, None] - phis[None, :]) % per
+        d = np.minimum(m, per - m)
+        score = (os_[:, None] * np.exp(-0.5 * (d / 0.05) ** 2)).sum(axis=0)
+        phi = float(phis[int(score.argmax())])
+        return now + ((phi - now) % per)
+
+    def _pll(self, now):
+        """Un ataque claro cerca del golpe esperado: mueve el metrónomo un poquito hacia él (se mantiene enganchado sin brincar)."""
+        if not (self._locked and self._next):
+            return
+        per = self._periodo()
+        e = ((now - self._next) + per / 2.0) % per - per / 2.0
+        if abs(e) < 0.25 * per:
+            self._next += 0.12 * e
+
+    def _clock(self, now):
+        """Metrónomo: un on_beat por cada golpe del tempo estable, no por cada golpe que se oye."""
+        per = self._periodo()
+        if self._realign or self._next is None:
+            self._next, self._realign = self._fase(now, per), False
+        if now >= self._next - self.LEAD_S:
+            self.clock_beats += 1
+            fuerza = max(0.5, min(1.0, 0.5 + 0.5 * self._peak / 4.0))
+            self._peak = 0.0
+            self._next += per
+            if self._next < now:                                     # se atrasó mucho (CPU): reiniciar la cuenta
+                self._next = now + per
+            self.on_beat(fuerza)
 
     # --- ¿es habla? (videos, clases, llamadas) -----------------------------------------------------------------
     def _pause_rate(self, now) -> float:
@@ -187,7 +367,7 @@ class AudioReact:
         if self.speechy:
             return False
         recent = [t for t in self._beats if now - t <= 8.0]
-        if len(recent) < self.min_golpes or sum(self._loud) < len(self._loud) * 0.5:
+        if len(recent) < (4 if self._fast else self.min_golpes) or sum(self._loud) < len(self._loud) * (0.3 if self._fast else 0.5):
             return False
         iv = sorted(b - a for a, b in zip(recent, recent[1:]))
         med = iv[len(iv) // 2]

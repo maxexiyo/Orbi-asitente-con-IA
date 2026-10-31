@@ -38,7 +38,7 @@ CUANDO = ("correo", "recordatorio", "sesion_activa", "ventana",
           "ausente", "regreso")
 # herramientas que una rutina puede ejecutar SOLA (sin que Orbi decida); todo lo demás va por la acción «orbi»
 SEGURAS = {"abrir_app", "abrir_url", "abrir_carpeta", "abrir_archivo", "buscar_en_web", "volumen", "multimedia", "casa_controlar",
-           "wiz_controlar", "mini_ventana", "poner_recordatorio", "poner_alarma", "minimizar_ventana", "enfocar_ventana",
+           "wiz_controlar", "mini_ventana", "dashboard", "poner_recordatorio", "poner_alarma", "minimizar_ventana", "enfocar_ventana",
            "organizar_carpeta"}
 DIAS_N = ("lunes", "martes", "miercoles", "jueves", "viernes", "sabado", "domingo")
 AUSENTE_S = 300              # llevar más que esto sin mouse/teclado cuenta como «ausente»; al volver = sesión activa

@@ -289,6 +289,7 @@ class Orb(QWidget):
         self._look = None; self._look_until = 0.0       # (lx, ly) hacia dónde mira (al señalar algo)
         self.hearts = []                                # corazones flotando tras una caricia: (nacimiento, desplazamiento)
         self.dancing = False; self._beat = 0.0; self._dance_dir = 1   # bailar con la música (lo activa live_orb)
+        self._bv = 0.0; self._omega = 12.0; self._beat_t = 0.0; self._dir_s = 1.0   # rebote con resorte (estilo Animal Crossing)
         self.dance_style = "pop"                        # cómo baila (DANCE_STYLES)
         self._hx = self._hy = self._rot = 0.0           # cabeza: la carita se corre, cabecea y se inclina al bailar
         self._dface = "excited"; self._dface_next = 0.0  # cara de baile actual y cuándo cambia
@@ -410,7 +411,15 @@ class Orb(QWidget):
     def beat(self, strength=1.0):
         """Un golpe de ritmo: rebote hacia arriba y se carga al otro lado."""
         if not self.dancing: return
-        self._beat = max(self._beat, 0.45 + 0.55 * max(0.0, min(1.0, float(strength))))
+        # REBOTE BLANDO: el golpe no «teletransporta» a Orbi, le da un empujón de velocidad a un resorte que lo sube, lo pasa un poquito
+        # y lo regresa (boing, como los saltitos de Animal Crossing). El resorte rebota al ritmo de la canción (su periodo ≈ el
+        # tiempo entre golpes), y ya no se corta de golpe si llega otro golpe en pleno salto.
+        now = time.time()
+        iv = now - self._beat_t; self._beat_t = now
+        if 0.25 < iv < 1.6:
+            self._omega = max(7.0, min(16.0, 0.75 * self._omega + 0.25 * (6.283 / iv)))
+        peak = 0.45 + 0.55 * max(0.0, min(1.0, float(strength)))
+        self._bv = peak * self._omega / 0.55          # velocidad inicial: con amortiguación ~0.5 el pico llega a ≈ `peak`
         self._dance_dir = -self._dance_dir
         self.last_active = time.time()
         if self.state in ("idle", "listening"): self.set_emotion(self._dface, 3.0)
@@ -549,16 +558,22 @@ class Orb(QWidget):
 
         # baile: rebota en cada golpe de ritmo y se mece entre golpes (solo si no está hablando ni escondida en el borde)
         ds = DANCE_STYLES.get(self.dance_style, DANCE_STYLES["pop"])
-        self._beat *= ds["decay"]
+        # resorte amortiguado: más «flotante» en estilos con decay alto (suave/bachata), más seco en los de decay bajo (metal/rock)
+        w = self._omega; z = max(0.42, min(0.8, 0.7 - (ds["decay"] - 0.80) * 1.8))
+        self._bv += (-w * w * self._beat - 2.0 * z * w * self._bv) * 0.016
+        self._beat = max(-0.3, min(1.3, self._beat + self._bv * 0.016))        # por debajo de 0 = se agacha un poquito (rebote)
+        if not self.dancing:
+            self._beat *= 0.85; self._bv *= 0.85
+        self._dir_s += (self._dance_dir - self._dir_s) * 0.14                  # el lado al que se inclina cambia suave, no de golpe
         active = self.dancing and self.state in ("idle", "listening") and not self.edge
-        tx = (self._dance_dir * ds["dx"] * self._beat + math.sin(self.t * ds["sw"]) * ds["sway"]) if active else 0.0
+        tx = (self._dir_s * ds["dx"] * self._beat + math.sin(self.t * ds["sw"]) * ds["sway"]) if active else 0.0
         ty = (ds["dy"] * self._beat) if active else 0.0
-        self._dx += (tx - self._dx) * 0.30
-        self._dy += (ty - self._dy) * 0.45
-        hx = (self._dance_dir * ds["hx"] * self._beat + math.sin(self.t * ds["sw"]) * ds["hsway"]) * R0 if active else 0.0
+        self._dx += (tx - self._dx) * 0.22
+        self._dy += (ty - self._dy) * 0.30
+        hx = (self._dir_s * ds["hx"] * self._beat + math.sin(self.t * ds["sw"]) * ds["hsway"]) * R0 if active else 0.0
         hy = ds["nod"] * self._beat * R0 if active else 0.0
-        rt = (self._dance_dir * ds["tilt"] * self._beat + math.sin(self.t * ds["sw"] * 0.5) * ds["tsway"]) if active else 0.0
-        self._hx += (hx - self._hx) * 0.35; self._hy += (hy - self._hy) * 0.45; self._rot += (rt - self._rot) * 0.30
+        rt = (self._dir_s * ds["tilt"] * self._beat + math.sin(self.t * ds["sw"] * 0.5) * ds["tsway"]) if active else 0.0
+        self._hx += (hx - self._hx) * 0.26; self._hy += (hy - self._hy) * 0.30; self._rot += (rt - self._rot) * 0.22
         if active and now >= self._dface_next:                      # cada 4-8 s cambia de expresión (dentro de las del estilo)
             opciones = [x for x in ds["caras"] if x != self._dface] or list(ds["caras"])
             self._dface = random.choice(opciones); self._dface_next = now + random.uniform(4.0, 8.0)
