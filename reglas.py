@@ -20,9 +20,11 @@ RUTINAS (estilo Alexa): además de lo de arriba, un disparador cualquiera + una 
   notificacion    llega una notificación de Windows (filtro = app, título o texto)              -> `filtro`
   internet        se cae o regresa el internet                                                  -> `estado`: caida|regreso
   frase           tú dices la frase/nombre de la rutina («modo estudio», «buenas noches»)       -> `filtro` = frases, coma
+  ausente         te ausentas: dejas la PC sin tocar un rato o avisas que te vas («al rato regreso») -> `filtro` opcional: aviso|inactivo
+  regreso         vuelves después de estar ausente                                              -> `cada_min` opcional (mínimo de minutos fuera), `filtro` opcional: aviso|inactivo
 Acciones: {tipo:"decir", texto} · {tipo:"herramienta", herramienta, argumentos(JSON)} (solo herramientas seguras: SEGURAS) ·
 {tipo:"orbi", texto} (le pide a Orbi algo en libre; usa cualquier herramienta con sus permisos y confirmaciones).
-En `texto` se pueden usar {app} {cuenta} {titulo} {texto} {ventana} {bateria} {hora}.
+En `texto` se pueden usar {app} {cuenta} {titulo} {texto} {ventana} {bateria} {hora} (y en ausente/regreso: {minutos} {motivo}).
 
 Los avisos previos son recordatorios normales (se ven en la mini ventana, avisan aunque Orbi estuviera cerrada, etc.).
 """
@@ -32,7 +34,8 @@ from pathlib import Path
 
 PATH = Path(__file__).parent / "orbi_reglas.json"
 CUANDO = ("correo", "recordatorio", "sesion_activa", "ventana",
-          "hora", "intervalo", "inactividad", "bateria", "app_abre", "app_cierra", "notificacion", "internet", "frase")
+          "hora", "intervalo", "inactividad", "bateria", "app_abre", "app_cierra", "notificacion", "internet", "frase",
+          "ausente", "regreso")
 # herramientas que una rutina puede ejecutar SOLA (sin que Orbi decida); todo lo demás va por la acción «orbi»
 SEGURAS = {"abrir_app", "abrir_url", "abrir_carpeta", "abrir_archivo", "buscar_en_web", "volumen", "multimedia", "casa_controlar",
            "wiz_controlar", "mini_ventana", "poner_recordatorio", "poner_alarma", "minimizar_ventana", "enfocar_ventana",
@@ -273,6 +276,15 @@ class Reglas:
                 return None, {"app_abre": "Dime qué programa (ej. Spotify, Discord).", "app_cierra": "Dime qué programa.",
                               "notificacion": "Dime de qué app o con qué palabras (ej. WhatsApp, «urgente»).",
                               "frase": "Dime la frase con la que la activas (ej. «modo estudio»)."}[cuando]
+        elif cuando in ("ausente", "regreso"):
+            filtro = _norm(filtro).strip()
+            if filtro not in ("", "aviso", "inactivo"):
+                return None, "Para ausente/regreso, `filtro` es opcional: «aviso» (cuando dices que te vas) o «inactivo» (cuando dejas la PC sin tocar)."
+            try:
+                cm = max(0.0, float(cada_min or 0))
+            except (TypeError, ValueError):
+                cm = 0.0
+            extra = dict(cada_min=cm)                                   # en «regreso»: mínimo de minutos fuera
         elif cuando == "internet":
             if estado not in ("caida", "regreso"):
                 return None, "Para internet, `estado` es: caida o regreso."
@@ -367,6 +379,21 @@ class Reglas:
                 self._fire(r, dict(app=n.get("app", ""), cuenta=n.get("cuenta", ""), titulo=n.get("titulo", ""),
                                    texto=n.get("texto", "")), 0.5)
 
+    def on_evento(self, nombre: str, info: dict | None = None):
+        """Orbi detectó que te ausentas o regresas (live_orb: inactividad real o «al rato regreso»). nombre: ausente | regreso.
+        info: motivo (aviso|inactivo), minutos (fuera; en «ausente» puede ser la duración que dijiste o None)."""
+        if nombre not in ("ausente", "regreso"):
+            return
+        info = info or {}
+        motivo, mins = str(info.get("motivo") or ""), info.get("minutos")
+        for r in self._activas(nombre):
+            f = _norm(r.get("filtro", "")).strip()
+            if f and f != motivo:
+                continue
+            if nombre == "regreso" and float(mins or 0) < float(r.get("cada_min") or 0):
+                continue
+            self._fire(r, dict(motivo=motivo, minutos=("" if mins is None else f"{mins:g}")), 0.2)
+
     def listing(self) -> list:
         with self._lock:
             return [dict(r) for r in self.data["reglas"]]
@@ -382,7 +409,9 @@ class Reglas:
                    "app_abre": lambda: f"abres «{f}»", "app_cierra": lambda: f"cierras «{f}»",
                    "notificacion": lambda: f"llega notificación de «{f}»",
                    "internet": lambda: "se cae el internet" if r.get("estado") == "caida" else "regresa el internet",
-                   "frase": lambda: f"dices «{f}»"}[c]()
+                   "frase": lambda: f"dices «{f}»",
+                   "ausente": lambda: "te ausentas" + (f" ({r.get('filtro')})" if r.get("filtro") else ""),
+                   "regreso": lambda: "regresas" + (f" tras ≥{cm:g} min fuera" if cm else "") + (f" ({r.get('filtro')})" if r.get("filtro") else "")}[c]()
             hace = "; ".join((x["texto"] if x["tipo"] == "decir" else ("pedirle a Orbi: " + x["texto"]) if x["tipo"] == "orbi"
                               else f"{x['herramienta']} {json.dumps(x.get('argumentos') or {}, ensure_ascii=False)}")
                              for x in self._acciones_de(r))

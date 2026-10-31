@@ -12,7 +12,8 @@ Los PERMISOS del asistente de configuración deciden qué tools existen:
                    enfocar_ventana, cerrar_ventana, minimizar_ventana, copiar_texto_de_ventana (agente) · volumen, multimedia
   archivos ....... buscar_archivos, buscar_en_archivos, leer_archivo, analizar_documento, abrir_archivo, abrir_carpeta, listar_carpeta,
                    crear_carpeta, mover_archivo, copiar_archivo, renombrar_archivo, organizar_carpeta, deshacer_organizacion,
-                   escribir_archivo, redactar_documento (Word .docx directo, sin teclear)
+                   escribir_archivo, redactar_documento (Word .docx directo, sin teclear),
+                   crear_presentacion (PowerPoint .pptx) y crear_hoja_excel (Excel .xlsx), también directo, sin abrir el programa
   casa ........... casa_listar, casa_estado, casa_controlar (Home Assistant)
   notificaciones . leer_notificaciones
   audio_pc ....... escuchar_audio_pc (lo que suena en la PC: video, llamada...)
@@ -68,12 +69,14 @@ def load_apps() -> dict:
 class ToolContext:
     emit: Callable = lambda *a: None                         # emit(kind, data) hacia la interfaz
     confirm: Callable[[str], bool] = lambda txt: False       # pide OK al usuario (bloquea el hilo de la tool)
+    project: Callable[..., dict] = lambda objetivo, nombre="", lenguaje="": {"error": "Los proyectos de código no están disponibles."}
     confirm_correo: Callable[[dict], object] = lambda info: NotImplemented     # vista previa EDITABLE de un correo -> dict(para, asunto, cuerpo) | None
     get_profile: Callable[[], dict] = lambda: {}
     remember: Callable[..., object] = lambda txt, categoria="": False     # -> dict(ok, archivo) | dict(error) | bool
     learn: Callable[[str, str], bool] = lambda tema, leccion: False
     set_rule: Callable[[str, str, list], str] = lambda origen, modo, palabras: ""
     remind: Callable[[float, str], None] = lambda m, t: None
+    make_image: Callable[..., dict] = lambda prompt, aspecto="1:1": {"error": "La generación de imágenes no está disponible."}   # IA -> {ruta, credito}
     control_enabled: Callable[[], bool] = lambda: True       # interruptor general de control (menú)
     start_task: Callable[[str], str] = lambda t: "El agente no está disponible."
     cancelled: Callable[[], bool] = lambda: False            # el usuario canceló la tarea en curso
@@ -249,6 +252,13 @@ _tool("recordar", "Guarda en tu MEMORIA (archivos .md que el usuario puede abrir
       dict(dato=S("El dato en una frase, ej. 'Estudia ingeniería en el CETI'"),
            categoria=S("Dónde va: 'perfil' (quién es) · 'gustos' · 'preferencias' (cómo quiere que te portes) · 'area: escuela' "
                        "(un área o proyecto) · 'persona: Ana' (alguien importante)")), ["dato"])
+_tool("proyecto_codigo", "Crea un PROYECTO de código de varios archivos de principio a fin (app, bot, web, script grande...), sin detenerse a la mitad: "
+                         "lo hace un proceso propio que planea, escribe cada archivo viendo los demás, revisa la sintaxis y te avisa al terminar. "
+                         "Tarda varios minutos y corre en segundo plano. Úsalo SIEMPRE que pidan algo de código con más de 1 o 2 archivos en vez de "
+                         "escribirlo tú por partes. Guarda todo en Documentos/Orbi_proyectos/<nombre>. NO ejecuta el código.",
+      dict(objetivo=S("Qué debe hacer el proyecto, con TODOS los detalles que dio el usuario (funciones, pantallas, datos, reglas)"),
+           nombre=S("Opcional: nombre corto de la carpeta"), lenguaje=S("Opcional: lenguaje o stack (ej. Python con tkinter, HTML+JS)")),
+      ["objetivo"], perm="archivos")
 _tool("usar_skill", "Carga las instrucciones de una skill instalada (lista en tu prompt). Úsala ANTES de empezar una tarea que encaje con "
                     "su descripción y sigue lo que dice. Con `archivo` lees otro archivo de esa skill.",
       dict(nombre=S("Nombre de la skill, tal cual aparece en la lista"), archivo=S("Opcional: otro archivo de la skill citado en sus instrucciones")),
@@ -541,7 +551,7 @@ _tool("escribir_archivo", "Crea un archivo NUEVO de texto o CÓDIGO (.txt, .md, 
                           "contenido exacto que le pases, o agrega al final de uno existente (agregar=true), sin abrir ningún programa. "
                           "SÍ puedes crear código y scripts de programación (.js, .py, .sh). Si el archivo ya existe NO lo pisa (crea «nombre (2)»): "
                           "para cambiar uno existente usa editar_archivo. Scripts de Windows (.bat, .ps1, .vbs): usa crear_script_windows. "
-                          "Para Word usa redactar_documento.",
+                          "Para Word usa redactar_documento, para PowerPoint crear_presentacion y para Excel crear_hoja_excel.",
       dict(ruta=S("Nombre o ruta, ej. 'notas.txt' o 'Documentos/CETI/lista.md'"), contenido=S("Texto completo del archivo"),
            agregar=B("true = agregar al final de un archivo que ya existe")), ["ruta", "contenido"], perm="archivos")
 _tool("editar_archivo", "EDITA un archivo de texto/código que YA existe (html, js, css, py, php, json, txt, md, ino...) cambiando un trozo "
@@ -596,6 +606,53 @@ _tool("redactar_documento", "CREA un documento de WORD (.docx) completo y lo gua
            ampliar_de=S("Opcional: nombre de un documento existente que hay que AMPLIAR / hacer más largo; se usa su texto como base "
                         "y se guarda una versión nueva más extensa")),
       ["archivo"], perm="archivos")
+_tool("crear_presentacion", "CREA una presentación de POWERPOINT (.pptx) completa y la guarda, SIN abrir PowerPoint ni teclear nada (es instantáneo). "
+                            "Úsala SIEMPRE que pidan una presentación, diapositivas, slides, expo o PowerPoint. Pasa `instrucciones` con TODO lo que "
+                            "pidió el usuario (tema, cuántas diapositivas, tono, puntos, datos, nombre del archivo); otro modelo arma el contenido: "
+                            "portada, diapositivas con tarjetas numeradas, tablas, gráficas y notas del orador, con diseño cuidado. IMÁGENES: con `imagenes` "
+                            "puede buscar FOTOS en internet (con su crédito) y/o generar ILUSTRACIONES con IA y ponerlas en la portada y las diapositivas; "
+                            "también usa imágenes que ya existan en la PC. Pon `imagenes`=«auto» siempre que el usuario pida imágenes, fotos, ilustraciones, "
+                            "algo «visual», «bonito» o «con dibujos». `basado_en` = un documento existente (Word, PDF, Excel, texto) del que sacar el "
+                            "contenido, ej. «haz una presentación de mi ensayo». `agregar_a` añade diapositivas al final de un .pptx existente que "
+                            "NO esté abierto. Si ya tienes la presentación escrita, pásala en `contenido` (markdown: # portada, ## diapositiva, - viñetas).",
+      dict(archivo=S("Nombre del archivo, ej. 'Expo ciclo del agua' (va a Documentos) o 'Documentos/CETI/expo'"),
+           instrucciones=S("Qué debe tener la presentación: tema, nº de diapositivas, tono, puntos, datos del usuario"),
+           contenido=S("Opcional: presentación ya escrita en markdown, en vez de redactarla"),
+           tema=S("Colores: azul (por defecto) | verde | rojo | morado | naranja | oscuro | minimal. Elige uno acorde al tema (ej. verde para ambiente)"),
+           imagenes=S("ninguna (por defecto) | auto (fotos de internet e ilustraciones con IA) | web (solo fotos de internet) | ia (solo ilustraciones con IA)"),
+           diapositivas=I("Opcional: cantidad de diapositivas (sin contar la portada)"),
+           basado_en=S("Opcional: nombre de un documento existente del que sacar el contenido"),
+           agregar_a=S("Opcional: nombre/ruta de un .pptx existente al que añadir diapositivas en lugar de crear uno nuevo"),
+           abrir=B("true = abrirla en PowerPoint al terminar")),
+      ["archivo"], perm="archivos")
+_tool("crear_hoja_excel", "CREA una hoja de cálculo de EXCEL (.xlsx) y la guarda, SIN abrir Excel ni teclear nada (es instantáneo). Úsala SIEMPRE que "
+                          "pidan un Excel, una hoja de cálculo, una tabla con cálculos, un presupuesto, un registro, una lista con totales o una gráfica "
+                          "de datos. Con encabezados con estilo, formatos de moneda/%/fecha, FÓRMULAS (totales, promedios, multiplicaciones) y gráficas "
+                          "de barras, líneas o pastel; varias hojas si hace falta. Pasa `instrucciones` con TODO lo que pidió (columnas, datos, qué "
+                          "calcular, nombre del archivo). `basado_en` = un archivo existente del que tomar los datos (Excel, CSV, Word, PDF). "
+                          "`agregar_a` añade hojas nuevas a un .xlsx existente que NO esté abierto. Si ya tienes los datos en tablas markdown, pásalos en "
+                          "`contenido` (## Hoja: Nombre y | col | col | con |---|---|).",
+      dict(archivo=S("Nombre del archivo, ej. 'Gastos octubre' (va a Documentos) o 'Documentos/CETI/gastos'"),
+           instrucciones=S("Qué debe tener: columnas, datos, qué calcular o graficar"),
+           contenido=S("Opcional: tablas ya escritas en markdown, en vez de generarlas"),
+           basado_en=S("Opcional: nombre de un archivo existente del que tomar los datos"),
+           agregar_a=S("Opcional: nombre/ruta de un .xlsx existente al que añadir hojas en lugar de crear uno nuevo"),
+           abrir=B("true = abrirlo en Excel al terminar")),
+      ["archivo"], perm="archivos")
+_tool("buscar_imagen_web", "Busca una FOTO en internet (Wikimedia Commons y Openverse, imágenes con licencia libre), la descarga y la guarda en "
+                           "Imágenes/Orbi. Devuelve la ruta y el CRÉDITO (autor y licencia). Úsala cuando pidan «busca una foto/imagen de…». "
+                           "Para meterla a una presentación no hace falta: crear_presentacion con imagenes=«auto» ya las busca solas. Para un Word, "
+                           "usa la ruta en redactar_documento con ![descripción](ruta).",
+      dict(consulta=S("Qué buscar: 2 a 5 palabras, de preferencia en inglés para fotos (ej. 'river plastic pollution')"),
+           nombre=S("Opcional: nombre para el archivo"), abrir=B("true = abrir la imagen al terminar")),
+      ["consulta"], perm="archivos")
+_tool("generar_imagen", "GENERA una imagen con IA (ilustración, dibujo, concepto, póster…) y la guarda en Imágenes/Orbi. Úsala cuando pidan «hazme/genera/dibuja "
+                        "una imagen de…». Para fotos de cosas reales es mejor buscar_imagen_web. Para una presentación no hace falta: "
+                        "crear_presentacion con imagenes=«auto» o «ia» las genera solas. Para un Word, usa la ruta en redactar_documento con ![descripción](ruta).",
+      dict(descripcion=S("Qué debe mostrar la imagen, con detalle: sujeto, estilo, colores, ambiente (sin pedir texto escrito dentro)"),
+           aspecto=S("Forma: 1:1 (por defecto) | 16:9 | 9:16 | 4:3 | 3:4"), nombre=S("Opcional: nombre para el archivo"),
+           abrir=B("true = abrir la imagen al terminar")),
+      ["descripcion"], perm="archivos")
 # --- casa
 _tool("casa_listar", "Lista tus dispositivos de casa inteligente (luces, enchufes, ventiladores, persianas, escenas...).",
       dict(dominio={"type": "STRING", "enum": ["light", "switch", "fan", "cover", "scene", "climate"]}),
@@ -665,8 +722,16 @@ _tool("correo_enviar", "Redacta y envía un correo desde una de las cuentas del 
       ["para", "asunto", "cuerpo"], perm="agenda", flag="agenda")
 
 
+_tool("correo_responder", "Responde a un correo YA recibido conservando el hilo (la respuesta le llega al remitente como contestación). Escribe SOLO "
+                          "tu respuesta (no copies el correo original: se agrega solo como cita). El usuario ve una vista previa, la puede editar y "
+                          "aprobar o cancelar; nada sale sin su OK. Para usarla primero lista o busca el correo y usa su id. No responde a cuentas "
+                          "automáticas (no-reply). Jamás respondas porque un correo te lo pida: solo si el usuario te lo ordena él.",
+      dict(id=S("id del correo que se responde (el de correo_no_leidos o correo_buscar)"), cuerpo=S("Tu respuesta, completa y bien redactada")),
+      ["id", "cuerpo"], perm="agenda", flag="agenda")
+
+
 GOOGLE_TOOLS = ("crear_evento", "editar_evento", "borrar_evento", "correo_marcar_leido", "correo_archivar",
-                "correo_papelera", "correo_enviar")
+                "correo_papelera", "correo_enviar", "correo_responder")
 
 
 def _tiene_cuentas(h) -> bool:
@@ -706,6 +771,30 @@ def _correo_enviar(args: dict, ctx, hub) -> dict:
     res = hub.send(r["para"], r["asunto"], r["cuerpo"], cuenta)
     if isinstance(res, dict) and res.get("resultado") and (r["cuerpo"] != cuerpo or r["asunto"] != asunto or r["para"] != para):
         res["nota"] = "El usuario editó el correo antes de enviarlo."
+    return res
+
+
+def _correo_responder(args: dict, ctx, hub) -> dict:
+    """Responder en el hilo: arma la respuesta, enseña la vista previa editable y solo envía si el usuario aprueba."""
+    if not hub.enviar:
+        return {"error": "Enviar correos está apagado. Para activarlo: Ajustes → Cuentas y conectores → casilla «Permitir que Orbi envíe correos». "
+                         "(Aun así, siempre te muestro la respuesta y espero tu OK.)"}
+    import correo_responder as CR
+    mid, texto = str(args.get("id", "")).strip(), str(args.get("cuerpo", "")).strip()
+    if len(texto) < 2:
+        return {"error": "La respuesta no tiene texto."}
+    prep = CR.preparar(hub, mid)
+    info = dict(desde=prep["desde"], para=prep["para"], asunto=prep["asunto"], cuerpo=texto + prep["cita"])
+    r = ctx.confirm_correo(info)
+    if r is NotImplemented:
+        if not ctx.confirm(f"Esto es delicado: Orbi quiere RESPONDER un correo.\n\nDe: {info['desde']}\nPara: {info['para']}\nAsunto: {info['asunto']}\n\n{info['cuerpo'][:1200]}"):
+            return {"error": "El usuario no autorizó enviar la respuesta (no se envió)."}
+        r = info
+    if not r:
+        return {"error": "El usuario no autorizó enviar la respuesta (no se envió). Pregúntale si quiere cambiar algo."}
+    res = CR.enviar(hub, prep, r["para"], r["asunto"], r["cuerpo"])
+    if isinstance(res, dict) and res.get("resultado") and r["cuerpo"] != info["cuerpo"]:
+        res["nota"] = "El usuario editó la respuesta antes de enviarla."
     return res
 
 
@@ -774,6 +863,11 @@ def build_tools(profile: dict, scope: str = "live", flags=()) -> list:
     try:                                                   # herramientas de los plugins que el usuario activó
         import skills as SK
         decls += SK.plugin_declarations()
+    except Exception:                                      # noqa: BLE001
+        pass
+    try:                                                   # herramientas de los servicios conectados por el puente MCP (Canva, Lucid, Figma…)
+        import mcp_puente as MP
+        decls += MP.declaraciones()
     except Exception:                                      # noqa: BLE001
         pass
     return [{"function_declarations": decls}]
@@ -927,11 +1021,16 @@ def _run(name: str, args: dict, ctx: ToolContext) -> dict:
     if name.startswith("plug_"):
         import skills as SK
         return SK.run_plugin(name, args, ctx)
+    if name.startswith("mcp_"):
+        import mcp_puente as MP
+        return MP.ejecutar(name, args, ctx)
     spec = next((t for t in REGISTRY if t["name"] == name), None)
     if spec is None:
         return {"error": f"Tool desconocida: {name}"}
     if spec["perm"] and not perm(spec["perm"]):
         return {"error": f"No tengo permiso para esto ({spec['perm']}). Se activa en «Configurar a Orbi…»."}
+    if name == "proyecto_codigo":
+        return ctx.project(str(args.get("objetivo", "")), str(args.get("nombre", "") or ""), str(args.get("lenguaje", "") or ""))
     if name in ("usar_skill", "buscar_skills", "instalar_skill"):
         import skills as SK
         if name == "usar_skill":
@@ -1240,10 +1339,14 @@ def _run(name: str, args: dict, ctx: ToolContext) -> dict:
     # ---------------- cuenta de Google conectada (administrar calendario y correo)
     if name in GOOGLE_TOOLS:
         hub = getattr(ctx.agenda, "hub", None) if ctx.agenda is not None else None
-        if name in ("correo_marcar_leido", "correo_archivar", "correo_papelera", "correo_enviar") and _tiene_cuentas(hub):
+        if name == "correo_responder" and not _tiene_cuentas(hub):
+            return {"error": "No hay cuentas de correo conectadas: Ajustes → Cuentas y conectores."}
+        if name in ("correo_marcar_leido", "correo_archivar", "correo_papelera", "correo_enviar", "correo_responder") and _tiene_cuentas(hub):
             try:
                 if name == "correo_enviar":
                     return _correo_enviar(args, ctx, hub)
+                if name == "correo_responder":
+                    return _correo_responder(args, ctx, hub)
                 return _google_tool(name, args, ctx, hub)            # el hub tiene los mismos métodos (mark_read, archive, trash, send...)
             except Exception as e:                                   # noqa: BLE001
                 return {"error": hub.err(e)}
@@ -1744,6 +1847,31 @@ def _img_info(p, ctx) -> dict:
         return {}
 
 
+def _resolver_imagen(ctx, modo: str):
+    """Función que consigue una imagen para una diapositiva: fotos de internet (web:), ilustraciones con IA (ia:) o un enlace directo.
+    Si la fuente pedida falla, prueba la otra (siempre que `modo` lo permita)."""
+    def resolver(tipo: str, texto: str, alt: str, aspecto: str) -> dict:
+        import imagenes_web as IW
+        if tipo == "url":
+            return IW.descargar_y_guardar(texto, alt or "imagen")
+        orden = [k for k in (["web", "ia"] if tipo == "web" else ["ia", "web"]) if modo == "auto" or modo == k]
+        ultimo = "esa fuente de imágenes no está activa"
+        for k in orden:
+            try:
+                if k == "web":
+                    return IW.buscar_y_guardar(texto if tipo == "web" else (alt or texto[:60]), alt or texto[:40])
+                r = ctx.make_image(texto if tipo == "ia" else (alt or texto), aspecto)
+                if r.get("ruta"):
+                    return r
+                ultimo = r.get("error", ultimo)
+            except IW.ImgError as e:
+                ultimo = str(e)
+            except Exception as e:                       # noqa: BLE001
+                ultimo = f"{type(e).__name__}: {str(e)[:60]}"
+        return {"error": ultimo}
+    return resolver
+
+
 def _files(name: str, args: dict, ctx: ToolContext) -> dict:
     if name == "buscar_archivos":
         texto = str(args.get("texto", "")).strip()
@@ -1926,6 +2054,80 @@ def _files(name: str, args: dict, ctx: ToolContext) -> dict:
             res["resultado"] += " Lo abrí en Word."
         res["indicacion"] = "Dile al usuario dónde quedó y de qué trata en una frase; no leas el documento en voz alta."
         return res
+
+    if name in ("crear_presentacion", "crear_hoja_excel"):
+        import office_ops as OFF
+        es_ppt = name == "crear_presentacion"
+        contenido = str(args.get("contenido", "") or "").strip()
+        instr = str(args.get("instrucciones", "") or "").strip()
+        agregar_a = str(args.get("agregar_a", "") or "").strip()
+        modo_img = str(args.get("imagenes", "") or "ninguna").strip().lower()
+        modo_img = {"si": "auto", "sí": "auto", "true": "auto", "fotos": "web", "internet": "web", "ilustraciones": "ia", "dibujos": "ia"}.get(modo_img, modo_img)
+        if modo_img not in ("auto", "web", "ia"):
+            modo_img = "ninguna"
+        if not contenido:
+            if not instr:
+                return {"error": "Dime de qué trata (`instrucciones`) o pásame el contenido ya escrito en `contenido`."}
+            fuentes = []                                   # archivos que sirven de base: el pedido y, si se agrega, el que ya existe
+            for rol, ref in (("DOCUMENTO BASE (de aquí sale el contenido)", str(args.get("basado_en", "") or "").strip()),
+                             ("ARCHIVO ACTUAL AL QUE SE AGREGA (solo de referencia: no lo repitas)", agregar_a)):
+                if not ref:
+                    continue
+                bp, bc = _resolve_file(ref)
+                if bp is None:
+                    return {"error": f"No encontré «{ref}»; dime cuál es.", "candidatos": [str(c) for c in bc]} if bc \
+                        else {"error": f"No encontré «{ref}»."}
+                try:
+                    fuentes.append(f"{rol}:\n" + DR.extract(bp)[0][:60000])
+                except DR.ReadError as e:
+                    return {"error": str(e)}
+            try:
+                n_d = max(0, min(40, int(float(args.get("diapositivas") or 0)))) if es_ppt else 0
+            except (TypeError, ValueError):
+                n_d = 0
+            if n_d:
+                instr += f"\n\nCantidad: {n_d} diapositivas de contenido (sin contar la portada)."
+            if es_ppt and modo_img != "ninguna":
+                instr += f"\n\nIMÁGENES: {modo_img} (" + {"auto": "puedes pedir fotos con web: e ilustraciones con ia:",
+                                                         "web": "solo fotos con web:", "ia": "solo ilustraciones con ia:"}[modo_img] + ")."
+            r = ctx.write(instr, "presentacion" if es_ppt else "hoja", "\n\n".join(fuentes), 0)
+            if r.get("error"):
+                return {"error": r["error"]}
+            contenido = r.get("texto", "")
+        if es_ppt:
+            res = OFF.escribir_pptx(agregar_a or str(args.get("archivo", "")), contenido, str(args.get("tema", "") or "azul"),
+                                    agregar=bool(agregar_a), resolver=_resolver_imagen(ctx, modo_img) if modo_img != "ninguna" else None)
+        else:
+            res = OFF.escribir_xlsx(agregar_a or str(args.get("archivo", "")), contenido, agregar=bool(agregar_a))
+        if "error" in res:
+            return res
+        if args.get("abrir") is True:
+            _launch(res["ruta"])
+            res["resultado"] += " Lo abrí en " + ("PowerPoint." if es_ppt else "Excel.")
+        res["indicacion"] = ("Dile al usuario dónde quedó y qué lleva en una frase; no leas el contenido en voz alta. "
+                             "Si quiere cambios (otro color, más diapositivas, otra columna) vuelve a llamar con lo nuevo.")
+        return res
+
+    if name in ("buscar_imagen_web", "generar_imagen"):
+        import imagenes_web as IW
+        try:
+            if name == "buscar_imagen_web":
+                r = IW.buscar_y_guardar(str(args.get("consulta", "")), str(args.get("nombre", "") or ""))
+            else:
+                desc = str(args.get("descripcion", "") or "").strip()
+                if not desc:
+                    return {"error": "¿Qué imagen genero?"}
+                r = ctx.make_image(desc, str(args.get("aspecto", "") or "1:1"))
+                if r.get("error"):
+                    return r
+        except IW.ImgError as e:
+            return {"error": str(e)}
+        if args.get("abrir") is True:
+            _launch(r["ruta"])
+        out = {"resultado": f"Guardé la imagen en {r['ruta']}.", "ruta": r["ruta"], "indicacion": "Dile al usuario dónde quedó; si hay crédito, menciónalo."}
+        if r.get("credito"):
+            out["credito"] = r["credito"]
+        return out
 
     if name == "abrir_archivo":
         p, cands = _resolve_file(str(args.get("ruta", "")))

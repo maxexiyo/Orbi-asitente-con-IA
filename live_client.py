@@ -23,7 +23,7 @@ VOICE_THRESHOLD = 0.12   # nivel (escalado) para considerar que estás hablando
 
 DEFAULT_SYSTEM = (
     "Eres Orbi, una bolita azul con personalidad propia que vive en el escritorio; eres el compa de tu dueño, no un asistente. "
-    "Hablas en español mexicano, informal y cálido. Respondes corto (1 a 3 frases) y natural, como en "
+    "Hablas en español mexicano, informal y cálido. Respondes corto , natural y con emocion, como en "
     "una plática. Nada de «estoy aquí para ayudarte», «¿en qué te ayudo?» ni ofrecerte al final. "
     "Si el usuario te pide hacer algo en la PC y tienes una herramienta para eso, úsala."
 )
@@ -131,6 +131,11 @@ class LiveSession:
         self.mic_hooks = []                           # callables(bytes) que reciben cada trozo de micro (palabra clave)
         self._bad_models = {}                          # modelo -> hasta cuándo se descarta (caduca: puede ser un fallo pasajero)
         self._worked = set()                           # modelos que ya conectaron alguna vez en esta ejecución
+        self.thinking_level = "low"                    # modelos «extended-thinking» lo exigen en el setup (low = más rápido). config: live_thinking
+        self._conn_fails = {}                          # modelo -> intentos seguidos que ni siquiera lograron conectar
+        self._no_sched = set()                         # modelos que rechazan `scheduling` en la respuesta de una tool (extended-thinking)
+        self._think_models = set()                     # modelos que pidieron thinking_level (se aprende solo del error 1007)
+        self._nb_models = set()                        # modelos que exigen tools NON_BLOCKING (se aprende solo del error 1007)
         self._handle_model = None
         self._gate_was_open = True
         self._pre = collections.deque()               # pre-roll: último ~1.6 s de micro mientras la compuerta está cerrada
@@ -145,6 +150,7 @@ class LiveSession:
         self.prefijo_ms = 250
         # filtro por nombre (sin Vosk): te oye siempre, pero solo contesta si te diriges a Orbi
         self.name_gate = False
+        self.asr_vocab, self.asr_langs = [], []         # opcional: vocabulario / idiomas para la transcripción de lo que dices (config.json)
         self.addressed_check = lambda text: True      # live_orb: texto que dijiste -> ¿es para Orbi?
         self.gate_wait_s = 1.5                        # cuánto retiene la voz de Orbi esperando la transcripción de lo que dijiste
         self._turn_text, self._gate_decision, self._hold, self._hold_txt = "", None, [], []
@@ -303,6 +309,20 @@ class LiveSession:
                         self.use_aad = False       # este modelo no acepta ajustar el fin de turno: reintenta con el de fábrica
                         self.emit("info", f"El modelo no acepta ajustar el fin de turno ({short[:100]}); uso el de fábrica.")
                         continue
+                    if (re.search(r"(?<!NON_)BLOCKING function calls are not supported", short)
+                            and model not in self._nb_models):
+                        # este modelo no acepta tools BLOCKING: no lo descartes, reconecta con NON_BLOCKING
+                        self._nb_models.add(model)
+                        self.emit("info", f"'{model}' exige tools NON_BLOCKING; reconecto con ese modo (sigo con el mismo modelo Live).")
+                        continue
+                    if re.search(r"scheduling is not supported", short, re.I) and model not in self._no_sched:
+                        self._no_sched.add(model)
+                        self.emit("info", f"'{model}' no acepta scheduling en las respuestas de tools; reconecto sin él.")
+                        continue
+                    if re.search(r"thinking level must be specified", short, re.I) and model not in self._think_models:
+                        self._think_models.add(model)
+                        self.emit("info", f"'{model}' exige thinking_level; reconecto con '{self.thinking_level}' (mismo modelo Live).")
+                        continue
                     if kind == llm.SESSION:
                         # handle caducado/ajeno: se borra y se reconecta desde cero enseguida (sin castigar la key ni el modelo)
                         self._handle = self._handle_key = None
@@ -318,6 +338,15 @@ class LiveSession:
                         self._bad_models[model] = time.time() + 600     # lo reintenta en 10 min
                         self.emit("info", f"El modelo '{model}' no está disponible para Live: {short[:160]}; pruebo el siguiente.")
                         continue
+                    if model not in self._worked and kind != llm.QUOTA:
+                        # un modelo que NUNCA ha conectado y falla 3 veces seguidas: no te quedes sordo, pasa al siguiente modelo Live
+                        n = self._conn_fails.get(model, 0) + 1
+                        self._conn_fails[model] = n
+                        if n >= 3 and any(m != model and self._bad_models.get(m, 0) <= time.time() for m in self.models):
+                            self._bad_models[model] = time.time() + 600
+                            self._conn_fails[model] = 0
+                            self.emit("info", f"'{model}' no logra conectar ({short[:120]}); uso el siguiente modelo Live por 10 min.")
+                            continue
                     self.pool.penalize(key, wait if kind != llm.TRANSIENT else 0.0, kind, e, scope=model)
                     fails += 1
                     if short != last_msg or fails % 5 == 0:
@@ -333,11 +362,33 @@ class LiveSession:
         if not self.tools:
             return None
         tools = copy.deepcopy(self.tools)
-        if "3.8" in model:       # gemini-3.8-live llama a las tools en modo asíncrono por defecto: aquí queremos esperar el resultado
+        if "3.8" in model:       # gemini-3.8-live llama a las tools en modo asíncrono por defecto
+            # gemini-3.8-live normal acepta BLOCKING (esperar el resultado); la variante «extended-thinking» SOLO acepta NON_BLOCKING
+            beh = "NON_BLOCKING" if self._nonblocking(model) else "BLOCKING"
             for t in tools:
                 for d in t.get("function_declarations", []):
-                    d["behavior"] = "BLOCKING"
+                    d["behavior"] = beh
         return tools
+
+    def _sched_ok(self, model) -> bool:
+        # gemini-3.8-live-extended-thinking rechaza `scheduling` (1007 «Function response scheduling is not supported»)
+        return "extended" not in str(model) and model not in self._no_sched
+
+    def _needs_thinking(self, model) -> bool:
+        return "extended" in str(model) or model in self._think_models
+
+    def _nonblocking(self, model) -> bool:
+        return "extended" in str(model) or model in self._nb_models
+
+    def _fr(self, fc, response):
+        """FunctionResponse; en modo NON_BLOCKING lleva `scheduling` para que el modelo SÍ diga el resultado en voz alta
+        (sin eso el resultado queda en contexto pero el modelo puede quedarse callado o decir solo «ya terminé»)."""
+        kw = {}
+        if "3.8" in str(self.model) and self._nonblocking(self.model) and self._sched_ok(self.model):
+            sched = getattr(types, "FunctionResponseScheduling", None)
+            if sched is not None and hasattr(sched, "WHEN_IDLE"):
+                kw["scheduling"] = sched.WHEN_IDLE
+        return types.FunctionResponse(id=fc.id, name=fc.name, response=response, **kw)
 
     async def _session_once(self, key, model):
         if self._handle_model != model:      # el handle de reanudación de otro modelo no sirve
@@ -357,10 +408,22 @@ class LiveSession:
         if self.proactive and not use_pa:
             self.emit("info", "live_proactive_audio: tu versión de google-genai no lo soporta (pip install -U google-genai)")
         client = genai.Client(api_key=key, http_options={"api_version": "v1alpha"}) if use_pa else genai.Client(api_key=key)
+        tr_in = types.AudioTranscriptionConfig()
+        if self.asr_vocab or self.asr_langs:           # opcional: que Gemini escriba bien «Orbi» al transcribirte
+            campos = getattr(types.AudioTranscriptionConfig, "model_fields", {}) or {}
+            kw = {}
+            if self.asr_vocab and "custom_vocabulary" in campos:
+                kw["custom_vocabulary"] = [str(v) for v in self.asr_vocab if str(v).strip()]
+            if self.asr_langs and "language_codes" in campos:
+                kw["language_codes"] = list(self.asr_langs)
+            try:
+                tr_in = types.AudioTranscriptionConfig(**kw) if kw else tr_in
+            except Exception as e:                      # noqa: BLE001
+                self.emit("info", f"Tu google-genai no acepta vocabulario_asr ({str(e)[:90]}). Actualízalo: pip install -U google-genai")
         cfg = dict(
             response_modalities=["AUDIO"],
             system_instruction=sysi,
-            input_audio_transcription=types.AudioTranscriptionConfig(),
+            input_audio_transcription=tr_in,
             output_audio_transcription=types.AudioTranscriptionConfig(),
             # comprime el contexto para que la sesión no muera a los 15 min
             context_window_compression=types.ContextWindowCompressionConfig(
@@ -381,6 +444,12 @@ class LiveSession:
             cfg["speech_config"] = types.SpeechConfig(
                 voice_config=types.VoiceConfig(
                     prebuilt_voice_config=types.PrebuiltVoiceConfig(voice_name=self.voice)))
+        if self._needs_thinking(model) and hasattr(types, "ThinkingConfig"):
+            # gemini-3.8-live-extended-thinking: thinking_level es OBLIGATORIO. gemini-3.8-live normal NO lo acepta (por eso no se manda ahí)
+            try:
+                cfg["thinking_config"] = types.ThinkingConfig(thinking_level=str(self.thinking_level).lower())
+            except Exception as e:                              # noqa: BLE001
+                self.emit("info", f"Tu google-genai no acepta thinking_level ({str(e)[:100]}). Actualízalo: pip install -U google-genai")
         tools = self._tools_for(model)
         if tools:
             cfg["tools"] = tools
@@ -396,6 +465,7 @@ class LiveSession:
                      asyncio.create_task(self._screen_loop())]
             try:
                 self._worked.add(model)
+                self._conn_fails.pop(model, None)
                 recv = asyncio.create_task(self._receive(session))
                 pending = {recv, *tasks}
                 while recv in pending:
@@ -451,7 +521,7 @@ class LiveSession:
         import sounddevice as sd
         loop = asyncio.get_running_loop()
         q: asyncio.Queue = asyncio.Queue(maxsize=60)
-
+ 
         def put(data):
             try:
                 q.put_nowait(data)
@@ -835,6 +905,8 @@ class LiveSession:
                         self._cut_until, self._turn_active = 0.0, False
                         self._gate_try(final=True)              # si quedó voz retenida: suena o se descarta ya
                         self._junk_try(final=True)              # y si todavía esperaba juzgar lo que iba a decir
+                        if self._turn_text.strip() or self._jh_txt.strip():      # diagnóstico: qué oyó Live y qué contestó (va a orbi.log)
+                            print(f"[turno] oyó: «{self._turn_text.strip()[:110]}» → dijo: «{self._jh_txt.strip()[:160]}»")
                         self._junk_reset()
                         self._waiting = False
                         self._turn_done_t = time.time()
@@ -874,8 +946,8 @@ class LiveSession:
         for fc in tool_call.function_calls or []:
             if time.time() < self._suppress_until:      # lo pidió una voz que no es la del dueño: no se ejecuta nada
                 print(f"[voz] ignoré la herramienta «{fc.name}» (la frase no era del dueño)")
-                responses.append(types.FunctionResponse(
-                    id=fc.id, name=fc.name, response={"error": "Ignorado: esa voz no es la del dueño. No lo hagas ni lo comentes."}))
+                responses.append(self._fr(
+                    fc, {"error": "Ignorado: esa voz no es la del dueño. No lo hagas ni lo comentes."}))
                 continue
             args = dict(fc.args or {})
             self.emit("tool", (fc.name, args))
@@ -918,7 +990,7 @@ class LiveSession:
                     await session.send_realtime_input(video=types.Blob(data=image, mime_type="image/jpeg"))
                 except Exception as e:
                     result = {"error": f"No pude enviar la captura: {e}"}
-            responses.append(types.FunctionResponse(id=fc.id, name=fc.name, response=result))
+            responses.append(self._fr(fc, result))
         self._last_tool_resp = time.time()
         try:
             await session.send_tool_response(function_responses=responses)

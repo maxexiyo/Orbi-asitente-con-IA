@@ -1,0 +1,65 @@
+{
+ "id": "2026-10-27_175913",
+ "inicio": "2026-10-27T17:59:13",
+ "continua": null,
+ "turnos": [],
+ "herramientas": [
+  {
+   "t": "2026-10-27T18:16:07",
+   "herramienta": "abrir_app",
+   "args": "{'nombre': 'google chrome'}",
+   "ok": true,
+   "error": "",
+   "seg": 9.7
+  },
+  {
+   "t": "2026-10-27T18:16:10",
+   "herramienta": "esperar_listo",
+   "args": "{'segundos': 15, 'ventana': 'chrome'}",
+   "ok": true,
+   "error": "",
+   "seg": 1.8
+  },
+  {
+   "t": "2026-10-27T18:16:11",
+   "herramienta": "ver_pantalla",
+   "args": "{}",
+   "ok": true,
+   "error": "",
+   "seg": 0.1
+  },
+  {
+   "t": "2026-10-27T18:16:33",
+   "herramienta": "hacer_clic",
+   "args": "{'que': 'ícono de perfil con el texto o imagen de ceti.mx'}",
+   "ok": true,
+   "error": "",
+   "seg": 21.6
+  },
+  {
+   "t": "2026-10-27T18:16:36",
+   "herramienta": "abrir_url",
+   "args": "{'url': 'https://classroom.google.com'}",
+   "ok": true,
+   "error": "",
+   "seg": 1.7
+  },
+  {
+   "t": "2026-10-27T18:16:37",
+   "herramienta": "esperar_listo",
+   "args": "{'segundos': 15, 'ventana': 'classroom'}",
+   "ok": true,
+   "error": "",
+   "seg": 1.0
+  },
+  {
+   "t": "2026-10-27T18:16:38",
+   "herramienta": "set_emotion",
+   "args": "{'emocion': 'happy'}",
+   "ok": true,
+   "error": "",
+   "seg": 0.0
+  }
+ ],
+ "fin": "2026-10-27T18:16:38"
+}

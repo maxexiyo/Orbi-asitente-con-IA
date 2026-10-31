@@ -1,0 +1,258 @@
+{
+ "id": "2026-10-27_195917",
+ "inicio": "2026-10-27T19:59:17",
+ "continua": null,
+ "turnos": [
+  {
+   "t": "2026-10-27T19:59:39",
+   "tu": "Orbi, te estoy hablando, ¿que por qué Cloud se acaba los tokens en putiza?",
+   "orbi": "Es que los mensajes gratis vuelan con tantas tareas y proyectos, y ya llegaste a tu límite diario."
+  },
+  {
+   "t": "2026-10-27T19:59:54",
+   "tu": "Apenas le mandé como cinco mensajes.",
+   "orbi": "Mira el mensaje, Omar: te gastaste el límite diario y no hay de otra más que esperar hasta mañana. Aunque sean poquitos mensajes, si son muy complejos, consumen más rápido el cupo."
+  },
+  {
+   "t": "2026-10-27T20:00:09",
+   "tu": "¿Cuánto es el ¿No no sabes cuánto es el límite que tengo de Cloud en el plan gratis?",
+   "orbi": "El límite en el plan gratis varía según la demanda y la complejidad de los mensajes, por eso no es un número fijo, Omar."
+  },
+  {
+   "t": "2026-10-27T20:00:43",
+   "tu": "y le este le le pongo así tipo empiezo a preguntarle muchas cosas, se van reduciendo el límite o qué verga, porque ya siento que me están durando menos los tokens como antes. Ya no duran igual que antes. Ay, cabrón, ya no duran lo mismo que ahora pues.",
+   "orbi": "Sí, Omar, el límite puede variar según cuánta gente esté usando Claude al mismo tiempo y lo complejo de tus preguntas. No es que se reduzcan permanentemente, pero sí se pone más estricto en momentos de alta demanda."
+  },
+  {
+   "t": "2026-10-27T20:00:53",
+   "tu": "pinches sombreados, pero bueno, ni modo.",
+   "orbi": "Ni modo, Omar, a veces esos detallitos visuales no se pueden cambiar tan fácil."
+  },
+  {
+   "t": "2026-10-27T20:02:12",
+   "tu": "Te estoy hablando, Ormi.",
+   "orbi": "Aquí estoy, Omar. No te preocupes, vamos"
+  },
+  {
+   "t": "2026-10-27T20:02:22",
+   "tu": "y esto",
+   "orbi": "Veo que compartiste tu proyecto. Para empezar a prepararnos para el examen, ¿te parece si revisamos las preguntas teóricas que tienes en pantalla?"
+  },
+  {
+   "t": "2026-10-27T20:02:32",
+   "tu": "este pues no tengo preguntas teóricas, pero igual si me puedes hacer tú alguna cosa, estaría agradecido.",
+   "orbi": "¡Va! Empecemos por lo básico:"
+  },
+  {
+   "t": "2026-10-27T20:02:34",
+   "tu": "va",
+   "orbi": "La primera pregunta clave"
+  },
+  {
+   "t": "2026-10-27T20:02:38",
+   "tu": "La primera",
+   "orbi": "¿Cuál es la diferencia"
+  },
+  {
+   "t": "2026-10-27T20:02:44",
+   "tu": "¿Cuál es la",
+   "orbi": "entre GET y POST y para qué usarías cada una para un pedido?"
+  },
+  {
+   "t": "2026-10-27T20:03:01",
+   "tu": "esperar conseguir y post es para No sé, explícame qué es eso.",
+   "orbi": "Vas bien, Omar; GET es para pedir o leer información sin alterar el servidor, como ver una página web, y POST es para enviar datos nuevos que modifican o crean algo, como subir un formulario."
+  },
+  {
+   "t": "2026-10-27T20:03:03",
+   "tu": "pedir",
+   "orbi": "...y POST es para enviar o guardar datos nuevos en el servidor, como"
+  },
+  {
+   "t": "2026-10-27T20:03:08",
+   "tu": "mi voz es",
+   "orbi": "detected>"
+  },
+  {
+   "t": "2026-10-27T20:03:13",
+   "tu": "No se puede.",
+   "orbi": "...y POST es para enviar o enviar datos nuevos al servidor."
+  },
+  {
+   "t": "2026-10-27T20:03:16",
+   "tu": "imposto",
+   "orbi": "Corrigiendo el término, POST es para enviar datos al servidor, como cuando registras un nuevo pedido. ¿Tiene sentido?"
+  },
+  {
+   "t": "2026-10-27T20:03:19",
+   "tu": "corrigiendo el",
+   "orbi": "y POST es para enviar o procesar nuevos datos en el servidor, como guardar un nuevo registro."
+  },
+  {
+   "t": "2026-10-27T20:03:22",
+   "tu": "es para",
+   "orbi": "y POST es para enviar o procesar nuevos datos, como crear un pedido."
+  },
+  {
+   "t": "2026-10-27T20:03:31",
+   "tu": "y post",
+   "orbi": "y POST es para crear nueva información o modificar la que ya tienes, como enviar los datos de tu pedido."
+  },
+  {
+   "t": "2026-10-27T20:03:52",
+   "tu": "harvey",
+   "orbi": "GET es para pedir información del servidor, como cargar una página, y POST es para enviar datos nuevos,"
+  },
+  {
+   "t": "2026-10-27T20:03:57",
+   "tu": "¿Get es para",
+   "orbi": "Exacto, GET es"
+  },
+  {
+   "t": "2026-10-27T20:03:59",
+   "tu": "Exacto.",
+   "orbi": "GET se usa para solicitar o pedir información, sin modificar nada en el servidor, mientras"
+  },
+  {
+   "t": "2026-10-27T20:04:03",
+   "tu": "getse",
+   "orbi": "GET se usa para solicitar datos de un servidor sin modificarlos."
+  },
+  {
+   "t": "2026-10-27T20:04:07",
+   "tu": "Gezert",
+   "orbi": "GET se usa para solicitar datos del servidor, mientras que POST sirve para enviar datos y crear o actualizar recursos."
+  },
+  {
+   "t": "2026-10-27T20:04:09",
+   "tu": "datos del",
+   "orbi": "...que POST se utiliza para enviar datos y crear o modificar recursos en el servidor."
+  },
+  {
+   "t": "2026-10-27T20:04:13",
+   "tu": "pero que",
+   "orbi": "...que POST se usa para enviar datos y crear o actualizar recursos en el servidor."
+  },
+  {
+   "t": "2026-10-27T20:04:18",
+   "tu": "se usa para",
+   "orbi": "...que POST se usa para enviar datos para crear o actualizar un recurso en el servidor."
+  },
+  {
+   "t": "2026-10-27T20:04:20",
+   "tu": "pero que",
+   "orbi": "...que POST se usa para enviar datos al servidor, como cuando llenas un formulario"
+  },
+  {
+   "t": "2026-10-27T20:04:27",
+   "tu": "que",
+   "orbi": "...que POST se usa para enviar datos al servidor, como cuando subes un formulario."
+  },
+  {
+   "t": "2026-10-27T20:04:35",
+   "tu": "heavy",
+   "orbi": "¿Tiene sentido esa diferencia, Omar?"
+  },
+  {
+   "t": "2026-10-27T20:04:37",
+   "tu": "¿Te",
+   "orbi": "¿Tiene sentido esa diferencia o profundizamos en algún ejemplo específico?"
+  },
+  {
+   "t": "2026-10-27T20:04:38",
+   "tu": "¿Tienes",
+   "orbi": "detected>"
+  },
+  {
+   "t": "2026-10-27T20:04:47",
+   "tu": "Era mejor que ya vi que te estás interrumpiendo por A ver. Voy a mover esta madre.",
+   "orbi": "Entendido, Omar. Avisame cuando estés listo para continuar con las preguntas."
+  },
+  {
+   "t": "2026-10-27T20:04:49",
+   "tu": "¿Me escuchas?",
+   "orbi": "Sí, Omar, te escucho fuerte y claro. ¿Quieres que continuemos con el repaso?"
+  },
+  {
+   "t": "2026-10-27T20:04:54",
+   "tu": "Te escucho.",
+   "orbi": "...aquí ando. ¿Qué más necesitas repasar para el examen?"
+  },
+  {
+   "t": "2026-10-27T20:05:02",
+   "tu": "repasar",
+   "orbi": "¿O tienes alguna otra duda específica de Node.js o de tu código que quieras revisar?"
+  },
+  {
+   "t": "2026-10-27T20:05:39",
+   "tu": "A ver, Orbi. Explícame ahora sí otra vez, ¿qué era qué dices que es para pedir o leer información? Y post es para publicarlo, ¿no?",
+   "orbi": "Exacto, Omar. Ya le agarraste la onda. GET es como pedir"
+  },
+  {
+   "t": "2026-10-27T20:05:42",
+   "tu": "Exacto.",
+   "orbi": "GET se usa para pedir datos y POST para enviar o guardar nueva información en el servidor."
+  },
+  {
+   "t": "2026-10-27T20:05:48",
+   "tu": "pedir",
+   "orbi": "...y POST para enviar o publicar información. ¿Quieres que veamos algún ejemplo en tu código?"
+  },
+  {
+   "t": "2026-10-27T20:05:50",
+   "tu": "información",
+   "orbi": "...¿quieres que te ponga un ejemplo aplicado"
+  },
+  {
+   "t": "2026-10-27T20:05:58",
+   "tu": "Espérame, espérame, creo que tienes un bug que está haciendo que te interrumpas a ti mismo cuando hablas. Espérame.",
+   "orbi": "No te preocupes, Omar. Aquí te espero."
+  },
+  {
+   "t": "2026-10-27T20:06:02",
+   "tu": "aquí te espero.",
+   "orbi": "Entendido, Omar. Aquí sigo al pendiente de lo que necesites repasar."
+  },
+  {
+   "t": "2026-10-27T20:06:10",
+   "tu": "Aquí sigo. ¿Por qué está pasando esto?",
+   "orbi": "Entendido, Omar. Una disculpa"
+  },
+  {
+   "t": "2026-10-27T20:06:12",
+   "tu": "Entendido.",
+   "orbi": "...aquí estoy listo para seguir. ¿Qué más necesitas que veamos para reforzar el examen?"
+  },
+  {
+   "t": "2026-10-27T20:06:14",
+   "tu": "Aquí",
+   "orbi": "...aquí sigo listo para cuando estés listo."
+  },
+  {
+   "t": "2026-10-27T20:06:23",
+   "tu": "Aquí",
+   "orbi": "...aquí sigo, listo. Perdona por la interrupción de hace un momento, ¿quieres que continuemos con la explicación sobre los métodos GET y POST?"
+  },
+  {
+   "t": "2026-10-27T20:06:32",
+   "tu": "porque parece que tienes un bug. Tú tienes un bug que hace que te interrumpa",
+   "orbi": "Mil disculpas por eso, Omar. Avísame cuando estés listo para seguir con la explicación y resolver tus dudas al ritmo que tú prefieras."
+  },
+  {
+   "t": "2026-10-27T20:06:34",
+   "tu": "disculpas por",
+   "orbi": "detected>"
+  }
+ ],
+ "herramientas": [
+  {
+   "t": "2026-10-27T20:02:10",
+   "herramienta": "set_emotion",
+   "args": "{'emocion': 'happy'}",
+   "ok": true,
+   "error": "",
+   "seg": 0.0
+  }
+ ],
+ "fin": "2026-10-27T20:06:34"
+}

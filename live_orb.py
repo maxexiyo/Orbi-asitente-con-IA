@@ -136,7 +136,14 @@ def main():
         _merge_cfg(cfg, _j.loads(_OVR_PATH.read_text(encoding="utf-8")))
     except Exception:                                          # noqa: BLE001
         pass
-    todo = bool(a.live_todo or cfg.get("live_hace_todo"))       # modo prueba: Live hace TODO (sin tarea_pc ni agente)
+    try:                                                       # puente MCP (Canva, Lucidchart, Figma…): reconecta en segundo plano lo ya conectado
+        import mcp_puente as _mcp
+        _mcp.configurar(cfg)
+        _mcp.iniciar()
+    except Exception as e:                                     # noqa: BLE001
+        print(f"[mcp] no pude iniciar el puente: {e}")
+    FORZAR_LIVE_TODO = False       # PRUEBA: True = Live hace TODO él solo. False = Live solo platica y los modelos de TEXTO (agente) hacen las tareas
+    todo = bool(FORZAR_LIVE_TODO or a.live_todo or cfg.get("live_hace_todo"))       # modo prueba: Live hace TODO (sin tarea_pc ni agente)
     _pct.LIVE_TODO = _perfil.LIVE_TODO = todo
     _pct.TODO_CAPTURA = bool(cfg.get("todo_captura_tras_accion", True))
     _pct.MOUSE_GLIDE_S = max(0.0, float(cfg.get("mouse_suave_s", 0.3)))
@@ -171,6 +178,31 @@ def main():
         return
     pool = llm.KeyPool(keys)                      # keys compartidas (voz, agente, observador, documentos)
     live_models = ([a.model] if a.model else []) + cfg["live_models"]
+    # «extended-thinking» en esta key contesta «error del sistema» sin llamar a las tools: se usa primero gemini-3.8-live normal
+    # (también es Live) y el extended queda de último recurso.
+    _base = [m for m in live_models if "extended" not in m]
+    _ext = [m for m in live_models if "extended" in m]
+    for _m in _ext:
+        if _m.replace("-extended-thinking", "") not in _base:
+            _base.append(_m.replace("-extended-thinking", ""))
+    live_models = list(dict.fromkeys(_base + _ext))
+    print("[modelos] voz (Live), en orden:", ", ".join(live_models))
+
+    def _ampliar_modelos():
+        """Modelos de TEXTO de respaldo: deja los de tu config que SÍ existen y agrega hasta 3 flash más nuevos que existan
+        (cada modelo tiene su propia cuota: si gemini-3.8-flash da 429, se prueba el siguiente)."""
+        for _k in ("agent_models", "analysis_models", "observer_models"):
+            _v = cfg.get(_k)
+            if not isinstance(_v, list):
+                continue
+            try:
+                _n = llm.usable(pool, _v, extra=3)
+                if _n:
+                    _v[:] = _n
+                print(f"[modelos] {_k}:", ", ".join(_v))
+            except Exception as _e:                             # noqa: BLE001
+                print(f"[modelos] no pude ampliar {_k}: {type(_e).__name__}")
+    threading.Thread(target=_ampliar_modelos, daemon=True).start()
 
     # ---------------------------------------------- perfil del dueño (asistente de primera vez)
     profile = load_profile()
@@ -396,6 +428,24 @@ def main():
         except llm.AllBusy as e:
             return f"No pude analizar el documento ahora (cuota o red): {str(e)[:150]}"
 
+    def generar_proyecto(objetivo: str, nombre: str = "", lenguaje: str = "") -> dict:
+        """Proyecto de código de varios archivos hecho de corrido (plan -> archivos -> revisión). Ver proyecto.py."""
+        from google.genai import types
+        import docs_reader as _dr
+        import proyecto as _pr
+        base = next((r / "Orbi_proyectos" for r in _dr.file_roots() if r.name.lower() in ("documents", "documentos")),
+                    Path.home() / "Documents" / "Orbi_proyectos")
+
+        def gen(prompt, tokens=16384, thinking=None):
+            r, _m = llm.generate(pool, cfg["analysis_models"], prompt,
+                                 types.GenerateContentConfig(temperature=0.3, max_output_tokens=tokens), thinking=thinking)
+            return (r.text or "").strip()
+
+        try:
+            return _pr.generar(objetivo, base, gen, lambda t: emit("tool_paso", ("proyecto_codigo", t)), nombre, lenguaje)
+        except llm.AllBusy as e:
+            return {"error": f"No pude seguir con el proyecto (cuota o red): {str(e)[:150]}. Lo que alcanzó a escribir quedó en {base}."}
+
     def _palabras_pedidas(instruccion: str, palabras: int = 0) -> int:
         """Extensión objetivo: la que pasa la herramienta, o la que se deduce de «N páginas» / «N palabras» en la instrucción."""
         if palabras:
@@ -422,10 +472,34 @@ def main():
             reglas = ("Salida en TEXTO PLANO listo para teclearse en un documento: sin markdown (nada de #, **, *, `), "
                       "títulos en su propia línea en mayúscula inicial, párrafos separados por una línea en blanco, "
                       "listas con «• » al inicio de cada línea.")
+        elif formato == "presentacion":
+            reglas = ("ESTO NO ES UN DOCUMENTO DE TEXTO: es una PRESENTACIÓN de PowerPoint. Salida en MARKDOWN de diapositivas: primera línea «# Título» "
+                      "y debajo 1 o 2 líneas de subtítulo (materia, autor, fecha) en texto normal. Cada diapositiva empieza con «## Título corto» "
+                      "(máx. 8 palabras) y lleva de 3 a 6 viñetas «- » de máx. 14 palabras cada una: frases cortas, NUNCA párrafos. Sub-viñetas con "
+                      "2 espacios de sangría solo si hacen falta. Una diapositiva con solo «## Título» y nada más es un separador de sección. "
+                      "Datos comparables: tabla | col | col | con |---|---| debajo del encabezado; si conviene graficarlos, una línea sola "
+                      "«[grafica: barras]» (o lineas / pastel) justo ANTES de la tabla (1.ª columna = etiquetas, el resto números). IMÁGENES: si "
+                      "te mencionan archivos que ya existen, ponlos en una línea sola ![descripción](archivo.png) dentro de su diapositiva. Si la "
+                      "instrucción trae «IMÁGENES: …» puedes pedir imágenes nuevas, siempre en una línea sola dentro de la diapositiva: "
+                      "![descripción corta](web:consulta de 2 a 5 palabras, de preferencia en inglés) para una FOTO real (lugares, animales, objetos, "
+                      "procesos, fenómenos, ciudades) o ![descripción corta](ia:descripción detallada de lo que se debe dibujar, con estilo y colores) para "
+                      "una ILUSTRACIÓN o un concepto abstracto. Máximo UNA por diapositiva: ponlas en la portada y en la mitad de las demás a lo sumo "
+                      "(las de 2 a 4 viñetas quedan mejor); NUNCA en diapositivas de tabla o gráfica; nunca inventes nombres de archivo. Notas del orador: una línea «> Notas: ...» (1 a 3 frases) al final de la diapositiva. Estructura: portada, idea "
+                      "general o agenda, desarrollo (una idea por diapositiva), conclusión y, si aplica, fuentes. Si no dicen cuántas, 6 a 10 diapositivas.")
+        elif formato == "hoja":
+            reglas = ("ESTO NO ES UN DOCUMENTO DE TEXTO: es una HOJA DE CÁLCULO de Excel. Salida en MARKDOWN de tablas: cada hoja empieza con "
+                      "«## Hoja: Nombre» (máx. 31 caracteres) y lleva su tabla con la sintaxis | col | col | y una fila |---|---| debajo del "
+                      "encabezado (sin celdas combinadas). La tabla empieza justo después del título de la hoja, SIN líneas de texto en medio: "
+                      "la fila 1 es el encabezado y los datos empiezan en la fila 2 (así las fórmulas caen en la celda correcta). Números como "
+                      "números (5000, $1,250.50, 15%), fechas como 2026-10-27. Totales y cálculos con FÓRMULAS de Excel escritas en inglés y con comas "
+                      "(=SUM(B2:B10), =AVERAGE(B2:B10), =B2*C2, =IF(B2>C2,\"Sí\",\"No\")), apuntando a las celdas reales; la fila de totales "
+                      "empieza con la palabra «Total». Pon UNA tabla por hoja cuando uses fórmulas. Si piden una gráfica, una línea sola "
+                      "«[grafica: barras]» (o lineas / pastel) justo ANTES de su tabla (1.ª columna = etiquetas, el resto números). Nada de "
+                      "texto fuera de las tablas. No inventes cifras: si faltan datos, deja la celda vacía o usa ejemplos claramente genéricos.")
         else:
             reglas = ("Salida en MARKDOWN SIMPLE: primera línea «# Título», secciones con «## », subsecciones con «### », viñetas con «- », "
                       "listas numeradas «1. », **negritas** solo donde ayuden; párrafos completos separados por una línea en blanco.")
-        objetivo = _palabras_pedidas(instruccion, palabras)
+        objetivo = _palabras_pedidas(instruccion, palabras) if formato in ("documento", "plano") else 0     # presentaciones y hojas: una sola llamada
         base = (
             "Eres el redactor de Orbi. Escribe el documento que pide la instrucción, COMPLETO y listo para entregar: "
             "con la extensión, el tono y la estructura que se pidan (si no se dice la extensión, sé completo: suficiente "
@@ -482,6 +556,45 @@ def main():
         if len(txt) < 20:
             return {"error": "El modelo no devolvió texto. Intenta de nuevo."}
         return {"texto": txt}
+
+    def generar_imagen(prompt: str, aspecto: str = "1:1") -> dict:
+        """Genera una imagen con un modelo de imágenes de Gemini (rotando keys y modelos) y la guarda en Imágenes/Orbi.
+        Devuelve {ruta, credito} o {error}. Los modelos se pueden cambiar en config.json: "modelos_imagen": [...]."""
+        from google.genai import types
+        import imagenes_web as IW
+        modelos = cfg.get("modelos_imagen") or ["gemini-3.1-flash-image", "gemini-3-pro-image-preview", "gemini-2.5-flash-image"]
+        if aspecto not in ("1:1", "16:9", "9:16", "4:3", "3:4", "3:2", "2:3"):
+            aspecto = "1:1"
+        texto = (f"Genera una imagen: {str(prompt).strip()[:900]}\nSin texto, letras, números ni marcas de agua dentro de la imagen. "
+                 "Composición limpia y atractiva, buena iluminación, alta calidad.")
+
+        def _pedir(con_aspecto: bool):
+            kw = dict(response_modalities=["TEXT", "IMAGE"])
+            if con_aspecto and hasattr(types, "ImageConfig"):
+                try:
+                    kw["image_config"] = types.ImageConfig(aspect_ratio=aspecto)
+                except Exception:                                  # noqa: BLE001
+                    pass
+            return llm.generate(pool, modelos, texto, types.GenerateContentConfig(**kw))
+        try:
+            try:
+                r, modelo = _pedir(True)
+            except llm.AllBusy as e:
+                if any(w in str(e).lower() for w in ("aspect", "image_config", "imageconfig")):
+                    r, modelo = _pedir(False)                      # un modelo que no acepta la forma: reintenta sin ella
+                else:
+                    raise
+        except llm.AllBusy as e:
+            return {"error": f"No pude generar la imagen ahora: {str(e)[:150]}. (Los modelos de imágenes a veces piden una key con facturación.)"}
+        for cand in (getattr(r, "candidates", None) or []):
+            for part in (getattr(getattr(cand, "content", None), "parts", None) or []):
+                data = getattr(getattr(part, "inline_data", None), "data", None)
+                if data:
+                    try:
+                        return IW.guardar_bytes(data, str(prompt)[:40], credito="Imagen generada con IA", fuente=modelo)
+                    except IW.ImgError as e:
+                        return {"error": str(e)}
+        return {"error": "El modelo no devolvió ninguna imagen (puede que haya rechazado la descripción). Prueba con otra."}
 
     def describir_imagen(jpeg: bytes) -> str:
         """Descripción corta de una imagen que está dentro de un documento (para buscarla después). '' si falla."""
@@ -749,10 +862,12 @@ def main():
 
     ctx = ToolContext(
         alarms=alarms, locate=locate, read_screen=read_screen, alarm_tone=set_alarm_tone, wiz=wiz, agenda=agenda, listen_pc=listen_pc, translate_screen=translate_screen,
-        emit=emit, confirm=confirm, confirm_correo=confirm_correo, get_profile=lambda: st["profile"], remember=remember, recall=recall, remind=remind,
-        learn=learn, set_rule=set_rule, on_skills_changed=lambda: setattr(session, "system_prompt", build_system_prompt(st["profile"])),
+        emit=emit, confirm=confirm, confirm_correo=confirm_correo, project=generar_proyecto, get_profile=lambda: st["profile"], remember=remember, recall=recall, remind=remind,
+        learn=learn, set_rule=set_rule,
+        on_skills_changed=lambda: (setattr(session, "system_prompt", build_system_prompt(st["profile"])),
+                                   setattr(session, "tools", None if a.no_tools else build_tools(st["profile"], "live", flags()))),
         reglas=reglas,
-        control_enabled=lambda: st["control"], analyze=analyze, describe_image=describir_imagen, write=redactar, research=research, before_input=before_input, ha=ha, notif=notif,
+        control_enabled=lambda: st["control"], analyze=analyze, describe_image=describir_imagen, write=redactar, make_image=generar_imagen, research=research, before_input=before_input, ha=ha, notif=notif,
     )
 
     # ---------------------------------------------- agente (tareas de varios pasos)
@@ -818,7 +933,7 @@ def main():
             return 0.0, True
         return time.time() - t0, False
 
-    def _tool_runner(nombre, args, *r, **kw):
+    def _tool_runner_ui(nombre, args, *r, **kw):
         kw.setdefault("ctx", ctx)
         if nombre not in _ACCIONES_UI or not cfg.get("esperar_ui", True):
             return run_tool(nombre, args, *r, **kw)
@@ -843,6 +958,103 @@ def main():
                 except Exception:                              # noqa: BLE001
                     pass
         return res
+
+    def _tool_runner(nombre, args, *r, **kw):
+        t0 = time.time()
+        try:
+            res = _tool_runner_ui(nombre, args, *r, **kw)
+        except Exception as e:                                    # noqa: BLE001
+            _ses_herramienta(nombre, args, None, t0, exc=e)
+            raise
+        _ses_herramienta(nombre, args, res, t0)
+        return res
+
+    # ---------------------------------------------- registro de sesiones en JSON (solo para pruebas) + continuar una anterior
+    # Cada sesión (cada vez que abres Orbi) se guarda en sesiones/<fecha>_<hora>.json con lo que dijeron y las herramientas que usó.
+    # Orbi NO lee ese registro: solo ve la sesión actual. La única vez que lo usa es si le pides «continúa la sesión anterior»
+    # (o pones "continuar_al_iniciar": true en config.json). Apágalo con "guardar_sesiones": false.
+    import json as _sj, os as _so
+    _SES_DIR = _perfil.ROOT / "sesiones"
+    _ses = dict(id=time.strftime("%Y-%m-%d_%H%M%S"), inicio=datetime.datetime.now().isoformat(timespec="seconds"),
+                continua=None, turnos=[], herramientas=[])
+    _ses_lock = threading.Lock()
+
+    def _ses_guardar():
+        if not cfg.get("guardar_sesiones", True):
+            return
+        try:
+            with _ses_lock:
+                _SES_DIR.mkdir(exist_ok=True)
+                _ses["fin"] = datetime.datetime.now().isoformat(timespec="seconds")
+                ruta = _SES_DIR / f"{_ses['id']}.json"
+                tmp = ruta.with_suffix(".tmp")
+                tmp.write_text(_sj.dumps(_ses, ensure_ascii=False, indent=1), encoding="utf-8")
+                _so.replace(tmp, ruta)                            # escritura atómica: un cierre a medias no deja el JSON roto
+        except Exception as e:                                    # noqa: BLE001
+            print("[sesiones] no pude guardar:", type(e).__name__, str(e)[:100])
+
+    def _ses_turno(tu: str, orbi: str):
+        if len(_ses["turnos"]) < int(cfg.get("sesion_max_turnos", 1000)):
+            _ses["turnos"].append(dict(t=datetime.datetime.now().isoformat(timespec="seconds"), tu=tu, orbi=orbi))
+            _ses_guardar()
+
+    def _ses_herramienta(nombre, args, res, t0, exc=None):
+        if not cfg.get("sesion_log_herramientas", True) or len(_ses["herramientas"]) >= 2000:
+            return
+        err = str(exc)[:160] if exc else (str(res.get("error"))[:160] if isinstance(res, dict) and res.get("error") else "")
+        _ses["herramientas"].append(dict(t=datetime.datetime.now().isoformat(timespec="seconds"), herramienta=str(nombre),
+                                         args=str(args)[:200], ok=not err, error=err, seg=round(time.time() - t0, 1)))
+        _ses_guardar()
+
+    def _ses_podar():
+        try:
+            archivos = sorted(_SES_DIR.glob("*.json"))
+            for p in archivos[: max(0, len(archivos) - int(cfg.get("sesiones_max", 40)))]:
+                p.unlink(missing_ok=True)
+        except Exception:                                         # noqa: BLE001
+            pass
+    _ses_podar()
+
+    def _continuar_sesion(archivo: str = "") -> bool:
+        """Mete en la conversación actual los últimos turnos de la sesión anterior (o la que contenga `archivo` en su nombre)."""
+        if st.get("continuada"):
+            return True
+        try:
+            cands = [p for p in sorted(_SES_DIR.glob("*.json")) if p.stem != _ses["id"] and (not archivo or archivo in p.stem)]
+        except OSError:
+            cands = []
+        for p in reversed(cands):
+            try:
+                d = _sj.loads(p.read_text(encoding="utf-8"))
+            except Exception:                                     # noqa: BLE001
+                continue
+            prev = [t for t in d.get("turnos", []) if t.get("tu") and t.get("orbi")][-int(cfg.get("continuar_turnos", 20)):]
+            if not prev:
+                continue
+            st["continuada"] = True
+            st["turns"] = [dict(tu=t["tu"], orbi=t["orbi"]) for t in prev] + st.get("turns", [])
+            _ep["from"] += len(prev)                              # que la memoria larga no vuelva a «aprender» de turnos viejos
+            _ses["continua"] = p.stem
+            print(f"[sesiones] continuando {p.stem} ({len(prev)} turnos)")
+            if st.get("connected"):
+                msg = (f"[Sistema] Tu dueño quiere CONTINUAR la sesión anterior (del {str(d.get('inicio', ''))[:16].replace('T', ' ')}). "
+                       "Esto es lo último que platicaron, de más viejo a más nuevo; retómalo con naturalidad y confirma en UNA frase corta "
+                       "que ya sabes de qué hablaban:\n" + "\n".join(f"- Él/ella: {t['tu'][:260]} | Tú: {t['orbi'][:260]}" for t in prev[-12:]))
+                session.send_text(msg)
+            return True
+        if st.get("connected"):
+            orb.say("No encontré una sesión anterior para continuar 🤷", 4)
+        return False
+
+    _CONTINUAR = _re.compile(r"\b(continu\w*|segu\w*|sigamos|retom\w*|reanud\w*)\b.{0,30}\b(sesion|conversacion|platica|charla)\b"
+                               r".{0,20}\b(anterior|pasada|previa|de antes|de ayer|ultima)\b|\bdonde (nos quedamos|lo dejamos)\b")
+
+    def _detectar_continuar(texto: str):
+        if not st.get("continuada") and _CONTINUAR.search(_norm(texto)):
+            _continuar_sesion()
+
+    if cfg.get("continuar_al_iniciar", False):                    # al abrir Orbi retoma la última sesión (entra al prompt al conectar)
+        _continuar_sesion()
 
     # ---------------------------------------------- voz (Gemini Live)
     session = LiveSession(
@@ -906,12 +1118,38 @@ def main():
     _VOCATIVOS = set(cfg.get("otras_personas", ("mama", "mami", "papa", "papi", "hermano", "hermana", "abuela", "abuelo",
                                                  "tia", "tio", "ma")))
 
+    import difflib as _dl
+
+    def _fon(w):
+        """Clave de SONIDO de una palabra: «Orvi», «Orby», «Orbe», «or bee» -> «orbi» (v=b, y/e=i, u=o, sin h, sin letras repetidas)."""
+        w = _norm(w).replace(" ", "").replace("ph", "f").replace("h", "")
+        w = w.translate(str.maketrans({"v": "b", "y": "i", "e": "i", "u": "o", "z": "s"}))
+        return _re_n.sub(r"(.)\1+", r"\1", w)
+
+    def _suena_a_nombre(text) -> bool:
+        """¿Algo de lo que Gemini transcribió SUENA a «Orbi»? Compara por sonido palabras sueltas y grupos de 2 y 3 palabras
+        («or bi», «or bee», «Or B»), porque la transcripción escribe el nombre como le suena, a veces separado."""
+        claves = {_fon(x) for x in (wake.word, *wake.aliases)} - {""}
+        toks = _norm(text).split()
+        if not toks or not claves:
+            return False
+        cands = list(toks) + ["".join(toks[i:i + 2]) for i in range(len(toks) - 1)] + ["".join(toks[i:i + 3]) for i in range(len(toks) - 2)]
+        for c in cands:
+            k = _fon(c)
+            if len(k) < 3 or len(k) > 8 or "b" not in k:          # el nombre lleva una «b/v» (or-BI): evita falsas alarmas con otras palabras
+                continue
+            for t in claves:
+                if k == t or (len(t) >= 4 and _dl.SequenceMatcher(None, k, t).ratio() >= 0.8):
+                    return True
+        return False
+
     def addressed(text) -> bool:
         ahora = time.time()
         n = _norm(text)
         palabras = set(n.split())
         con_nombre = (any(_norm(x).strip() in palabras for x in (wake.word, *wake.aliases) if _norm(x).strip())
-                      or matches_wake(text, wake.word, wake.aliases, float(cfg.get("wake_threshold", 0.74))))   # «Orbe», «Urbi», «Orbit»…
+                      or matches_wake(text, wake.word, wake.aliases, float(cfg.get("wake_threshold", 0.74)))   # «Orbe», «Urbi», «Orbit»…
+                      or _suena_a_nombre(text))                                                            # «or bee», «Orvi», «Hobbie»…
         if _OTRA_PERSONA.search(n) and not con_nombre:     # «no te hablo a ti» / «estoy hablando con mi mamá»: solo vuelve con su nombre
             st["solo_nombre_hasta"] = ahora + float(cfg.get("solo_nombre_min", 10)) * 60
             st["follow_until"] = 0.0
@@ -927,6 +1165,11 @@ def main():
         return False
     session.addressed_check = addressed
     session.gate_wait_s = float(cfg.get("nombre_espera_s", 2.2))
+    # OPCIONAL (config.json): "vocabulario_asr": true  -> le dice a Gemini que escriba «Orbi» bien al transcribirte (o una lista de palabras);
+    # "idiomas_asr": ["es-MX"] -> pista de idioma. Apagado por defecto: si tu versión de la API no lo acepta, quítalo.
+    _vv = cfg.get("vocabulario_asr", False)
+    session.asr_vocab = [wake.word.capitalize()] if _vv is True else (list(_vv) if isinstance(_vv, (list, tuple)) else [])
+    session.asr_langs = [str(x) for x in (cfg.get("idiomas_asr") or [])]
     # fin de turno (cuánto silencio espera Live antes de darte por terminado)
     session.barge = bool(cfg.get("interrumpir_con_voz", False))          # (apagado: los aplausos lo cortaban) interrumpirlo con la voz sin audífonos
     session.barge_min = float(cfg.get("barge_min", 0.22))               # voz mínima para interrumpir (sube si te corta por ruido)
@@ -1324,12 +1567,12 @@ def main():
                   "minimizar_ventana", "abrir_app", "abrir_url", "ejecutar_plan", "tarea_pc", "investigar_web",
                   "copiar_texto_de_ventana", "analizar_documento", "buscar_archivos", "buscar_en_archivos", "leer_archivo",
                   "crear_carpeta", "mover_archivo", "copiar_archivo", "renombrar_archivo", "organizar_carpeta", "deshacer_organizacion",
-                  "escribir_archivo", "redactar_documento", "esperar_listo", "esperar", "listar_carpeta", "abrir_archivo", "abrir_carpeta",
-                  "buscar_en_web", "ver_pantalla", "acercar_pantalla", "leer_pantalla"}
+                  "escribir_archivo", "redactar_documento", "crear_presentacion", "crear_hoja_excel", "buscar_imagen_web", "generar_imagen", "esperar_listo", "esperar", "listar_carpeta",
+                  "abrir_archivo", "abrir_carpeta", "buscar_en_web", "ver_pantalla", "acercar_pantalla", "leer_pantalla"}
     # carita según el TIPO de chamba (la herramienta que está usando); lo que no está aquí = «working» (clics, teclas, ventanas)
     WORK_KIND = {}
     for _k, _names in {
-        "writing": ("escribir_texto", "redactar_documento", "escribir_archivo"),
+        "writing": ("escribir_texto", "redactar_documento", "escribir_archivo", "crear_presentacion", "crear_hoja_excel", "generar_imagen", "buscar_imagen_web"),
         "searching": ("buscar_archivos", "buscar_en_archivos", "leer_archivo", "analizar_documento", "investigar_web", "buscar_en_web",
                       "copiar_texto_de_ventana", "ver_pantalla", "acercar_pantalla", "leer_pantalla", "listar_carpeta"),
         "waiting": ("abrir_app", "abrir_url", "abrir_archivo", "abrir_carpeta", "esperar_listo", "esperar"),
@@ -1338,7 +1581,9 @@ def main():
     }.items():
         for _n in _names:
             WORK_KIND[_n] = _k
-    TOOL_LABEL = {"redactar_documento": "Redactando un documento", "analizar_documento": "Analizando un documento",
+    TOOL_LABEL = {"redactar_documento": "Redactando un documento", "crear_presentacion": "Armando una presentación",
+                  "crear_hoja_excel": "Armando una hoja de Excel", "buscar_imagen_web": "Buscando una imagen",
+                  "generar_imagen": "Generando una imagen", "analizar_documento": "Analizando un documento",
                   "leer_pantalla": "Leyendo la pantalla", "ver_pantalla": "Mirando la pantalla", "scroll": "Desplazándose",
                   "hacer_clic": "Haciendo clic", "escribir_texto": "Escribiendo", "presionar_teclas": "Pulsando teclas",
                   "enfocar_ventana": "Cambiando de ventana", "cerrar_ventana": "Cerrando ventanas", "abrir_archivo": "Abriendo un archivo",
@@ -1474,6 +1719,7 @@ def main():
         orb.wake()
         orb.say("✍️ " + text, 3)
         _detectar_salida(text)
+        _detectar_continuar(text)
         st["last"] = None
         attn.open()                                # si le escribes, también cuenta como que le hablas
         if st["connected"] and session.send_text(text):
@@ -1708,7 +1954,8 @@ def main():
         w = AjustesDialog(st["profile"], tonos.names(), aplicar_ajustes, lambda n: tonos.preview(n, 3.5), olvidar_memoria,
                           minipanel.DEFAULT, cfg=cfg, open_memory=lambda: __import__("memoria_md").open_folder(),
                           skills_mod=__import__("skills"), on_skills_changed=lambda: ctx.on_skills_changed(),
-                          extras={"items": orb.menu_items()}, hub=_correo_hub())
+                          extras={"items": orb.menu_items()}, hub=_correo_hub(),
+                          alarms=alarms, reglas=reglas, on_pendientes_change=lambda: panel.refresh())
         _dlg["w"] = w
         w.show(); w.raise_(); w.activateWindow()
 
@@ -1789,9 +2036,11 @@ def main():
                 orb.say("🎤 " + st["user"].strip()[-180:], 6)
         elif kind == "turn_complete":
             _detectar_salida(st["user"])                       # «al rato regreso»: marca ausencia para las reglas
+            _detectar_continuar(st["user"])                    # «continúa la sesión anterior»
             if st["user"].strip() and st["model"].strip():
                 st.setdefault("turns", []).append({"tu": st["user"].strip(), "orbi": st["model"].strip()})
                 save_session(st["turns"])
+                _ses_turno(st["user"].strip(), st["model"].strip())      # registro de pruebas (sesiones/*.json)
                 st["last_turn_t"] = time.time()
             if st["model"].strip():
                 st["follow_until"] = time.time() + float(cfg.get("seguimiento_s", 12))     # puedes seguir sin decir «Orbi»
@@ -1998,10 +2247,10 @@ def main():
                 if not es_alarma:
                     emit("router_reply", ("recordatorio", "🔔 " + txt))
         elif kind == "regla_aviso":
-            texto, voz = data
-            orb.wake(); orb.set_emotion("happy" if voz else "attentive", 4); orb.say("📌 " + str(texto), 15 if voz else 8)
-            panel.push("📌", "Regla", [str(texto)], 30 if voz else 20)
-            if voz:
+            texto, hablar = data                                  # (antes se llamaba «voz» y tapaba al VoiceID de arriba: UnboundLocalError)
+            orb.wake(); orb.set_emotion("happy" if hablar else "attentive", 4); orb.say("📌 " + str(texto), 15 if hablar else 8)
+            panel.push("📌", "Regla", [str(texto)], 30 if hablar else 20)
+            if hablar:
                 instr = f"[Regla de tu dueño] {texto}. Díselo ahora, en una frase corta y natural."
                 if st["connected"] and session.send_text(instr):
                     pass
@@ -2041,6 +2290,8 @@ def main():
                                   "(quién y de qué trata). No leas el correo ni hagas nada con él salvo que te lo pida.")
         elif kind == "tool_plan":
             panel.act_plan([_label(n) for n in data])
+        elif kind == "tool_paso":
+            panel.act_label(data[0], f"{_label(data[0])}: {data[1]}")
         elif kind == "tool_end":
             panel.act_end(data[0], data[2])
         elif kind == "tool_bg":

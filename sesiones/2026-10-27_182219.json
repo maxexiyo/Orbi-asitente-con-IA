@@ -1,0 +1,219 @@
+{
+ "id": "2026-10-27_182219",
+ "inicio": "2026-10-27T18:22:19",
+ "continua": null,
+ "turnos": [
+  {
+   "t": "2026-10-27T18:32:31",
+   "tu": "droit de dire la méditation",
+   "orbi": "Te llegó una notificación al grupo de WhatsApp 6F1 semestre sobre la clase suspendida."
+  },
+  {
+   "t": "2026-10-27T19:26:55",
+   "tu": "¿Qué",
+   "orbi": "Que en el grupo de WhatsApp 6F1 semestre avisaron que la clase está suspendida."
+  },
+  {
+   "t": "2026-10-27T19:40:14",
+   "tu": "뭐야, 형님.",
+   "orbi": "아, 형님. 별일 없으시죠? 혹시 뭐 필요한 거 있으시면 말씀하세요."
+  },
+  {
+   "t": "2026-10-27T19:41:30",
+   "tu": "¿Olvide puedes hacerme una presentación de PowerPoint acerca de HTML?",
+   "orbi": "La neta es que no puedo hacer archivos de PowerPoint directo, pero si quieres te armo un buen documento de Word con todo el contenido y los puntos clave de HTML."
+  },
+  {
+   "t": "2026-10-27T19:41:51",
+   "tu": "y puedes crear tablas de Excel.",
+   "orbi": "Directamente no puedo generar archivos de Excel, pero sí te puedo escribir el contenido en texto o en Word para que tú lo pases a tu hoja de cálculo."
+  }
+ ],
+ "herramientas": [
+  {
+   "t": "2026-10-27T18:32:12",
+   "herramienta": "definir_rutina",
+   "args": "{'filtro': '6F1 SEMESTRE', 'cuando': 'notificacion', 'nombre': 'Aviso clase suspendida', 'acciones': [{'texto': 'Hay una nueva notificación sobre la clase suspendida en el grupo 6F1 semestre de WhatsA",
+   "ok": true,
+   "error": "",
+   "seg": 0.0
+  },
+  {
+   "t": "2026-10-27T19:01:58",
+   "herramienta": "buscar_archivos",
+   "args": "{'texto': 'bitacora'}",
+   "ok": true,
+   "error": "",
+   "seg": 1.1
+  },
+  {
+   "t": "2026-10-27T19:01:59",
+   "herramienta": "abrir_archivo",
+   "args": "{'ruta': 'C:\\\\Users\\\\maxex\\\\OneDrive\\\\Descargas\\\\bitacora web.docx'}",
+   "ok": true,
+   "error": "",
+   "seg": 0.4
+  },
+  {
+   "t": "2026-10-27T19:05:52",
+   "herramienta": "buscar_archivos",
+   "args": "{'texto': 'cafeteria'}",
+   "ok": true,
+   "error": "",
+   "seg": 0.9
+  },
+  {
+   "t": "2026-10-27T19:05:54",
+   "herramienta": "buscar_archivos",
+   "args": "{'texto': 'proyecto web'}",
+   "ok": true,
+   "error": "",
+   "seg": 0.8
+  },
+  {
+   "t": "2026-10-27T19:05:55",
+   "herramienta": "listar_carpeta",
+   "args": "{'carpeta': 'Descargas'}",
+   "ok": true,
+   "error": "",
+   "seg": 0.5
+  },
+  {
+   "t": "2026-10-27T19:05:57",
+   "herramienta": "buscar_archivos",
+   "args": "{'texto': 'proyecto'}",
+   "ok": true,
+   "error": "",
+   "seg": 0.8
+  },
+  {
+   "t": "2026-10-27T19:05:59",
+   "herramienta": "buscar_archivos",
+   "args": "{'texto': 'web'}",
+   "ok": true,
+   "error": "",
+   "seg": 0.9
+  },
+  {
+   "t": "2026-10-27T19:06:00",
+   "herramienta": "buscar_archivos",
+   "args": "{'texto': 'proyecto web'}",
+   "ok": true,
+   "error": "",
+   "seg": 0.8
+  },
+  {
+   "t": "2026-10-27T19:06:02",
+   "herramienta": "listar_carpeta",
+   "args": "{'carpeta': 'Descargas'}",
+   "ok": true,
+   "error": "",
+   "seg": 0.3
+  },
+  {
+   "t": "2026-10-27T19:06:04",
+   "herramienta": "buscar_archivos",
+   "args": "{'texto': 'cafeteria'}",
+   "ok": true,
+   "error": "",
+   "seg": 0.9
+  },
+  {
+   "t": "2026-10-27T19:06:06",
+   "herramienta": "buscar_archivos",
+   "args": "{'texto': 'Formulario Cafeteria'}",
+   "ok": true,
+   "error": "",
+   "seg": 1.1
+  },
+  {
+   "t": "2026-10-27T19:06:08",
+   "herramienta": "buscar_archivos",
+   "args": "{'texto': 'cafeteria'}",
+   "ok": true,
+   "error": "",
+   "seg": 1.1
+  },
+  {
+   "t": "2026-10-27T19:06:10",
+   "herramienta": "buscar_archivos",
+   "args": "{'texto': 'cafeteria'}",
+   "ok": true,
+   "error": "",
+   "seg": 1.1
+  },
+  {
+   "t": "2026-10-27T19:06:11",
+   "herramienta": "listar_carpeta",
+   "args": "{'carpeta': 'Documentos'}",
+   "ok": true,
+   "error": "",
+   "seg": 0.2
+  },
+  {
+   "t": "2026-10-27T19:06:13",
+   "herramienta": "buscar_archivos",
+   "args": "{'texto': 'cafeteria'}",
+   "ok": true,
+   "error": "",
+   "seg": 1.5
+  },
+  {
+   "t": "2026-10-27T19:06:14",
+   "herramienta": "listar_carpeta",
+   "args": "{'carpeta': 'Documentos/frontend'}",
+   "ok": true,
+   "error": "",
+   "seg": 0.1
+  },
+  {
+   "t": "2026-10-27T19:06:16",
+   "herramienta": "buscar_archivos",
+   "args": "{'texto': 'html'}",
+   "ok": true,
+   "error": "",
+   "seg": 1.4
+  },
+  {
+   "t": "2026-10-27T19:06:17",
+   "herramienta": "listar_carpeta",
+   "args": "{'carpeta': 'Descargas/Nueva carpeta (15)/Asesorias-de-ceti'}",
+   "ok": true,
+   "error": "",
+   "seg": 0.1
+  },
+  {
+   "t": "2026-10-27T19:06:19",
+   "herramienta": "listar_carpeta",
+   "args": "{'carpeta': 'Descargas/Formulario Cafeteria'}",
+   "ok": false,
+   "error": "No encontré esa carpeta dentro de Documentos, Escritorio, Descargas, Imágenes, Videos, Música o una unidad externa conectada.",
+   "seg": 0.8
+  },
+  {
+   "t": "2026-10-27T19:08:18",
+   "herramienta": "buscar_en_archivos",
+   "args": "{'texto': 'Cafeteria Pro'}",
+   "ok": true,
+   "error": "",
+   "seg": 24.6
+  },
+  {
+   "t": "2026-10-27T19:08:19",
+   "herramienta": "abrir_carpeta",
+   "args": "{'carpeta': 'C:\\\\Users\\\\maxex\\\\OneDrive\\\\Descargas\\\\proyecto web - copia - copia\\\\Frontend'}",
+   "ok": true,
+   "error": "",
+   "seg": 0.4
+  },
+  {
+   "t": "2026-10-27T19:08:36",
+   "herramienta": "fin_de_conversacion",
+   "args": "{}",
+   "ok": true,
+   "error": "",
+   "seg": 0.0
+  }
+ ],
+ "fin": "2026-10-27T19:41:51"
+}

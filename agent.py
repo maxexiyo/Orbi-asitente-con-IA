@@ -15,7 +15,8 @@ import llm
 from pc_tools import SETTLE, SETTLE_FLOOR, SLOW_ACTIONS, ToolContext, build_tools, run_tool
 
 MAX_STEPS = 30
-MAX_SECONDS = 240
+MAX_SECONDS = 0                      # 0 = SIN límite de tiempo: la tarea solo se detiene al terminar o con «Detener tarea». >0 = corte duro (no recomendado)
+SLOW_NOTICE_S = 240                  # al pasar este tiempo solo avisa («sigo con la tarea») y continúa; NO cancela nada
 KEEP_IMAGES = 2                      # solo las últimas N capturas viajan en el contexto
 
 # SETTLE / SETTLE_FLOOR / SLOW_ACTIONS (esperas tras cada acción) viven en pc_tools: las comparten el agente y ejecutar_plan
@@ -35,7 +36,7 @@ Cómo trabajar:
 - Prefiere herramientas de SEGUNDO PLANO cuando sirvan: cerrar_ventana / minimizar_ventana / listar_ventanas (sin enfocar
   nada), leer_archivo / buscar_archivos / buscar_en_archivos / analizar_documento / listar_carpeta (sin abrir archivos),
   crear_carpeta / mover_archivo / copiar_archivo / renombrar_archivo / organizar_carpeta (organizar archivos SIN el Explorador ni
-  la pantalla; nunca digas que no puedes), redactar_documento (crea un Word completo directo) y escribir_texto con `redactar`
+  la pantalla; nunca digas que no puedes), redactar_documento (crea un Word completo directo), crear_presentacion (PowerPoint) y crear_hoja_excel (Excel), también directos, y escribir_texto con `redactar`
   para escribir algo largo en una ventana abierta, casa_*.
   Usa mouse y teclado solo cuando no haya otra forma.
 - Para revisar un documento o página completa: analizar_documento con fuente='abierto'; si no es un archivo guardado,
@@ -76,7 +77,8 @@ Cómo trabajar:
 - No inventes: si no puedes lograrlo, dilo.
 
 Cuando termines (o no puedas continuar), responde SOLO con un resumen de 1 o 2 frases, en español, de lo que lograste o
-de por qué no se pudo, sin markdown."""
+de por qué no se pudo, sin markdown. Incluye SIEMPRE el dato o resultado concreto (qué encontraste, qué dice, dónde quedó
+el archivo); nunca respondas solo «listo» o «terminé»."""
 
 
 class Agent:
@@ -157,11 +159,17 @@ class Agent:
         contents = [types.Content(role="user", parts=first)]
 
         last_turn = None
+        slow_noted = False
+        trail = []                                         # (herramienta, resultado) de todos los pasos: respaldo del resumen
         for step in range(1, MAX_STEPS + 1):
             if self.cancel_event.is_set():
                 return "La tarea fue cancelada.", False
-            if time.time() - t0 > MAX_SECONDS:
+            if MAX_SECONDS and time.time() - t0 > MAX_SECONDS:
                 return f"Me quedé sin tiempo ({MAX_SECONDS} s) antes de terminar la tarea.", False
+            if not slow_noted and time.time() - t0 > SLOW_NOTICE_S:
+                slow_noted = True                              # tarda, pero sigue: solo se avisa una vez
+                print(f"[agente] ya van {time.time() - t0:.0f}s en la tarea; sigo trabajando (sin cancelar)")
+                self.emit("agent_step", f"sigo con la tarea ({int(time.time() - t0)} s)")
             try:
                 t_model0 = time.time()
                 resp, _model = llm.generate(self.pool, self.models, contents, config, thinking=(PLAN_THINKING if step == 1 else THINKING))
@@ -186,7 +194,7 @@ class Agent:
             calls = [p.function_call for p in content.parts if getattr(p, "function_call", None)]
             if not calls:
                 text = "".join(p.text for p in content.parts if getattr(p, "text", None)).strip()
-                return (text or "Listo."), True
+                return (text or self._fallback_summary(trail)), True
 
             parts, shot_after, floor_after, slow = [], None, 0.0, False
             fg_before = foreground_info()["title"]
@@ -201,6 +209,7 @@ class Agent:
                     floor_after = max(floor_after, SETTLE_FLOOR.get(fc.name, 0.2))
                     slow = slow or fc.name in SLOW_ACTIONS
                 parts.append((fc.name, result, image))
+                trail.append((fc.name, result))
             image_for_turn = None
             t_tools = time.time() - t_tools0
             t_wait0 = time.time()
@@ -225,6 +234,21 @@ class Agent:
             contents.append(self._response_turn(types, parts, image_for_turn))
             self._prune_images(contents)
         return f"Llegué al límite de {MAX_STEPS} pasos sin terminar.", False
+
+    @staticmethod
+    def _fallback_summary(trail) -> str:
+        """El modelo terminó sin texto: arma un resumen con lo que sí pasó (antes solo decía «Listo.» y no se sabía el resultado)."""
+        import json
+        if not trail:
+            return "Terminé, pero el agente no dejó ningún resumen."
+        names = " → ".join(n for n, _r in trail[-4:])
+        last = trail[-1][1]
+        try:
+            res = json.dumps({k: v for k, v in last.items() if not str(k).startswith("_")} if isinstance(last, dict) else last,
+                             ensure_ascii=False, default=str)[:300]
+        except Exception:                                              # noqa: BLE001
+            res = str(last)[:300]
+        return f"Terminé ({len(trail)} acciones, últimas: {names}). Último resultado: {res}"
 
     # ------------------------------------------------------------ mensajes
     def _response_turn(self, types, parts, image):

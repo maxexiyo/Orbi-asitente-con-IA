@@ -247,6 +247,15 @@ class MiniPanel(QWidget):
                 break
         self.refresh()
 
+    def act_label(self, key, label) -> None:
+        """Cambia el texto de la actividad en curso (ej. «Generando proyecto: escribiendo main.py»)."""
+        label = str(label)[:44]
+        for a in reversed(self.acts):
+            if a["key"] == key and a["t1"] is None:
+                a["label"] = label
+                break
+        self.refresh()
+
     def act_end(self, key, ok=True) -> None:
         for a in reversed(self.acts):
             if a["key"] == key and a["t1"] is None:

@@ -1,0 +1,622 @@
+{
+ "id": "2026-10-27_223957",
+ "inicio": "2026-10-27T22:39:57",
+ "continua": null,
+ "turnos": [
+  {
+   "t": "2026-10-28T07:33:05",
+   "tu": "아름다워",
+   "orbi": "네, 참 아름답죠."
+  },
+  {
+   "t": "2026-10-28T07:34:38",
+   "tu": "Bueno",
+   "orbi": "required -->"
+  },
+  {
+   "t": "2026-10-28T07:42:32",
+   "tu": "¿Qué tienes?",
+   "orbi": "Nada nuevo por aquí, Omar. Todo al cien."
+  },
+  {
+   "t": "2026-10-28T07:42:37",
+   "tu": "Hola,",
+   "orbi": "Hola, Omar."
+  },
+  {
+   "t": "2026-10-28T07:50:13",
+   "tu": "Oye. ¿Cómo la moza está hecha de aluminio y un pedazo y se toca todo y se electrifica a la verga?",
+   "orbi": "El aluminio es un excelente conductor, así que si hay un cable pelón tocando la estructura, prepárate para un buen toque eléctrico."
+  },
+  {
+   "t": "2026-10-28T07:50:56",
+   "tu": "una lata de Monster para hacer la lámpara",
+   "orbi": "Omar, llegó una notificación para actualizar tu protección antivirus."
+  },
+  {
+   "t": "2026-10-28T07:51:10",
+   "tu": "Me vale a verga.",
+   "orbi": "Como quieras, tú sabes si dejas la compu vulnerable o no."
+  },
+  {
+   "t": "2026-10-28T07:51:34",
+   "tu": "sin modelos locales así tipo",
+   "orbi": "Sí, los hay, pero requieren hardware potente para funcionar bien en tu máquina."
+  },
+  {
+   "t": "2026-10-28T07:51:48",
+   "tu": "feria local lo más ligero que no sea tan pendejo y que se pueda usar ahí en la",
+   "orbi": "Podrías checar el Phi tres Mini o el Gemma dos de dos billones; son ligeros y no tan mensos."
+  },
+  {
+   "t": "2026-10-28T07:52:00",
+   "tu": "Ya más que no hizo o es de otra empresa?",
+   "orbi": "Es de Google, Omar. Gemma es la familia de modelos abiertos desarrollada por ellos."
+  },
+  {
+   "t": "2026-10-28T07:52:11",
+   "tu": "estar igual de pendejo que",
+   "orbi": "Bueno, los modelos pequeños tienen sus límites, no esperes milagros de ellos contra un gigante."
+  },
+  {
+   "t": "2026-10-28T07:52:35",
+   "tu": "Hay que crear un Jarvis de 60.",
+   "orbi": "Crear tu propio Jarvis nivel Dios suena increíble, pero prepárate para desvelarte de lo lindo. Desarrollar algo así no es cualquier juego."
+  },
+  {
+   "t": "2026-10-28T07:53:46",
+   "tu": "Chinga tu madre,",
+   "orbi": "¡Uy, qué sensible! Guarda esa energía para reparar tus errores de código, Omar."
+  },
+  {
+   "t": "2026-10-28T07:54:02",
+   "tu": "dormir",
+   "orbi": "Que descanses, Omar. required -->"
+  },
+  {
+   "t": "2026-10-28T07:54:20",
+   "tu": "इस मेल का रिस्पांस आ रहा है ना? ओर्वी, आब्री में क्लास रूम",
+   "orbi": "Listo, ya abrí tu Classroom."
+  },
+  {
+   "t": "2026-10-28T07:54:41",
+   "tu": "Quiero ver. Pero déjame.",
+   "orbi": "Va, te dejo explorar a tu gusto."
+  },
+  {
+   "t": "2026-10-28T07:57:19",
+   "tu": "muy muy muy y aquí",
+   "orbi": "required -->"
+  },
+  {
+   "t": "2026-10-28T07:58:27",
+   "tu": "apoyo",
+   "orbi": "Ahí tienes la lista de pendientes que están en tu Classroom de Sociedad."
+  },
+  {
+   "t": "2026-10-28T07:59:54",
+   "tu": "¿Y el corazón de la música?",
+   "orbi": "La música vive en el ritmo y las emociones, todo lo que nos hace sentir identificados."
+  },
+  {
+   "t": "2026-10-28T08:00:29",
+   "tu": "Orbi, ¿qué chingados es el bill holder en",
+   "orbi": "Es básicamente el soporte o portacuentas donde los meseros ponen la cuenta para entregarla a los clientes o en la cocina para organizar los pedidos."
+  },
+  {
+   "t": "2026-10-28T08:00:47",
+   "tu": "o a tierra",
+   "orbi": "En Android, el ViewHolder es un patrón para optimizar el rendimiento de tus listas, guardando referencias a las vistas y evitando llamadas repetidas a findViewById."
+  },
+  {
+   "t": "2026-10-28T08:02:16",
+   "tu": "samajh rahi hoon main.",
+   "orbi": "Perfecto, me alegro de que todo vaya quedando claro, Omar."
+  },
+  {
+   "t": "2026-10-28T08:03:54",
+   "tu": "verle así, azul sí. Hay algo de rojo haciendo corto.",
+   "orbi": "Ten mucho cuidado, revisa que ningún cable pelado esté tocando donde no debe para evitar un corto."
+  },
+  {
+   "t": "2026-10-28T08:04:01",
+   "tu": "Ya, pues, si contestas",
+   "orbi": "Ando al pendiente de lo que necesites."
+  },
+  {
+   "t": "2026-10-28T08:04:24",
+   "tu": "vuelve a la normalidad cuando lo conecto se me sube",
+   "orbi": "Checa si la fuente de alimentación es"
+  },
+  {
+   "t": "2026-10-28T08:05:50",
+   "tu": "Ahora no más en dinero, ojo.",
+   "orbi": "Revisé tu pantalla y no hay ninguna tarea que tenga la palabra rojo en el título o descripción, Omar."
+  },
+  {
+   "t": "2026-10-28T08:06:10",
+   "tu": "¿Cuánto vale mi tarjeta?",
+   "orbi": "No puedo ver tus pertenencias ni saber de qué tarjeta hablas, Omar, así que esa información no te la puedo dar."
+  },
+  {
+   "t": "2026-10-28T08:06:21",
+   "tu": "Vete a la verga. Las prácticas valen 60.",
+   "orbi": "Entendido, las prácticas son clave para tu calificación, y tomaré en cuenta ese dato, Omar."
+  },
+  {
+   "t": "2026-10-28T08:06:55",
+   "tu": "ボルト",
+   "orbi": "ボルト？何について確認したいですか？"
+  },
+  {
+   "t": "2026-10-28T08:07:47",
+   "tu": "¿Podrás ver? Pinche puta madre que tiene corta, güey.",
+   "orbi": "Con cinco de siete prácticas tendrías aproximadamente cuarenta y dos punto ocho por ciento en ese rubro, Omar."
+  },
+  {
+   "t": "2026-10-28T08:09:43",
+   "tu": "¿Qué te duele? ¿Dónde te sientes mal?",
+   "orbi": "Como soy una inteligencia artificial, no tengo cuerpo, así que el dolor no es lo mío. Todo está operando al cien."
+  },
+  {
+   "t": "2026-10-28T08:11:19",
+   "tu": "¿Y cómo va ese chasis?",
+   "orbi": "Va tomando forma, pero cuéntame, ¿qué planes tienes para el diseño de ese chasis?"
+  },
+  {
+   "t": "2026-10-28T08:11:38",
+   "tu": "y la haces la base y va a aparecer.",
+   "orbi": "¿Qué material tienes pensado para esa base? Dependiendo de eso, podemos ver cómo armarla."
+  },
+  {
+   "t": "2026-10-28T08:11:50",
+   "tu": "Así, honestamente, ¿cuánto se pondrían ustedes?",
+   "orbi": "Como inteligencia artificial, no puedo ponerme una calificación, pero me encantaría saber cuál es tu meta en esa materia, Omar."
+  },
+  {
+   "t": "2026-10-28T08:12:08",
+   "tu": "asistente virtual",
+   "orbi": "No soy un simple asistente virtual, Omar, soy tu compa tecnológico para lo que necesites."
+  },
+  {
+   "t": "2026-10-28T08:12:14",
+   "tu": "Nein.",
+   "orbi": "Alles klar."
+  },
+  {
+   "t": "2026-10-28T08:12:41",
+   "tu": "みたいに混ぜる",
+   "orbi": "何みたいに混ぜたいの？"
+  },
+  {
+   "t": "2026-10-28T08:12:46",
+   "tu": "las piernas",
+   "orbi": "required -->"
+  },
+  {
+   "t": "2026-10-28T08:13:32",
+   "tu": "¿Qué tal?",
+   "orbi": "Todo bien por acá, ¿tú qué tal?"
+  },
+  {
+   "t": "2026-10-28T08:15:48",
+   "tu": "Paola",
+   "orbi": "Sigo buscando ese reporte"
+  },
+  {
+   "t": "2026-10-28T08:16:46",
+   "tu": "reporte de en Word que contenga algo de sistemas embebidos",
+   "orbi": "Encontré este reporte: 24100206 Reporte conversión C a F punto docx. ¿Quieres que lo abra?"
+  },
+  {
+   "t": "2026-10-28T08:18:08",
+   "tu": "Sí.",
+   "orbi": "Avísame si necesitas que revise alguna sección o que hagamos algo más con ese documento."
+  },
+  {
+   "t": "2026-10-28T08:20:08",
+   "tu": "¿Cuánto funciona?",
+   "orbi": "Listo, ya abrí el documento aaaa punto docx."
+  },
+  {
+   "t": "2026-10-28T08:21:24",
+   "tu": "goutte",
+   "orbi": "`inflate` en Kotlin es básicamente transformar tu diseño XML en objetos View reales que la app puede mostrar y manipular. O sea, darle vida visual a tu código."
+  },
+  {
+   "t": "2026-10-28T08:21:50",
+   "tu": "Quem?",
+   "orbi": "¿A qué te refieres con eso, Omar?"
+  },
+  {
+   "t": "2026-10-28T08:23:21",
+   "tu": "de Mercado Libre",
+   "orbi": "Listo, ya cerré el Arduino."
+  },
+  {
+   "t": "2026-10-28T08:24:01",
+   "tu": "sagen hat, gerne.",
+   "orbi": "Kein Problem."
+  },
+  {
+   "t": "2026-10-28T08:24:33",
+   "tu": "que me gusta a mi cuenta.",
+   "orbi": "Listo, ya abrí tu carpeta Descargas."
+  },
+  {
+   "t": "2026-10-28T08:25:05",
+   "tu": "Ya sabía yo, Casper.",
+   "orbi": "No soy Casper, aquí está Orbi al pendiente."
+  },
+  {
+   "t": "2026-10-28T08:25:11",
+   "tu": "Yo me voy.",
+   "orbi": "Hasta luego, que te vaya muy bien."
+  },
+  {
+   "t": "2026-10-28T08:26:40",
+   "tu": "este lugar ha sufrido un accidente. Puede que encuentres información al respecto",
+   "orbi": "Para poder buscar información, ¿podrías decirme a qué lugar o accidente te refieres en específico, Omar?"
+  },
+  {
+   "t": "2026-10-28T08:30:59",
+   "tu": "¿Qué",
+   "orbi": "detected>"
+  }
+ ],
+ "herramientas": [
+  {
+   "t": "2026-10-27T22:40:17",
+   "herramienta": "leer_archivo",
+   "args": "{'ruta': 'lampara_rgb.ino'}",
+   "ok": true,
+   "error": "",
+   "seg": 3.8
+  },
+  {
+   "t": "2026-10-27T22:40:21",
+   "herramienta": "reescribir_archivo",
+   "args": "{'contenido': 'const int potRed = A0;\\nconst int potGreen = A1;\\nconst int potBlue = A2;\\n\\nconst int ledRed = 3;\\nconst int ledGreen = 5;\\nconst int ledBlue = 6;\\n\\nvoid setup() {\\n  pinMode(ledRed, ",
+   "ok": true,
+   "error": "",
+   "seg": 2.1
+  },
+  {
+   "t": "2026-10-27T22:40:36",
+   "herramienta": "presionar_teclas",
+   "args": "{'teclas': 'ctrl+u'}",
+   "ok": true,
+   "error": "",
+   "seg": 2.2
+  },
+  {
+   "t": "2026-10-28T07:36:32",
+   "herramienta": "recursos",
+   "args": "{}",
+   "ok": true,
+   "error": "",
+   "seg": 6.8
+  },
+  {
+   "t": "2026-10-28T07:53:59",
+   "herramienta": "fin_de_conversacion",
+   "args": "{}",
+   "ok": true,
+   "error": "",
+   "seg": 0.0
+  },
+  {
+   "t": "2026-10-28T07:54:09",
+   "herramienta": "usar_skill",
+   "args": "{'nombre': 'classroom'}",
+   "ok": true,
+   "error": "",
+   "seg": 0.3
+  },
+  {
+   "t": "2026-10-28T07:54:11",
+   "herramienta": "abrir_app",
+   "args": "{'nombre': 'chrome'}",
+   "ok": true,
+   "error": "",
+   "seg": 1.7
+  },
+  {
+   "t": "2026-10-28T07:54:14",
+   "herramienta": "abrir_url",
+   "args": "{'url': 'https://classroom.google.com'}",
+   "ok": true,
+   "error": "",
+   "seg": 2.4
+  },
+  {
+   "t": "2026-10-28T07:54:37",
+   "herramienta": "abrir_url",
+   "args": "{'url': 'https://classroom.google.com/a/not-turned-in/all'}",
+   "ok": true,
+   "error": "",
+   "seg": 1.7
+  },
+  {
+   "t": "2026-10-28T07:57:52",
+   "herramienta": "ver_pantalla",
+   "args": "{}",
+   "ok": true,
+   "error": "",
+   "seg": 0.1
+  },
+  {
+   "t": "2026-10-28T07:57:54",
+   "herramienta": "mini_ventana",
+   "args": "{'icono': '📌', 'segundos': 10, 'lineas': 'Resumen de la unidad dos\\nResumen de la presentación de la unidad uno\\nPractica 4. Creación de un password o contraseña\\nExamen diagnostico\\nPrimera tarea\\nPr",
+   "ok": true,
+   "error": "",
+   "seg": 0.0
+  },
+  {
+   "t": "2026-10-28T08:00:18",
+   "herramienta": "investigar_web",
+   "args": "{'consulta': 'que es un bill holder en restaurantes o cocina'}",
+   "ok": true,
+   "error": "",
+   "seg": 6.7
+  },
+  {
+   "t": "2026-10-28T08:04:22",
+   "herramienta": "investigar_web",
+   "args": "{'consulta': 'voltaje sube al conectar arduino uno causas'}",
+   "ok": true,
+   "error": "",
+   "seg": 5.8
+  },
+  {
+   "t": "2026-10-28T08:04:24",
+   "herramienta": "hacer_clic",
+   "args": "{'que': 'botón Tareas pendientes en el menú lateral izquierdo', 'resumen': 'Abrir la página de tareas pendientes de Classroom para ver qué falta por entregar.'}",
+   "ok": true,
+   "error": "",
+   "seg": 388.4
+  },
+  {
+   "t": "2026-10-28T08:05:33",
+   "herramienta": "leer_pantalla",
+   "args": "{}",
+   "ok": true,
+   "error": "",
+   "seg": 48.5
+  },
+  {
+   "t": "2026-10-28T08:13:07",
+   "herramienta": "buscar_archivos",
+   "args": "{'texto': 'reporte embedidos'}",
+   "ok": true,
+   "error": "",
+   "seg": 1.7
+  },
+  {
+   "t": "2026-10-28T08:13:34",
+   "herramienta": "buscar_en_archivos",
+   "args": "{'texto': 'reporte embedidos'}",
+   "ok": true,
+   "error": "",
+   "seg": 25.7
+  },
+  {
+   "t": "2026-10-28T08:13:34",
+   "herramienta": "buscar_en_archivos",
+   "args": "{'texto': 'reporte embedidos'}",
+   "ok": true,
+   "error": "",
+   "seg": 22.8
+  },
+  {
+   "t": "2026-10-28T08:14:30",
+   "herramienta": "buscar_archivos",
+   "args": "{'texto': 'embebidos'}",
+   "ok": true,
+   "error": "",
+   "seg": 1.1
+  },
+  {
+   "t": "2026-10-28T08:14:57",
+   "herramienta": "buscar_en_archivos",
+   "args": "{'texto': 'reporte sistemas embebidos'}",
+   "ok": true,
+   "error": "",
+   "seg": 19.2
+  },
+  {
+   "t": "2026-10-28T08:15:09",
+   "herramienta": "buscar_en_archivos",
+   "args": "{'texto': 'sistemas embebidos'}",
+   "ok": true,
+   "error": "",
+   "seg": 18.9
+  },
+  {
+   "t": "2026-10-28T08:15:19",
+   "herramienta": "buscar_en_archivos",
+   "args": "{'texto': 'sistemas embebidos'}",
+   "ok": true,
+   "error": "",
+   "seg": 24.4
+  },
+  {
+   "t": "2026-10-28T08:15:22",
+   "herramienta": "buscar_en_archivos",
+   "args": "{'texto': 'sistemas embebidos practica'}",
+   "ok": true,
+   "error": "",
+   "seg": 22.0
+  },
+  {
+   "t": "2026-10-28T08:15:47",
+   "herramienta": "buscar_en_archivos",
+   "args": "{'texto': 'reporte sistemas embebidos'}",
+   "ok": true,
+   "error": "",
+   "seg": 32.5
+  },
+  {
+   "t": "2026-10-28T08:15:50",
+   "herramienta": "buscar_en_archivos",
+   "args": "{'texto': 'sistemas embebidos reporte practica'}",
+   "ok": true,
+   "error": "",
+   "seg": 32.6
+  },
+  {
+   "t": "2026-10-28T08:16:25",
+   "herramienta": "buscar_en_archivos",
+   "args": "{'texto': 'reporte sistemas embebidos'}",
+   "ok": true,
+   "error": "",
+   "seg": 20.7
+  },
+  {
+   "t": "2026-10-28T08:16:36",
+   "herramienta": "buscar_en_archivos",
+   "args": "{'texto': 'reporte sistemas embebidos'}",
+   "ok": true,
+   "error": "",
+   "seg": 23.3
+  },
+  {
+   "t": "2026-10-28T08:17:06",
+   "herramienta": "buscar_archivos",
+   "args": "{'texto': 'practica 9'}",
+   "ok": true,
+   "error": "",
+   "seg": 3.0
+  },
+  {
+   "t": "2026-10-28T08:17:14",
+   "herramienta": "abrir_archivo",
+   "args": "{'ruta': 'C:\\\\Users\\\\maxex\\\\OneDrive\\\\Descargas\\\\practica9.docx'}",
+   "ok": true,
+   "error": "",
+   "seg": 0.7
+  },
+  {
+   "t": "2026-10-28T08:17:14",
+   "herramienta": "buscar_en_archivos",
+   "args": "{'texto': 'reporte sistemas embebidos'}",
+   "ok": true,
+   "error": "",
+   "seg": 22.8
+  },
+  {
+   "t": "2026-10-28T08:18:14",
+   "herramienta": "poner_recordatorio",
+   "args": "{'texto': 'Hacer el reporte de la práctica 11 de embebidos', 'hora': '5 pm'}",
+   "ok": true,
+   "error": "",
+   "seg": 0.0
+  },
+  {
+   "t": "2026-10-28T08:18:38",
+   "herramienta": "abrir_app",
+   "args": "{'nombre': 'Android Studio'}",
+   "ok": true,
+   "error": "",
+   "seg": 9.9
+  },
+  {
+   "t": "2026-10-28T08:18:41",
+   "herramienta": "abrir_archivo",
+   "args": "{'ruta': 'A.doc'}",
+   "ok": false,
+   "error": "No hay un archivo claro con ese nombre.",
+   "seg": 3.3
+  },
+  {
+   "t": "2026-10-28T08:19:24",
+   "herramienta": "abrir_archivo",
+   "args": "{'ruta': 'aaaaa.docx'}",
+   "ok": false,
+   "error": "No encontré ese archivo en Documentos, Escritorio, Descargas, Imágenes, Videos, Música o una unidad externa conectada.",
+   "seg": 2.3
+  },
+  {
+   "t": "2026-10-28T08:19:45",
+   "herramienta": "buscar_archivos",
+   "args": "{'texto': 'a'}",
+   "ok": false,
+   "error": "Dame al menos 2 letras del nombre.",
+   "seg": 0.0
+  },
+  {
+   "t": "2026-10-28T08:19:49",
+   "herramienta": "buscar_archivos",
+   "args": "{'texto': 'aa'}",
+   "ok": true,
+   "error": "",
+   "seg": 3.5
+  },
+  {
+   "t": "2026-10-28T08:20:03",
+   "herramienta": "abrir_archivo",
+   "args": "{'ruta': 'C:\\\\Users\\\\maxex\\\\OneDrive\\\\Documentos\\\\aaaa.docx'}",
+   "ok": true,
+   "error": "",
+   "seg": 0.2
+  },
+  {
+   "t": "2026-10-28T08:20:43",
+   "herramienta": "investigar_web",
+   "args": "{'consulta': 'inflate xml into view android kotlin'}",
+   "ok": true,
+   "error": "",
+   "seg": 6.7
+  },
+  {
+   "t": "2026-10-28T08:21:12",
+   "herramienta": "investigar_web",
+   "args": "{'consulta': 'que es inflate en kotlin android y para que sirve'}",
+   "ok": true,
+   "error": "",
+   "seg": 1.0
+  },
+  {
+   "t": "2026-10-28T08:23:17",
+   "herramienta": "cerrar_ventana",
+   "args": "{'app': 'Arduino'}",
+   "ok": true,
+   "error": "",
+   "seg": 1.4
+  },
+  {
+   "t": "2026-10-28T08:23:18",
+   "herramienta": "cerrar_ventana",
+   "args": "{'app': 'Arduino', 'titulo': 'lampara_rgb'}",
+   "ok": false,
+   "error": "No encontré esa ventana.",
+   "seg": 0.0
+  },
+  {
+   "t": "2026-10-28T08:24:20",
+   "herramienta": "abrir_archivo",
+   "args": "{'ruta': 'a.doc'}",
+   "ok": false,
+   "error": "No hay un archivo claro con ese nombre.",
+   "seg": 1.3
+  },
+  {
+   "t": "2026-10-28T08:24:30",
+   "herramienta": "abrir_carpeta",
+   "args": "{'carpeta': 'Descargas'}",
+   "ok": true,
+   "error": "",
+   "seg": 5.2
+  },
+  {
+   "t": "2026-10-28T08:25:09",
+   "herramienta": "fin_de_conversacion",
+   "args": "{}",
+   "ok": true,
+   "error": "",
+   "seg": 0.0
+  }
+ ],
+ "fin": "2026-10-28T08:30:59"
+}

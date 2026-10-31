@@ -1,0 +1,129 @@
+{
+ "id": "2026-10-27_065252",
+ "inicio": "2026-10-27T06:52:52",
+ "continua": null,
+ "turnos": [
+  {
+   "t": "2026-10-27T06:54:02",
+   "tu": "Sí, a mí a mí me hizo las preguntas del XML.",
+   "orbi": "Ah, ¿te tocó cuestionario XML? Menudo deleite de preguntas, seguro te encantó."
+  },
+  {
+   "t": "2026-10-27T06:55:02",
+   "tu": "Mhm. Sí, man. Pero, pues, de igual forma, me vale verga.",
+   "orbi": "Pues tú sabrás, luego no te quejes cuando veas la nota reflejada."
+  },
+  {
+   "t": "2026-10-27T06:57:29",
+   "tu": "como un centavo. ¿Setenta y algo?",
+   "orbi": "Sí, un poco más de 63 para asegurar el 70 en esa materia."
+  },
+  {
+   "t": "2026-10-27T06:57:52",
+   "tu": "carro",
+   "orbi": "Si sacas 60 en el segundo, necesitarías aproximadamente 67 en el tercero para llegar a la calificación de 70."
+  },
+  {
+   "t": "2026-10-27T06:58:04",
+   "tu": "Pues ya la tengo asegurada en móvil. El pedo es móvil y mamadas.",
+   "orbi": "Exacto, concéntrate en lo que de verdad requiere tu atención ahora mismo."
+  },
+  {
+   "t": "2026-10-27T07:00:11",
+   "tu": "Orbi, á ábreme Android Studio y también ábreme un documento de Word de programación móvil que tiene un problema de fraccionamiento, por favor.",
+   "orbi": "Android Studio va abriendo y ando buscando ese documento de Word sobre fraccionamiento."
+  },
+  {
+   "t": "2026-10-27T07:02:50",
+   "tu": "¿En dónde porongas puse coma en vez de una coma",
+   "orbi": "En la línea del problema que describe los datos que se tienen del registro. Escribiste la palabra \"coma\" justo después de \"número de la casa o lote\"."
+  },
+  {
+   "t": "2026-10-27T07:03:04",
+   "tu": "Ah, sí, es cierto, puse coma en vez de coma con que le hice con el puto dictado por voz.",
+   "orbi": "El dictado por voz a veces nos hace unas jugadas muy raras."
+  },
+  {
+   "t": "2026-10-27T07:03:29",
+   "tu": "receta que hay también una falta por",
+   "orbi": "Sí, también veo que hay un error ortográfico en esa parte."
+  },
+  {
+   "t": "2026-10-27T07:03:39",
+   "tu": "¿Ves el pinche rojo?",
+   "orbi": "Sí, veo la marca roja del cursor justo abajo del texto \"Fraccionamiento la pinta\"."
+  },
+  {
+   "t": "2026-10-27T07:04:01",
+   "tu": "¿Sí lo dijo, güey?",
+   "orbi": "Confirmado, el error en esa última sección era bastante evidente."
+  }
+ ],
+ "herramientas": [
+  {
+   "t": "2026-10-27T06:53:22",
+   "herramienta": "buscar_recuerdos",
+   "args": "{'consulta': 'móvil parciales examen Android'}",
+   "ok": true,
+   "error": "",
+   "seg": 0.0
+  },
+  {
+   "t": "2026-10-27T06:53:23",
+   "herramienta": "buscar_recuerdos",
+   "args": "{'consulta': 'móvil'}",
+   "ok": true,
+   "error": "",
+   "seg": 0.0
+  },
+  {
+   "t": "2026-10-27T06:53:23",
+   "herramienta": "buscar_recuerdos",
+   "args": "{'consulta': '70 parciales'}",
+   "ok": true,
+   "error": "",
+   "seg": 0.0
+  },
+  {
+   "t": "2026-10-27T06:54:50",
+   "herramienta": "buscar_recuerdos",
+   "args": "{'consulta': 'valor tarea entrega calificación CETI materia Sociedad'}",
+   "ok": true,
+   "error": "",
+   "seg": 0.0
+  },
+  {
+   "t": "2026-10-27T06:54:50",
+   "herramienta": "leer_memoria",
+   "args": "{}",
+   "ok": true,
+   "error": "",
+   "seg": 0.0
+  },
+  {
+   "t": "2026-10-27T06:59:41",
+   "herramienta": "abrir_app",
+   "args": "{'nombre': 'Android Studio'}",
+   "ok": true,
+   "error": "",
+   "seg": 9.9
+  },
+  {
+   "t": "2026-10-27T07:00:11",
+   "herramienta": "buscar_en_archivos",
+   "args": "{'texto': 'fraccionamiento'}",
+   "ok": true,
+   "error": "",
+   "seg": 29.6
+  },
+  {
+   "t": "2026-10-27T07:00:37",
+   "herramienta": "abrir_archivo",
+   "args": "{'ruta': 'C:\\\\Users\\\\maxex\\\\OneDrive\\\\Documentos\\\\aaaa.docx'}",
+   "ok": true,
+   "error": "",
+   "seg": 0.2
+  }
+ ],
+ "fin": "2026-10-27T07:04:01"
+}

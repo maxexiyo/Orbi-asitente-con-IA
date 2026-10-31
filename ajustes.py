@@ -8,6 +8,7 @@ Se abre desde el menú de la bolita («Ajustes…») o desde el clic derecho de 
   Internet      · paciencia con redes lentas, navegador como último recurso
   Memoria       · resumir conversaciones para recordarlas, olvidar lo guardado
   Alarmas       · tono (con botón de prueba)
+  Rutinas y alarmas · ver, agregar, editar y borrar a mano rutinas/reglas, alarmas, recordatorios y timers (ajustes_pendientes.py)
   General       · lo de config.json que tiene sentido para un usuario normal (voz, tamaño de la bolita, cuándo se duerme,
                   modo compañero, notificaciones, privacidad). Se guarda en orbi_config_ventana.json y manda sobre config.json;
                   casi todo se aplica al reiniciar Orbi.
@@ -15,7 +16,7 @@ Se abre desde el menú de la bolita («Ajustes…») o desde el clic derecho de 
 from PySide6.QtCore import QObject, QTime, QTimer, Qt, Signal, Slot
 from PySide6.QtWidgets import (QApplication, QCheckBox, QComboBox, QDialog, QFileDialog, QFormLayout, QHBoxLayout, QInputDialog, QLabel,
                                QLineEdit, QListWidget, QListWidgetItem, QMessageBox, QPushButton, QScrollArea, QSlider, QSpinBox,
-                               QTabWidget, QTimeEdit, QVBoxLayout, QWidget)
+                               QTabWidget, QTimeEdit, QVBoxLayout, QWidget, QGridLayout, QStackedWidget, QButtonGroup)
 
 DELICADAS = [("preguntar", "Preguntarme siempre (recomendado)"),
              ("auto", "Automático: solo pregunta lo más grave (pagos, borrar, correos, cocheras)"),
@@ -175,9 +176,51 @@ class _CalendarioDialog(QDialog):
         self.accept()
 
 
+class _TabsEnFilas(QWidget):
+    """Como un QTabWidget, pero los botones de las pestañas van en VARIAS filas (sin flechitas para moverse)."""
+    currentChanged = Signal(int)
+
+    def __init__(self, columnas=4):
+        super().__init__()
+        self._cols = max(1, columnas)
+        lay = QVBoxLayout(self); lay.setContentsMargins(0, 0, 0, 0)
+        self._grid = QGridLayout(); self._grid.setSpacing(4)
+        for c in range(self._cols):
+            self._grid.setColumnStretch(c, 1)
+        lay.addLayout(self._grid)
+        self._stack = QStackedWidget(); lay.addWidget(self._stack, 1)
+        self._btns = []
+        self._group = QButtonGroup(self); self._group.setExclusive(True)
+
+    def addTab(self, w, titulo) -> int:
+        i = self._stack.addWidget(w)
+        b = QPushButton(titulo); b.setCheckable(True); b.setMinimumHeight(30)
+        b.setStyleSheet("QPushButton:checked { font-weight: 600; border: 2px solid #3b82f6; }")
+        b.clicked.connect(lambda _=False, i=i: self.setCurrentIndex(i))
+        self._group.addButton(b); self._btns.append(b)
+        self._grid.addWidget(b, i // self._cols, i % self._cols)
+        if i == 0:
+            b.setChecked(True)
+        return i
+
+    def setCurrentIndex(self, i):
+        if 0 <= i < len(self._btns):
+            self._stack.setCurrentIndex(i); self._btns[i].setChecked(True); self.currentChanged.emit(i)
+
+    def currentIndex(self) -> int:
+        return self._stack.currentIndex()
+
+    def currentWidget(self):
+        return self._stack.currentWidget()
+
+    def count(self) -> int:
+        return self._stack.count()
+
+
 class AjustesDialog(QDialog):
     def __init__(self, profile: dict, tonos: list, apply, test_tone, clear_memory, mini_defaults: dict, cfg: dict | None = None,
-                 open_memory=None, skills_mod=None, on_skills_changed=None, extras=None, hub=None, parent=None):
+                 open_memory=None, skills_mod=None, on_skills_changed=None, extras=None, hub=None, alarms=None, reglas=None,
+                 on_pendientes_change=None, parent=None):
         """apply({"permisos": {...}, "ajustes": {...}}) guarda y aplica · test_tone(nombre) · clear_memory() -> None."""
         super().__init__(parent)
         self.setWindowTitle("Ajustes de Orbi")
@@ -191,7 +234,7 @@ class AjustesDialog(QDialog):
         mini["secciones"] = {**mini_defaults.get("secciones", {}), **((aj.get("mini") or {}).get("secciones") or {})}
         self._mini_pos = mini.get("pos")
 
-        tabs = QTabWidget()
+        tabs = _TabsEnFilas(4)          # las pestañas van en varias filas (4 por fila)
         # ---------------- Permisos
         w = QWidget(); f = _form(w)
         modo_d = perm.get("modo_delicadas") or ("preguntar" if perm.get("confirmar_acciones", True) else "permitir")
@@ -418,6 +461,21 @@ class AjustesDialog(QDialog):
                 tabs.addTab(CuentasTab(hub, extras), "Cuentas y conectores")
             except Exception as e:  # noqa: BLE001
                 print(f"[ajustes] no pude cargar «Cuentas y conectores»: {type(e).__name__}: {e}")
+
+        # ---------------- Conexiones (puente MCP: Canva, Lucidchart, Figma)
+        try:
+            from ajustes_mcp import ConexionesTab
+            tabs.addTab(ConexionesTab(on_skills_changed), "Conexiones")
+        except Exception as e:  # noqa: BLE001
+            print(f"[ajustes] no pude cargar «Conexiones»: {type(e).__name__}: {e}")
+
+        # ---------------- Rutinas y alarmas (ver / agregar / editar / borrar a mano: rutinas, alarmas, recordatorios, timers)
+        if alarms is not None or reglas is not None:
+            try:
+                from ajustes_pendientes import PendientesTab
+                tabs.addTab(PendientesTab(alarms, reglas, on_change=on_pendientes_change), "Rutinas y alarmas")
+            except Exception as e:  # noqa: BLE001
+                print(f"[ajustes] no pude cargar «Rutinas y alarmas»: {type(e).__name__}: {e}")
 
         # ---------------- Skills y plugins
         self._sk, self._sk_changed = skills_mod, on_skills_changed or (lambda: None)

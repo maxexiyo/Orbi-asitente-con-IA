@@ -1,0 +1,25 @@
+{
+ "id": "2026-10-27_092646",
+ "inicio": "2026-10-27T09:26:46",
+ "continua": null,
+ "turnos": [],
+ "herramientas": [
+  {
+   "t": "2026-10-27T16:37:54",
+   "herramienta": "cerrar_ventana",
+   "args": "{'app': 'discord', 'todas': True}",
+   "ok": false,
+   "error": "No encontré esa ventana.",
+   "seg": 0.0
+  },
+  {
+   "t": "2026-10-27T16:37:54",
+   "herramienta": "cerrar_ventana",
+   "args": "{'app': 'whatsapp', 'todas': True}",
+   "ok": false,
+   "error": "No encontré esa ventana.",
+   "seg": 0.0
+  }
+ ],
+ "fin": "2026-10-27T16:37:54"
+}

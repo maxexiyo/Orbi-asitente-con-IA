@@ -1,0 +1,247 @@
+{
+ "id": "2026-10-27_200638",
+ "inicio": "2026-10-27T20:06:38",
+ "continua": null,
+ "turnos": [
+  {
+   "t": "2026-10-27T20:07:12",
+   "tu": "Orbi, continuamos con lo de GET y POST.",
+   "orbi": "Como te decía, GET es para pedir o leer datos del servidor, y POST es cuando quieres enviar o guardar información nueva. ¿Vemos un ejemplo de cómo se usan en tu código?"
+  },
+  {
+   "t": "2026-10-27T20:07:25",
+   "tu": "Sí, porfa.",
+   "orbi": "Imagina que quieres ver una lista de usuarios; usas GET para pedir esa información. Pero si quieres registrar un usuario nuevo, usas POST para enviar sus datos al servidor. ¿Tiene sentido?"
+  },
+  {
+   "t": "2026-10-27T20:07:46",
+   "tu": "O sea, que post es como decir literalmente postear o subir ahí al servidor y que, pues, traduciéndolo literal, es conseguir.",
+   "orbi": "¡Exacto! Le diste al clavo. Pensarlo así te va a ayudar muchísimo a recordar para qué sirve cada método."
+  },
+  {
+   "t": "2026-10-27T20:08:19",
+   "tu": "A ver, Orbi, entonces ábrete la carpeta de proyecto web que está en descargas y explícame qué poronga se hace con la de a.js.",
+   "orbi": "Tienes dos mensajes nuevos en el grupo de WhatsApp \"Equipo para todo 🚬\". Voy abriendo esa carpeta de proyecto web que está en Descargas para ver qué onda con ese archivo. No veo ningún archivo llamado a punto jota ese ni en el Frontend ni en el Backend, solo tengo script punto jota ese en el Frontend y app punto jota ese en el Backend. ¿Cuál de los dos querías revisar?"
+  },
+  {
+   "t": "2026-10-27T20:08:43",
+   "tu": "¿Qué te sube la musa? Sí, cierto.",
+   "orbi": "En `app.js` tienes un servidor con Express que recibe los datos del formulario mediante el método POST. Luego, procesa esa información y redirige al usuario a la página de resumen con los datos adjuntos."
+  },
+  {
+   "t": "2026-10-27T20:11:43",
+   "tu": "escuchar siempre",
+   "orbi": "Aquí sigo, dime qué necesitas, Omar."
+  },
+  {
+   "t": "2026-10-27T20:12:39",
+   "tu": "a tu puta madre celular de mierda",
+   "orbi": "Encontré este documento: C:\\Users\\maxex\\OneDrive\\Descargas\\24100206_Inv_tiposdeaplicacionesmóviles.docx. ¿Quieres que lo abra?"
+  },
+  {
+   "t": "2026-10-27T20:13:30",
+   "tu": "optimizar",
+   "orbi": "Encontré el archivo 24100206 Inv CardView docx en Descargas. ¿Quieres que lo abra?"
+  },
+  {
+   "t": "2026-10-27T20:13:39",
+   "tu": "Sí, porfa.",
+   "orbi": "Listo, ya abrí el documento sobre la investigación de CardView."
+  },
+  {
+   "t": "2026-10-27T20:13:52",
+   "tu": "gracias",
+   "orbi": "De nada."
+  },
+  {
+   "t": "2026-10-27T20:14:15",
+   "tu": "chupapi muñaño, ábreme Google Drive en la misma pestaña de Chrome en donde se encuentra el Classroom.",
+   "orbi": "No puedo abrir una página web en una pestaña específica del navegador; puedo abrirla, pero se abrirá en una pestaña nueva."
+  },
+  {
+   "t": "2026-10-27T20:14:49",
+   "tu": "Cuando te diga que abras el el el Drive, el Google Drive, te vas a abrir Chrome, le vas a picar al del perfil de Chrome de ceti.mx y aquí le vas a escribir drive.google.com, nada más para que sepas.",
+   "orbi": "Te llegó un mensaje de ~ S. en el grupo \"Equipo para todo 🚬\". Por cierto, ya registré esta lección para abrir Drive con tu cuenta del CETI. Entendido. Ya quedó guardado el proceso para abrir Google Drive con la cuenta correcta."
+  },
+  {
+   "t": "2026-10-27T20:14:55",
+   "tu": "Va, gracias, Orly.",
+   "orbi": "De nada."
+  },
+  {
+   "t": "2026-10-27T20:15:34",
+   "tu": "mi fucking pluma",
+   "orbi": "No tengo idea de dónde esté tu pluma, Omar. Checa en tu escritorio o en las carpetas de tus proyectos."
+  },
+  {
+   "t": "2026-10-27T20:15:46",
+   "tu": "buscabas ¿Por qué buscabas en mi computadora, bro?",
+   "orbi": "Me pediste ayuda y revisé mis notas por si habías registrado dónde habías dejado tu pluma. Solo intentaba echarte una mano, bro."
+  },
+  {
+   "t": "2026-10-27T20:15:51",
+   "tu": "Gracias a usted.",
+   "orbi": "No hay de qué, Omar."
+  },
+  {
+   "t": "2026-10-27T20:16:12",
+   "tu": "¿Ahorita cuándo es el Día de Muertos?",
+   "orbi": "Es el primero y dos de noviembre, Omar. Ya preparando todo para el altar, supongo."
+  }
+ ],
+ "herramientas": [
+  {
+   "t": "2026-10-27T20:08:00",
+   "herramienta": "abrir_carpeta",
+   "args": "{'carpeta': 'Descargas/proyecto web'}",
+   "ok": true,
+   "error": "",
+   "seg": 0.4
+  },
+  {
+   "t": "2026-10-27T20:08:01",
+   "herramienta": "listar_carpeta",
+   "args": "{'carpeta': 'Descargas/proyecto web'}",
+   "ok": true,
+   "error": "",
+   "seg": 0.0
+  },
+  {
+   "t": "2026-10-27T20:08:01",
+   "herramienta": "listar_carpeta",
+   "args": "{'carpeta': 'Descargas/proyecto web/Frontend'}",
+   "ok": true,
+   "error": "",
+   "seg": 0.0
+  },
+  {
+   "t": "2026-10-27T20:08:02",
+   "herramienta": "listar_carpeta",
+   "args": "{'carpeta': 'Descargas/proyecto web/Backend'}",
+   "ok": true,
+   "error": "",
+   "seg": 0.0
+  },
+  {
+   "t": "2026-10-27T20:08:24",
+   "herramienta": "leer_archivo",
+   "args": "{'ruta': 'Descargas/proyecto web/Backend/app.js'}",
+   "ok": false,
+   "error": "No encontré ese archivo en Documentos, Escritorio, Descargas, Imágenes, Videos, Música o una unidad externa conectada.",
+   "seg": 1.1
+  },
+  {
+   "t": "2026-10-27T20:08:26",
+   "herramienta": "leer_archivo",
+   "args": "{'ruta': 'app.js'}",
+   "ok": false,
+   "error": "No hay un archivo claro con ese nombre.",
+   "seg": 0.8
+  },
+  {
+   "t": "2026-10-27T20:08:27",
+   "herramienta": "leer_archivo",
+   "args": "{'ruta': 'C:\\\\Users\\\\maxex\\\\OneDrive\\\\Descargas\\\\proyecto web\\\\Backend\\\\app.js'}",
+   "ok": true,
+   "error": "",
+   "seg": 0.0
+  },
+  {
+   "t": "2026-10-27T20:08:30",
+   "herramienta": "leer_archivo",
+   "args": "{'ruta': 'C:/Users/maxex/OneDrive/Descargas/proyecto web/Backend/app.js'}",
+   "ok": true,
+   "error": "",
+   "seg": 0.0
+  },
+  {
+   "t": "2026-10-27T20:10:29",
+   "herramienta": "buscar_en_imagenes",
+   "args": "{'texto': 'cuaderno'}",
+   "ok": true,
+   "error": "",
+   "seg": 0.0
+  },
+  {
+   "t": "2026-10-27T20:10:52",
+   "herramienta": "buscar_en_archivos",
+   "args": "{'texto': 'programación móvil'}",
+   "ok": true,
+   "error": "",
+   "seg": 22.2
+  },
+  {
+   "t": "2026-10-27T20:12:05",
+   "herramienta": "buscar_en_archivos",
+   "args": "{'texto': 'programación móvil'}",
+   "ok": true,
+   "error": "",
+   "seg": 18.0
+  },
+  {
+   "t": "2026-10-27T20:12:22",
+   "herramienta": "buscar_en_archivos",
+   "args": "{'texto': 'Fraccionamiento'}",
+   "ok": true,
+   "error": "",
+   "seg": 16.9
+  },
+  {
+   "t": "2026-10-27T20:12:29",
+   "herramienta": "buscar_en_archivos",
+   "args": "{'texto': 'programación móvil'}",
+   "ok": true,
+   "error": "",
+   "seg": 18.2
+  },
+  {
+   "t": "2026-10-27T20:13:05",
+   "herramienta": "buscar_en_archivos",
+   "args": "{'texto': 'CardView'}",
+   "ok": true,
+   "error": "",
+   "seg": 17.2
+  },
+  {
+   "t": "2026-10-27T20:13:21",
+   "herramienta": "buscar_en_archivos",
+   "args": "{'texto': 'CardView'}",
+   "ok": true,
+   "error": "",
+   "seg": 18.3
+  },
+  {
+   "t": "2026-10-27T20:13:35",
+   "herramienta": "abrir_archivo",
+   "args": "{'ruta': 'C:\\\\Users\\\\maxex\\\\OneDrive\\\\Descargas\\\\24100206_Inv_CardView.docx'}",
+   "ok": true,
+   "error": "",
+   "seg": 0.1
+  },
+  {
+   "t": "2026-10-27T20:14:38",
+   "herramienta": "aprender",
+   "args": "{'leccion': 'Abrir Google Chrome, seleccionar el perfil ceti.mx y luego escribir drive.google.com para acceder a Google Drive.', 'tema': 'Abrir Google Drive con cuenta CETI'}",
+   "ok": true,
+   "error": "",
+   "seg": 0.1
+  },
+  {
+   "t": "2026-10-27T20:14:53",
+   "herramienta": "fin_de_conversacion",
+   "args": "{}",
+   "ok": true,
+   "error": "",
+   "seg": 0.0
+  },
+  {
+   "t": "2026-10-27T20:15:27",
+   "herramienta": "buscar_recuerdos",
+   "args": "{'consulta': 'pluma'}",
+   "ok": true,
+   "error": "",
+   "seg": 0.0
+  }
+ ],
+ "fin": "2026-10-27T20:16:12"
+}

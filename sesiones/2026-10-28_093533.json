@@ -1,0 +1,185 @@
+{
+ "id": "2026-10-28_093533",
+ "inicio": "2026-10-28T09:35:33",
+ "continua": "2026-10-27_223957",
+ "turnos": [],
+ "herramientas": [
+  {
+   "t": "2026-10-28T09:37:22",
+   "herramienta": "leer_archivo",
+   "args": "{'ruta': 'C:\\\\Users\\\\maxex\\\\OneDrive\\\\Descargas\\\\Examen\\\\Frontend\\\\lista.html'}",
+   "ok": true,
+   "error": "",
+   "seg": 0.0
+  },
+  {
+   "t": "2026-10-28T09:37:38",
+   "herramienta": "leer_notificaciones",
+   "args": "{'cantidad': 5, 'app': 'WhatsApp'}",
+   "ok": true,
+   "error": "",
+   "seg": 0.0
+  },
+  {
+   "t": "2026-10-28T09:37:42",
+   "herramienta": "leer_archivo",
+   "args": "{'ruta': 'C:\\\\Users\\\\maxex\\\\OneDrive\\\\Descargas\\\\Examen\\\\Backend\\\\controllers\\\\tareasControllers.js'}",
+   "ok": true,
+   "error": "",
+   "seg": 0.0
+  },
+  {
+   "t": "2026-10-28T09:37:43",
+   "herramienta": "leer_archivo",
+   "args": "{'ruta': 'C:\\\\Users\\\\maxex\\\\OneDrive\\\\Descargas\\\\Examen\\\\Backend\\\\models\\\\tareaModels.js'}",
+   "ok": true,
+   "error": "",
+   "seg": 0.0
+  },
+  {
+   "t": "2026-10-28T09:38:45",
+   "herramienta": "listar_carpeta",
+   "args": "{'carpeta': 'Descargas/Examen/Frontend'}",
+   "ok": true,
+   "error": "",
+   "seg": 0.1
+  },
+  {
+   "t": "2026-10-28T09:38:48",
+   "herramienta": "leer_archivo",
+   "args": "{'ruta': 'Descargas/Examen/Frontend/lista.js'}",
+   "ok": false,
+   "error": "No encontré ese archivo en Documentos, Escritorio, Descargas, Imágenes, Videos, Música o una unidad externa conectada.",
+   "seg": 1.1
+  },
+  {
+   "t": "2026-10-28T09:38:50",
+   "herramienta": "leer_archivo",
+   "args": "{'ruta': 'Descargas/Examen/Frontend/lista.js'}",
+   "ok": false,
+   "error": "No encontré ese archivo en Documentos, Escritorio, Descargas, Imágenes, Videos, Música o una unidad externa conectada.",
+   "seg": 1.1
+  },
+  {
+   "t": "2026-10-28T09:38:51",
+   "herramienta": "leer_archivo",
+   "args": "{'ruta': 'C:\\\\Users\\\\maxex\\\\OneDrive\\\\Descargas\\\\Examen\\\\Frontend\\\\lista.js'}",
+   "ok": true,
+   "error": "",
+   "seg": 0.0
+  },
+  {
+   "t": "2026-10-28T09:39:09",
+   "herramienta": "escribir_archivo",
+   "args": "{'ruta': 'C:\\\\Users\\\\maxex\\\\OneDrive\\\\Descargas\\\\Examen\\\\Frontend\\\\lista.js', 'contenido': '// Obtener elementos\\nconst buscar = document.getElementById(\"buscar\");\\nconst filtroEstado = document.getEl",
+   "ok": true,
+   "error": "",
+   "seg": 0.0
+  },
+  {
+   "t": "2026-10-28T09:39:10",
+   "herramienta": "reescribir_archivo",
+   "args": "{'contenido': '// Obtener elementos\\nconst buscar = document.getElementById(\"buscar\");\\nconst filtroEstado = document.getElementById(\"filtroEstado\");\\nconst cuerpoTabla = document.getElementById(\"cuer",
+   "ok": true,
+   "error": "",
+   "seg": 0.1
+  },
+  {
+   "t": "2026-10-28T09:39:11",
+   "herramienta": "leer_archivo",
+   "args": "{'ruta': 'C:\\\\Users\\\\maxex\\\\OneDrive\\\\Descargas\\\\Examen\\\\Frontend\\\\lista.html'}",
+   "ok": true,
+   "error": "",
+   "seg": 0.0
+  },
+  {
+   "t": "2026-10-28T09:39:12",
+   "herramienta": "reescribir_archivo",
+   "args": "{'ruta': 'C:\\\\Users\\\\maxex\\\\OneDrive\\\\Descargas\\\\Examen\\\\Frontend\\\\lista.html', 'contenido': '<!DOCTYPE html>\\n<html lang=\"es\">\\n<head>\\n  <meta charset=\"UTF-8\">\\n  <title>Lista de Tareas - Gestor</ti",
+   "ok": true,
+   "error": "",
+   "seg": 0.1
+  },
+  {
+   "t": "2026-10-28T09:39:28",
+   "herramienta": "leer_notificaciones",
+   "args": "{'cantidad': 5, 'app': 'WhatsApp'}",
+   "ok": true,
+   "error": "",
+   "seg": 0.0
+  },
+  {
+   "t": "2026-10-28T09:40:04",
+   "herramienta": "reescribir_archivo",
+   "args": "{'contenido': '// Obtener elementos\\nconst buscar = document.getElementById(\"buscar\");\\nconst filtroEstado = document.getElementById(\"filtroEstado\");\\nconst cuerpoTabla = document.getElementById(\"cuer",
+   "ok": true,
+   "error": "",
+   "seg": 0.1
+  },
+  {
+   "t": "2026-10-28T09:42:52",
+   "herramienta": "reescribir_archivo",
+   "args": "{'contenido': '// Obtener elementos\\nconst buscar = document.getElementById(\"buscar\");\\nconst filtroEstado = document.getElementById(\"filtroEstado\");\\nconst cuerpoTabla = document.getElementById(\"cuer",
+   "ok": true,
+   "error": "",
+   "seg": 0.1
+  },
+  {
+   "t": "2026-10-28T09:42:54",
+   "herramienta": "reescribir_archivo",
+   "args": "{'ruta': 'C:\\\\Users\\\\maxex\\\\OneDrive\\\\Descargas\\\\Examen\\\\Frontend\\\\lista.js', 'contenido': '// Obtener elementos\\nconst buscar = document.getElementById(\"buscar\");\\nconst filtroEstado = document.getEl",
+   "ok": true,
+   "error": "",
+   "seg": 0.1
+  },
+  {
+   "t": "2026-10-28T09:44:03",
+   "herramienta": "leer_archivo",
+   "args": "{'ruta': 'C:\\\\Users\\\\maxex\\\\OneDrive\\\\Descargas\\\\Examen\\\\Frontend\\\\style.css'}",
+   "ok": true,
+   "error": "",
+   "seg": 0.0
+  },
+  {
+   "t": "2026-10-28T09:44:03",
+   "herramienta": "leer_archivo",
+   "args": "{'ruta': 'C:\\\\Users\\\\maxex\\\\OneDrive\\\\Descargas\\\\Examen\\\\Frontend\\\\lista.js'}",
+   "ok": true,
+   "error": "",
+   "seg": 0.0
+  },
+  {
+   "t": "2026-10-28T09:44:03",
+   "herramienta": "leer_archivo",
+   "args": "{'ruta': 'C:\\\\Users\\\\maxex\\\\OneDrive\\\\Descargas\\\\Examen\\\\Frontend\\\\lista.html'}",
+   "ok": true,
+   "error": "",
+   "seg": 0.0
+  },
+  {
+   "t": "2026-10-28T09:44:05",
+   "herramienta": "escribir_archivo",
+   "args": "{'contenido': '* {\\n  box-sizing: border-box;\\n}\\n\\nbody {\\n  margin: 0;\\n  font-family: \\'Segoe UI\\', Tahoma, Geneva, Verdana, sans-serif;\\n  font-size: 16px;\\n  background: #f8fafc;\\n  color: #33415",
+   "ok": true,
+   "error": "",
+   "seg": 0.0
+  },
+  {
+   "t": "2026-10-28T09:44:07",
+   "herramienta": "escribir_archivo",
+   "args": "{'contenido': '// Obtener elementos\\nconst buscar = document.getElementById(\"buscar\");\\nconst filtroEstado = document.getElementById(\"filtroEstado\");\\nconst cuerpoTabla = document.getElementById(\"cuer",
+   "ok": true,
+   "error": "",
+   "seg": 0.0
+  },
+  {
+   "t": "2026-10-28T09:44:08",
+   "herramienta": "escribir_archivo",
+   "args": "{'ruta': 'C:\\\\Users\\\\maxex\\\\OneDrive\\\\Descargas\\\\Examen\\\\Frontend\\\\vista.html', 'contenido': '<!DOCTYPE html>\\n<html lang=\"es\">\\n<head>\\n  <meta charset=\"UTF-8\">\\n  <title>Lista de Tareas - Gestor</ti",
+   "ok": true,
+   "error": "",
+   "seg": 0.0
+  }
+ ],
+ "fin": "2026-10-28T09:44:08"
+}

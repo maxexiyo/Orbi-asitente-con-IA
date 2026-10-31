@@ -1,0 +1,153 @@
+{
+ "id": "2026-10-28_095141",
+ "inicio": "2026-10-28T09:51:41",
+ "continua": null,
+ "turnos": [],
+ "herramientas": [
+  {
+   "t": "2026-10-28T09:52:27",
+   "herramienta": "abrir_archivo",
+   "args": "{'ruta': 'C:\\\\Users\\\\maxex\\\\OneDrive\\\\Descargas\\\\Examen\\\\Frontend\\\\index.html'}",
+   "ok": true,
+   "error": "",
+   "seg": 0.1
+  },
+  {
+   "t": "2026-10-28T09:52:29",
+   "herramienta": "copiar_texto_de_ventana",
+   "args": "{}",
+   "ok": true,
+   "error": "",
+   "seg": 1.0
+  },
+  {
+   "t": "2026-10-28T09:52:30",
+   "herramienta": "leer_archivo",
+   "args": "{'ruta': 'C:\\\\Users\\\\maxex\\\\OneDrive\\\\Descargas\\\\Examen\\\\Frontend\\\\index.html'}",
+   "ok": true,
+   "error": "",
+   "seg": 0.0
+  },
+  {
+   "t": "2026-10-28T09:52:32",
+   "herramienta": "leer_archivo",
+   "args": "{'ruta': 'C:\\\\Users\\\\maxex\\\\OneDrive\\\\Descargas\\\\Examen\\\\Frontend\\\\script.js'}",
+   "ok": true,
+   "error": "",
+   "seg": 0.0
+  },
+  {
+   "t": "2026-10-28T09:52:34",
+   "herramienta": "editar_archivo",
+   "args": "{'buscar': '    <form id=\"formulario\" class=\"tarjeta\">', 'todas': False, 'ruta': 'C:\\\\Users\\\\maxex\\\\OneDrive\\\\Descargas\\\\Examen\\\\Frontend\\\\index.html', 'reemplazo': '    <form id=\"formulario\" class=\"t",
+   "ok": true,
+   "error": "",
+   "seg": 0.1
+  },
+  {
+   "t": "2026-10-28T09:52:35",
+   "herramienta": "editar_archivo",
+   "args": "{'ruta': 'C:\\\\Users\\\\maxex\\\\OneDrive\\\\Descargas\\\\Examen\\\\Frontend\\\\index.html', 'reemplazo': '  <!-- <script src=\"script.js\"></script> -->', 'buscar': '  <script src=\"script.js\"></script>', 'todas': F",
+   "ok": true,
+   "error": "",
+   "seg": 0.1
+  },
+  {
+   "t": "2026-10-28T09:53:25",
+   "herramienta": "editar_archivo",
+   "args": "{'todas': False, 'ruta': 'C:\\\\Users\\\\maxex\\\\OneDrive\\\\Descargas\\\\Examen\\\\Frontend\\\\script.js', 'buscar': '    try {\\n    const respuesta = await fetch(\"http://localhost:3000/tareas\", {\\n      method: ",
+   "ok": false,
+   "error": "No encontré ese texto exacto en el archivo (cuentan espacios y sangría). Léelo con leer_archivo y copia el trozo tal cual.",
+   "seg": 0.1
+  },
+  {
+   "t": "2026-10-28T09:53:27",
+   "herramienta": "leer_archivo",
+   "args": "{'ruta': 'C:\\\\Users\\\\maxex\\\\OneDrive\\\\Descargas\\\\Examen\\\\Frontend\\\\script.js', 'desde': 30}",
+   "ok": true,
+   "error": "",
+   "seg": 0.0
+  },
+  {
+   "t": "2026-10-28T09:53:28",
+   "herramienta": "leer_archivo",
+   "args": "{'ruta': 'C:\\\\Users\\\\maxex\\\\OneDrive\\\\Descargas\\\\Examen\\\\Frontend\\\\script.js', 'desde': 800}",
+   "ok": true,
+   "error": "",
+   "seg": 0.0
+  },
+  {
+   "t": "2026-10-28T09:53:29",
+   "herramienta": "editar_archivo",
+   "args": "{'todas': False, 'buscar': '  try {\\n    const respuesta = await fetch(\"http://localhost:3000/tareas\", {\\n      method: \"POST\",\\n      headers: { \"Content-Type\": \"application/json\" },\\n      body: JSO",
+   "ok": true,
+   "error": "",
+   "seg": 0.1
+  },
+  {
+   "t": "2026-10-28T09:54:11",
+   "herramienta": "listar_carpeta",
+   "args": "{'carpeta': 'Descargas/Examen/Backend'}",
+   "ok": true,
+   "error": "",
+   "seg": 0.0
+  },
+  {
+   "t": "2026-10-28T09:54:14",
+   "herramienta": "leer_archivo",
+   "args": "{'ruta': 'Descargas/Examen/Backend/app.js'}",
+   "ok": false,
+   "error": "No encontré ese archivo en Documentos, Escritorio, Descargas, Imágenes, Videos, Música o una unidad externa conectada.",
+   "seg": 1.0
+  },
+  {
+   "t": "2026-10-28T09:54:15",
+   "herramienta": "leer_archivo",
+   "args": "{'ruta': 'C:\\\\Users\\\\maxex\\\\OneDrive\\\\Descargas\\\\Examen\\\\Backend\\\\app.js'}",
+   "ok": true,
+   "error": "",
+   "seg": 0.0
+  },
+  {
+   "t": "2026-10-28T09:54:15",
+   "herramienta": "listar_carpeta",
+   "args": "{'carpeta': 'C:\\\\Users\\\\maxex\\\\OneDrive\\\\Descargas\\\\Examen\\\\Backend\\\\routes'}",
+   "ok": true,
+   "error": "",
+   "seg": 0.0
+  },
+  {
+   "t": "2026-10-28T09:54:17",
+   "herramienta": "leer_archivo",
+   "args": "{'ruta': 'C:\\\\Users\\\\maxex\\\\OneDrive\\\\Descargas\\\\Examen\\\\Backend\\\\routes\\\\tareasRoutes.js'}",
+   "ok": true,
+   "error": "",
+   "seg": 0.0
+  },
+  {
+   "t": "2026-10-28T09:54:17",
+   "herramienta": "leer_archivo",
+   "args": "{'ruta': 'C:\\\\Users\\\\maxex\\\\OneDrive\\\\Descargas\\\\Examen\\\\Backend\\\\controllers\\\\tareasControllers.js'}",
+   "ok": true,
+   "error": "",
+   "seg": 0.0
+  },
+  {
+   "t": "2026-10-28T09:54:18",
+   "herramienta": "leer_archivo",
+   "args": "{'ruta': 'C:\\\\Users\\\\maxex\\\\OneDrive\\\\Descargas\\\\Examen\\\\Frontend\\\\index.html'}",
+   "ok": true,
+   "error": "",
+   "seg": 0.0
+  },
+  {
+   "t": "2026-10-28T09:54:20",
+   "herramienta": "editar_archivo",
+   "args": "{'buscar': '    <form id=\"formulario\" class=\"tarjeta\" action=\"http://localhost:3000\" method=\"POST\">', 'reemplazo': '    <form id=\"formulario\" class=\"tarjeta\" action=\"http://localhost:3000/tareas\" meth",
+   "ok": true,
+   "error": "",
+   "seg": 0.1
+  }
+ ],
+ "fin": "2026-10-28T09:54:20"
+}
