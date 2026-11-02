@@ -325,6 +325,9 @@ class Orb(QWidget):
         self._eye_wander = [0.0, 0.0]; self._next_wander = 2.0
         self.last_active = time.time()
         self.keep_awake = lambda: False                 # la app lo reemplaza: no dormirse si hay tarea/observador
+        self.sleep_lock = False                         # modo dormir manual: nada la despierta (eventos, clics, caricias) hasta que se desactive
+        self.on_dormir = None                           # la app lo reemplaza: alterna el modo dormir (menú «Dormir / Despertar»)
+        self._hint_t = 0.0
         self.standby = False                            # esperando la palabra clave (se ve un poco más apagada)
         self.ripples = []; self._last_ripple = 0.0
         self._look = None; self._look_until = 0.0       # (lx, ly) hacia dónde mira (al señalar algo)
@@ -421,6 +424,7 @@ class Orb(QWidget):
 
     def set_state(self, s):
         if s not in STATE_COLORS: return
+        if self.sleep_lock and s != "sleeping": return      # en modo dormir ningún evento le cambia el estado
         self.state = s
         if s != "idle": self.last_active = time.time()
 
@@ -433,6 +437,7 @@ class Orb(QWidget):
         self._prop_force = name if name in ("pen", "lupa", "gear", "folder", "hourglass", "question") else None
 
     def set_emotion(self, name, hold=4.0):
+        if self.sleep_lock: return
         name = EMO_ALIAS.get(str(name).lower().strip(), str(name).lower().strip())
         nuevo = name if name in FACES else "neutral"
         if nuevo != self.emotion:
@@ -446,6 +451,7 @@ class Orb(QWidget):
 
     def set_dancing(self, on):
         """Empieza/termina el baile (la música se detecta en audio_react.py)."""
+        if self.sleep_lock: on = False
         self.dancing = bool(on)
         if self.dancing:
             self.last_active = time.time()
@@ -484,7 +490,8 @@ class Orb(QWidget):
         self.last_active = time.time()
         if self.state in ("idle", "listening"): self.set_emotion(self._dface, 3.0)
 
-    def say(self, text, seconds=None):
+    def say(self, text, seconds=None, force=False):
+        if self.sleep_lock and not force: return          # dormida: ni burbujas (force=True solo para sus propios avisos de dormir/despertar)
         self.last_active = time.time()
         self.bubble.show_text(text, self._center_global(), R0, seconds)
 
@@ -502,9 +509,15 @@ class Orb(QWidget):
         return [dict(text=t, cb=cb, checkable=c, checked=chk, en_menu=show) for t, cb, c, chk, show in self._menu_actions]
 
     def wake(self):
+        if self.sleep_lock: return                       # en modo dormir solo despierta el usuario (menú o Ctrl+Alt+Espacio)
         if self.state == "sleeping":
             self.state = "idle"
         self.last_active = time.time()
+
+    def _dormida_pista(self):
+        if time.time() - self._hint_t > 4.0:
+            self._hint_t = time.time()
+            self.say("Estoy dormida 😴 (clic derecho → Despertar)", 3, force=True)
 
     def summon(self):
         """Trae la bolita de vuelta (si se perdió detrás de otra ventana o fuera de la pantalla)."""
@@ -969,8 +982,11 @@ class Orb(QWidget):
             self._drag = e.globalPosition().toPoint() - self.frameGeometry().topLeft()
             self._press_pos = e.globalPosition().toPoint(); self._moved = False
             self.edge = None; self.revealed = False
-            if self.state == "sleeping": self.state = "idle"
-            self.last_active = time.time()
+            if self.sleep_lock:
+                self._dormida_pista()
+            else:
+                if self.state == "sleeping": self.state = "idle"
+                self.last_active = time.time()
 
     def _pet(self, e):
         """Acariciar = pasar el mouse sobre la bolita (sin clic) de un lado a otro varias veces."""
@@ -1004,6 +1020,7 @@ class Orb(QWidget):
         cx = max(g.left() + m, min(g.right() - m, int(cx))); cy = max(g.top() + m, min(g.bottom() - m, int(cy)))
         self._anim.stop(); self._move_anim.stop()
         self.edge = None; self.revealed = False
+        if self.sleep_lock: return
         if self.state == "sleeping": self.state = "idle"
         self.last_active = time.time()
         self._move_anim.setDuration(ms)
@@ -1040,6 +1057,7 @@ class Orb(QWidget):
 
     def wander(self):
         """Se pasea a otro lugar de la pantalla (esquinas o mitad de los bordes), lejos de donde está ahora."""
+        if self.sleep_lock: return
         c = self._center_global()
         screen = QGuiApplication.screenAt(c) or QGuiApplication.primaryScreen()
         g = screen.availableGeometry()
@@ -1052,6 +1070,7 @@ class Orb(QWidget):
         self.move_to_global(gx + random.randint(-30, 30), gy + random.randint(-30, 30), random.randint(900, 1400))
 
     def point_at(self, gx, gy, text="", seconds=5.0):
+        if self.sleep_lock: return
         """Se pone junto al punto, lo mira y le dibuja un anillo pulsante."""
         screen = QGuiApplication.screenAt(QPoint(int(gx), int(gy))) or QGuiApplication.primaryScreen()
         g = screen.availableGeometry()
@@ -1095,7 +1114,10 @@ class Orb(QWidget):
                 a.setCheckable(True)
                 a.setChecked(value == cur)
                 a.triggered.connect(lambda checked=False, f=on_pick, v=value: f(v))
-        m.addAction("Dormir", lambda checked=False: setattr(self, "state", "sleeping"))
+        if self.on_dormir:
+            m.addAction("Despertar" if self.sleep_lock else "Dormir", lambda checked=False: self.on_dormir())
+        else:
+            m.addAction("Dormir", lambda checked=False: setattr(self, "state", "sleeping"))
         for text, cb, checkable, is_checked, show in self._menu_actions:
             if not show:
                 continue

@@ -218,7 +218,7 @@ class LiveSession:
 
     def send_text(self, text: str) -> bool:
         """Manda texto escrito a la conversación en vivo. Se puede llamar desde cualquier hilo."""
-        if not self._task or self._task.done():
+        if self.muted or not self._task or self._task.done():      # modo dormir: no se manda nada a Gemini
             return False
         self._task.get_loop().call_soon_threadsafe(self._enqueue_text, text)
         return True
@@ -226,7 +226,7 @@ class LiveSession:
     def send_silent(self, text: str) -> bool:
         """Le cuenta algo a Orbi («te acaban de acariciar») SIN que conteste: se manda como texto y se tira lo que diga en ese turno
         (voz, texto y herramientas). Solo si no está hablando ni ocupado; devuelve False si no lo mandó. Cualquier hilo."""
-        if not self._task or self._task.done():
+        if self.muted or not self._task or self._task.done():
             return False
         self._task.get_loop().call_soon_threadsafe(self._enqueue_silent, text)
         return True
@@ -239,7 +239,7 @@ class LiveSession:
 
     def send_image(self, jpeg: bytes) -> bool:
         """Manda un frame JPEG a la conversación en vivo. Se puede llamar desde cualquier hilo."""
-        if not self._task or self._task.done():
+        if self.muted or not self._task or self._task.done():      # modo dormir: no ve la pantalla
             return False
         self._task.get_loop().call_soon_threadsafe(self._put_frame, jpeg, time.time())
         return True
@@ -524,7 +524,7 @@ class LiveSession:
         det = ChangeDetector()
         while True:
             await asyncio.sleep(self.screen_interval)
-            if not self.screen_watch:
+            if not self.screen_watch or self.muted:
                 det.reset()
                 continue
             try:
@@ -593,6 +593,33 @@ class LiveSession:
         mic = _Mic(self.input_device)
         with mic:
             while True:
+                if self.muted:
+                    # modo dormir: el micrófono se CIERRA de verdad (Windows ya no lo ve en uso y un audífono Bluetooth vuelve a su calidad normal)
+                    if mic.stream is not None:
+                        mic.close()
+                        self._pre.clear(); self._barge_buf.clear(); self._barge_run = 0
+                        while not q.empty():
+                            try:
+                                q.get_nowait()
+                            except Exception:                           # noqa: BLE001
+                                break
+                        if self._gate_was_open:
+                            self._gate_was_open = False
+                            try:
+                                await session.send_realtime_input(audio_stream_end=True)
+                            except Exception:                           # noqa: BLE001
+                                pass
+                        self.emit("info", "[audio] Micrófono cerrado (modo dormir).")
+                    await asyncio.sleep(0.25)
+                    continue
+                if mic.stream is None:                                  # se acaba de despertar: reabre el micrófono
+                    try:
+                        mic.open()
+                        self.emit("info", "[audio] Micrófono abierto.")
+                    except Exception as e:                              # noqa: BLE001
+                        self.emit("info", f"[audio] No pude abrir el micrófono ({type(e).__name__}); reintento en unos segundos.")
+                        await asyncio.sleep(3.0)
+                    continue
                 try:
                     data = await asyncio.wait_for(q.get(), timeout=self.mic_stall_s)
                 except asyncio.TimeoutError:

@@ -1460,6 +1460,8 @@ def main():
         apply_listen_mode()
 
     def listen_now():
+        if st["muted"]:
+            set_dormir(False)                  # Ctrl+Alt+Espacio es pedirle que te oiga: la despierta
         st["follow_until"] = time.time() + float(cfg.get("conversation_window_s", 25))
         attn.open(); orb.wake(); orb.set_emotion("happy", 1.5); orb.say("Te escucho 🎤", 2)
 
@@ -1584,14 +1586,115 @@ def main():
         orb.say("Diagnóstico de notificaciones en orbi.log:\n" + info.splitlines()[-1][:90], 8)
 
     # ---------------------------------------------- menú
-    def toggle_mute():
-        st["muted"] = not st["muted"]
-        session.set_muted(st["muted"])
-        guardar_ajuste("muted", st["muted"])
-        if st["muted"]:
-            orb.set_state("sleeping"); orb.say("Micro silenciado 🔇", 2)
+    # ---------------------------------------------- modo dormir (= micro silenciado)
+    # Un solo modo: dormida = micro CERRADO, la bolita duerme y NADA la despierta (ni mensajes, ni notificaciones, ni clics)
+    # hasta que lo desactives (menú «Despertar» / «Silenciar micro» o Ctrl+Alt+Espacio). No ve la pantalla, no oye, no baila,
+    # no observa y no le manda nada a Gemini. Lo que llega mientras duerme (notificaciones, correo, calendario, reglas) se junta
+    # y se muestra al despertar. Las alarmas sí suenan (se apagan con un clic), sin despertarla ni hablar.
+    _dorm = dict(cola=[], prev={})
+    _DORM_COLA = {"notification", "cal_aviso", "correo_nuevo", "regla_aviso", "regla_orbi", "agent_done", "tool_bg_done"}
+    _DORM_IGNORA = {"wake", "agent_step", "suggestion", "self_fix", "petted", "voz", "beat", "dance", "media_state", "media_track",
+                    "dance_tipo", "dance_style", "dance_genre", "dance_error", "orb_move", "orb_point", "interprete", "chat_translation",
+                    "emotion", "user_text", "model_text", "router_reply", "reminder_shown", "web_card", "dashboard_mostrar",
+                    "panel_mostrar", "tool", "tool_plan", "tool_paso", "tool_bg", "tool_end", "tool_result", "interrupted", "state",
+                    "level", "end_conversation", "turn_complete"}
+
+    def _dorm_texto(kind, data):
+        """Una línea corta de lo que llegó mientras dormía (para mostrarla al despertar)."""
+        try:
+            if kind == "notification":
+                d = data[0] if isinstance(data, tuple) else data
+                return "🔔 " + str(d)[:110]
+            if kind == "cal_aviso":
+                items = data[0]
+                return "📅 " + (f"{items[0]['titulo']} ({items[0]['cuando']})" if len(items) == 1 else f"{len(items)} eventos próximos")
+            if kind == "correo_nuevo":
+                items = data[0]
+                return "📧 " + (f"{items[0]['de'][:24]}: {items[0]['asunto'][:60]}" if len(items) == 1 else f"{len(items)} correos nuevos")
+            if kind == "regla_aviso":
+                return "📌 " + str(data[0])[:110]
+            if kind == "regla_orbi":
+                return f"⚙️ Rutina «{data[0]}» (no se ejecutó mientras dormía)"
+            if kind == "agent_done":
+                return ("✅ " if data["ok"] else "⚠️ ") + str(data["resumen"])[:110]
+            if kind == "tool_bg_done":
+                return ("✅ " if data[2] else "⚠️ ") + str(_label(data[0], data[1]))[:110]
+        except Exception:                                           # noqa: BLE001
+            pass
+        return None
+
+    def _enviar_pendientes():
+        """Alarmas y avisos que quedaron en cola sin voz: se dicen en cuanto hay voz Y no está dormida."""
+        if st["muted"] or not st["connected"] or not st.get("avisos_pendientes"):
+            return
+        _pend = st.pop("avisos_pendientes")
+        if len(_pend) > 5:                         # lo que sobra se junta en un solo aviso (antes se perdía)
+            _resto = " | ".join(x[:150] for x in _pend[4:])
+            _pend = _pend[:4] + [f"[Avisos acumulados: {len(_pend) - 4} más] {_resto} Dile a tu dueño, muy resumido, "
+                                 "cuáles se le juntaron."]
+        QTimer.singleShot(3500, lambda _p=_pend: [session.send_text(x) for x in _p])
+
+    def set_dormir(on: bool, avisar: bool = True, guardar: bool = True):
+        on = bool(on)
+        st["muted"] = on
+        session.set_muted(on)                      # el micro se cierra de verdad (live_client) y ya no se manda nada a Gemini
+        if guardar:
+            guardar_ajuste("muted", on)
+        if on:
+            _dorm["prev"] = dict(baile=dance["obj"] is not None)
+            try:
+                session.interrupt()                # si estaba hablando, se calla
+            except Exception:                      # noqa: BLE001
+                pass
+            if agent.running:
+                agent.cancel()                     # no se queda manejando la PC mientras duerme
+            session.screen_watch = False           # (st["watch"] se conserva: al despertar vuelve como lo tenías)
+            observer.stop()
+            if dance["obj"] is not None:
+                set_dance(False, False, False)     # apaga el baile y su captura de audio (sin tocar tu ajuste guardado)
+            if session.mic_cleaner:
+                session.mic_cleaner.stop()         # deja de capturar el audio de la PC para el eco
+            for fn in (lambda: chat.hide(), lambda: panel.hide_now(), lambda: dash.ocultar(), lambda: attn.close()):
+                try:
+                    fn()
+                except Exception:                  # noqa: BLE001
+                    pass
+            st["state"] = "idle"
+            orb.sleep_lock = False                 # (por si ya estaba) para que set_state le funcione
+            orb.set_state("sleeping")
+            orb.sleep_lock = True
+            if avisar:
+                orb.say("Modo dormir 😴 Micro apagado (clic derecho → Despertar)", 3, force=True)
         else:
-            orb.set_state("idle"); orb.set_emotion("happy", 2); orb.say("¡Te escucho! 🎤", 2)
+            orb.sleep_lock = False
+            st["state"] = "idle"
+            orb.set_state("idle")
+            orb.wake()
+            session.screen_watch = bool(st["watch"])
+            if st["observe"]:
+                observer.start()
+            elif _dorm.pop("observe_pendiente", False):
+                set_observe(True)
+            if _dorm["prev"].get("baile", bool(ajuste("baile", bool(cfg.get("bailar_musica"))))) and dance["obj"] is None:
+                set_dance(True, False, False)
+            if session.mic_cleaner:
+                session.mic_cleaner.start()
+            orb.set_emotion("happy", 2)
+            if avisar:
+                orb.say("¡Te escucho! 🎤", 2)
+            cola, _dorm["cola"] = list(_dorm["cola"]), []
+            if cola:
+                orb.say(f"Mientras dormías llegaron {len(cola)} aviso(s) 📬", 4)
+                panel.push("🌙", "Mientras dormías", cola[:5] + ([f"… y {len(cola) - 5} más"] if len(cola) > 5 else []), 60, clave="dorm")
+            _enviar_pendientes()
+            if st["profile"].get("presentado") is False and st["connected"] and not st.get("intro_busy"):
+                st["intro_busy"] = True
+                QTimer.singleShot(2200, lambda: do_intro(False))
+
+    def toggle_mute():
+        set_dormir(not st["muted"])
+
+    orb.on_dormir = toggle_mute
 
     def toggle_voice():
         session.mute_output = not session.mute_output
@@ -1785,7 +1888,7 @@ def main():
             if avisar: orb.say("Ya no bailo 😌", 2)
 
     app.aboutToQuit.connect(lambda: set_dance(False, False, False))
-    if ajuste("baile", bool(cfg.get("bailar_musica"))):
+    if ajuste("baile", bool(cfg.get("bailar_musica"))) and not st["muted"]:
         QTimer.singleShot(1500, lambda: set_dance(True, False, False))
 
     orb.add_menu_action("Bailar con la música", lambda: set_dance(dance["obj"] is None), True, lambda: dance["obj"] is not None)
@@ -1920,7 +2023,7 @@ def main():
         orb.add_menu_action("Aprender mi voz (20 s)…", learn_voice)
         orb.add_menu_action("Solo hacerle caso a mi voz", toggle_voz_only, True, lambda: voz.enabled and voz.enrolled)
         orb.add_menu_action("Olvidar mi huella de voz", forget_voice)
-    orb.add_menu_action("Silenciar micro", toggle_mute, True, lambda: st["muted"])
+    orb.add_menu_action("Silenciar micro (modo dormir)", toggle_mute, True, lambda: st["muted"])
     orb.add_menu_action("Hablar ahora  (Ctrl+Alt+Espacio)", listen_now)
     orb.add_menu_action("Escucha: solo si digo «Orbi»", lambda: set_listen_mode("palabra"), True,
                         lambda: st["profile"].get("escucha_modo") == "palabra")
@@ -1959,6 +2062,8 @@ def main():
     def open_chat():
         if alarms.ringing is not None:             # sonando: un clic la apaga (no abre el chat)
             alarms.stop_ring(); orb.say("Alarma apagada ✅", 2); return
+        if st["muted"]:
+            orb._dormida_pista(); return        # dormida: un clic no la despierta ni abre el chat
         if st["connected"] and (st["state"] == "speaking" or session._speaking) and session.interrupt():
             orb.say("✋", 1); return                # está hablando: clic o Ctrl+Espacio lo callan (otra vez abre el chat)
         if chat.isVisible():
@@ -1986,6 +2091,8 @@ def main():
         threading.Thread(target=work, daemon=True).start()
 
     def on_text(text):
+        if st["muted"]:
+            orb._dormida_pista(); return
         orb.wake()
         orb.say("✍️ " + text, 3)
         _detectar_salida(text)
@@ -2018,6 +2125,8 @@ def main():
 
     # reglas: sesión activa / ventanas (cada 5 s) y correo (cada ~3 min, en un hilo porque la red puede tardar)
     def _reglas_tick():
+        if st["muted"]:
+            return                              # dormida: no mira qué ventana tienes abierta
         try:
             _tick_ausencia()
             from windows import foreground_info
@@ -2043,6 +2152,10 @@ def main():
         """Orbi se presenta con su propia voz (saludo, «me da gusto estar aquí», mini tutorial). force=True = a pedido (menú)."""
         from perfil import build_intro_prompt
         st["intro_busy"] = False
+        if st["muted"]:
+            if force:
+                orb.say("Estoy dormida 😴 Despiértame primero", 3, force=True)
+            return
         if not st["connected"]:
             if force:
                 orb.say("Todavía no estoy conectada; en cuanto conecte me presento 🙂", 4)
@@ -2296,18 +2409,20 @@ def main():
 
     # ---------------------------------------------- eventos (de Live, del agente, de notificaciones, de la palabra clave)
     def on_event(kind, data):
+        if st["muted"]:                              # modo dormir: NADA la despierta; lo importante se junta para cuando despierte
+            if kind in _DORM_COLA:
+                _t = _dorm_texto(kind, data)
+                if _t and len(_dorm["cola"]) < 12:
+                    _dorm["cola"].append(_t)
+                return
+            if kind in _DORM_IGNORA:
+                return
         if kind == "connected":
             st["connected"] = True
             print(f"[conectado] modelo Live: {data}")
             orb.say("Conectado ✨", 2); orb.set_emotion("happy", 2)
-            if st.get("avisos_pendientes"):            # alarmas y recordatorios que vencieron antes de que hubiera voz
-                _pend = st.pop("avisos_pendientes")
-                if len(_pend) > 5:                         # lo que sobra se junta en un solo aviso (antes se perdía)
-                    _resto = " | ".join(x[:150] for x in _pend[4:])
-                    _pend = _pend[:4] + [f"[Avisos acumulados: {len(_pend) - 4} más] {_resto} Dile a tu dueño, muy resumido, "
-                                         "cuáles se le juntaron."]
-                QTimer.singleShot(3500, lambda _p=_pend: [session.send_text(x) for x in _p])
-            if st["profile"].get("presentado") is False and not st.get("intro_busy"):
+            _enviar_pendientes()                       # alarmas y recordatorios que vencieron antes de que hubiera voz (si no está dormida)
+            if st["profile"].get("presentado") is False and not st.get("intro_busy") and not st["muted"]:
                 st["intro_busy"] = True            # la voz no está lista el mismo instante en que conecta: espera un poco
                 QTimer.singleShot(2200, lambda: do_intro(False))
         elif kind == "state" and not st["muted"]:
@@ -2538,6 +2653,13 @@ def main():
                 txt = f"{data['texto']} (era a las {hora}, hace {_hace(tarde)}; Orbi estaba cerrada o sin conexión)"
             else:
                 txt = data["texto"]
+            if st["muted"]:                          # dormida: la alarma suena y se apaga con un clic, sin despertarla ni hablar
+                if es_alarma and not perdida:
+                    alarms.ring(data)
+                    panel.push("⏰", "Alarma", [txt], 60, clave="alarm:" + str(data.get("id", "")))
+                elif len(_dorm["cola"]) < 12:
+                    _dorm["cola"].append(("⏰ " if es_alarma else "🔔 ") + txt[:110])
+                return
             orb.wake(); orb.set_emotion("surprised", 6)
             orb.say((("⏰ " if es_alarma else "🔔 ") + txt), 30 if tarde else 20)
             panel.push("⏰" if es_alarma else "🔔", "Alarma" if es_alarma else "Recordatorio", [txt], 60 if es_alarma else 40,
@@ -2669,7 +2791,7 @@ def main():
 
     apply_listen_mode()
     if st["muted"]:
-        orb.set_state("sleeping")
+        set_dormir(True, avisar=False, guardar=False)
     t = threading.Thread(target=lambda: asyncio.run(session.run()), daemon=True)
     t.start()
     for fn in (session.stop, observer.stop, wake.stop, agent.cancel, chat_tr.stop):
@@ -2681,7 +2803,10 @@ def main():
                 and ajuste("notif", True)):
             QTimer.singleShot(5000, lambda: set_notif(True))
     if profile["permisos"].get("observar") and cfg.get("observer_autostart", True) and ajuste("observe", True):
-        QTimer.singleShot(8000, lambda: set_observe(True))
+        if st["muted"]:
+            _dorm["observe_pendiente"] = True            # arranca dormida: el compañero empieza hasta que despierte
+        else:
+            QTimer.singleShot(8000, lambda: set_observe(True))
     sys.exit(app.exec())
 
 
