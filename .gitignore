@@ -9,7 +9,7 @@ orbi_pestanas_token.txt
 *.key
 keys.json
 orbi_respaldos/
-
+sesiones/
 
 orbi_*.json
 orbi_*.json.gz

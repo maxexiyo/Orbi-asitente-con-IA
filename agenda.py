@@ -136,6 +136,28 @@ class Agenda:
             res["avisos"] = errs
         return res
 
+    def eventos(self, dias: float = 2.0, calendario: str = "") -> list:
+        """Los próximos eventos como datos (para los avisos del calendario): [{inicio, todo_el_dia, titulo, lugar, calendario, id}]."""
+        g = self._g()
+        if not self.cals and g is None:
+            return []
+        now = datetime.now()
+        start = now.replace(hour=0, minute=0, second=0, microsecond=0)
+        end = now + timedelta(days=max(0.25, min(31.0, float(dias))))
+        evs, _errs = self.events(start, end, calendario, skip_google=g is not None)
+        if g is not None:
+            try:
+                evs += g.events(start, end, calendario)
+            except Exception:                                       # noqa: BLE001
+                pass
+        out = []
+        for ev in evs:
+            s, allday, titulo, lugar, name = ev[:5]
+            out.append(dict(inicio=s, todo_el_dia=bool(allday), titulo=str(titulo), lugar=str(lugar or ""), calendario=str(name),
+                            id=str(ev[5]) if len(ev) > 5 and ev[5] else ""))
+        out.sort(key=lambda x: x["inicio"])
+        return out
+
     # ------------------------------------------------------------ correo
     def _conn(self, cuenta: str):
         name = cuenta.lower().strip() or next(iter(self.mail), "")

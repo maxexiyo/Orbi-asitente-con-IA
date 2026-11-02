@@ -15,10 +15,10 @@ Los PERMISOS del asistente de configuración deciden qué tools existen:
                    escribir_archivo, redactar_documento (Word .docx directo, sin teclear),
                    crear_presentacion (PowerPoint .pptx) y crear_hoja_excel (Excel .xlsx), también directo, sin abrir el programa
   casa ........... casa_listar, casa_estado, casa_controlar (Home Assistant)
-  notificaciones . leer_notificaciones
+  notificaciones . leer_notificaciones · historial_notificaciones
   audio_pc ....... escuchar_audio_pc (lo que suena en la PC: video, llamada...)
   siempre ........ también: mover_bolita, senalar, set_emotion, modo_interprete
-  agenda ......... ver_agenda (calendario ICS) · correo_no_leidos, correo_buscar, correo_leer (Gmail IMAP, solo lectura)
+  agenda ......... avisos_calendario (cuándo te avisa de tus eventos) · ver_agenda (calendario ICS) · correo_no_leidos, correo_buscar, correo_leer (Gmail IMAP, solo lectura)
                    con la cuenta de Google conectada: también crear/editar/borrar_evento, correo_marcar_leido/archivar/papelera/enviar
 
 Seguridad (a propósito): no hay shell, NUNCA se borran ni sobrescriben archivos (mover/copiar/renombrar/organizar/escribir solo dentro de
@@ -95,6 +95,7 @@ class ToolContext:
     listen_pc: Callable[[float, str], dict] = lambda s, i: {"error": "El audio de la PC no está disponible."}
     reglas: object = None                                    # reglas.Reglas («si pasa X, haz Y»)
     agenda: object = None                                    # agenda.Agenda (calendario ICS + correo IMAP, solo lectura)
+    avisos_cal: object = None                                # avisos_cal.AvisosCalendario (avisos de eventos del calendario)
     research: Callable[[str], dict] = lambda q: {"error": "La búsqueda en internet no está disponible."}   # -> {...}
     recall: Callable[[str], list] = lambda q: []               # busca en la memoria larga
     alarm_tone: Callable[[str], dict] = lambda nombre: {"error": "Los tonos de alarma no están disponibles."}   # "" = listar
@@ -697,11 +698,27 @@ _tool("wiz_controlar", "Controla luces WiZ: encender, apagar, brillo (10-100), c
 _tool("leer_notificaciones", "Lee las últimas notificaciones de Windows (mensajes, correos, avisos). Úsala si pregunta "
                              "«¿qué me llegó?» o «¿qué decía?».",
       dict(cantidad=I("Cuántas (1 a 15)"), app=S("Filtrar por app, ej. WhatsApp")), perm="notificaciones", flag="notif")
+_tool("historial_notificaciones", "Historial CORTO (solo unas 6 horas) de notificaciones que ya se leyeron (Orbi te las dijo o las "
+      "pediste) o se descartaron (reglas, apps silenciadas o las que tú quitaste). Úsala para «¿qué notificaciones ya me "
+      "dijiste?», «¿qué descartaste?», «¿qué me llegó hace rato y no vi?». accion: 'ver' (por defecto), 'descartar' (marca como "
+      "descartadas las recientes de `app`, o todas si no das app; ya no salen en leer_notificaciones) o 'vaciar' (borra el "
+      "historial).",
+      dict(accion={"type": "STRING", "enum": ["ver", "descartar", "vaciar"]},
+           estado={"type": "STRING", "enum": ["todas", "leidas", "descartadas"]},
+           cantidad=I("Cuántas mostrar (1 a 30)"), app=S("Filtrar por app, ej. WhatsApp")), perm="notificaciones", flag="notif")
 # --- agenda y correo (solo lectura)
 _tool("ver_agenda", "Lee los eventos del calendario del usuario. Úsala para «¿qué tengo hoy/mañana/esta semana?». "
                     "Con su cuenta de Google conectada, cada evento trae (id:...) que sirve para editar_evento o borrar_evento.",
       dict(dias=N("Cuántos días hacia adelante (1 = hoy, 2 = hoy y mañana, 7 = una semana)"),
            calendario=S("Opcional: nombre del calendario (ej. escuela, personal)")), perm="agenda", flag="agenda")
+_tool("avisos_calendario", "Configura los AVISOS de eventos del calendario: cuándo te avisa Orbi antes de cada evento. Úsala para «avísame "
+      "de mis eventos 15 minutos antes y 1 día antes», «avísame cuando empiece», «ya no me avises de eventos», «¿cuándo me "
+      "avisas de mis eventos?». accion: 'ver' (por defecto), 'definir' (con `antes`), 'activar' o 'desactivar'. `antes` en "
+      "palabras separadas por comas: 'al iniciar, 15 minutos, 1 hora, 1 día' (se reemplaza la lista completa). `voz`: "
+      "false = solo en pantalla, sin hablar.",
+      dict(accion={"type": "STRING", "enum": ["ver", "definir", "activar", "desactivar"]},
+           antes=S("Cuándo avisar, separados por comas: 'al iniciar, 15 minutos, 1 día'"),
+           voz=B("true para que te lo diga en voz alta, false solo en pantalla")), perm="agenda", flag="agenda")
 _tool("correo_no_leidos", "Cuenta los correos sin leer y muestra los más recientes (remitente y asunto). No los marca como leídos.",
       dict(cuenta=S("Opcional: nombre de la cuenta (ej. personal)"), cantidad=I("Cuántos mostrar (1 a 15)")),
       perm="agenda", flag="agenda")
@@ -1405,6 +1422,25 @@ def _run(name: str, args: dict, ctx: ToolContext) -> dict:
         except Exception as e:                                       # noqa: BLE001
             return {"error": g.err(e)}
 
+    # ---------------- avisos de eventos del calendario
+    if name == "avisos_calendario":
+        import avisos_cal as _ac
+        av = ctx.avisos_cal
+        if av is None:
+            return {"error": "Los avisos de calendario no están disponibles."}
+        accion = str(args.get("accion") or ("definir" if (args.get("antes") or args.get("voz") is not None) else "ver")).lower()
+        if accion == "ver":
+            return {"resultado": _ac.describir(av.opciones())}
+        if accion in ("activar", "desactivar"):
+            return {"resultado": _ac.describir(av.configurar(activo=(accion == "activar")))}
+        antes = _ac.parse_lista(args.get("antes"))
+        if args.get("antes") is not None and not antes:
+            return {"error": "No entendí cuándo avisar. Dime, por ejemplo: «al iniciar, 15 minutos y 1 día antes»."}
+        voz = args.get("voz")
+        o = av.configurar(activo=True, antes_min=antes if args.get("antes") is not None else None,
+                          voz=None if voz is None else bool(voz))
+        return {"resultado": _ac.describir(o) + " Se aplica desde ya."}
+
     # ---------------- notificaciones
     if name == "leer_notificaciones":
         if ctx.notif is None:
@@ -1413,10 +1449,40 @@ def _run(name: str, args: dict, ctx: ToolContext) -> dict:
             n = max(1, min(15, int(args.get("cantidad", 5))))
         except (TypeError, ValueError):
             n = 5
-        items = ctx.notif.recent(n, str(args.get("app", "")))
+        import notifications as _nt
+        items = [i for i in ctx.notif.recent(n + 10, str(args.get("app", ""))) if not i.get("quitada")][:n]
         if not items:
             return {"resultado": "No hay notificaciones recientes."}
+        for i in items:
+            _nt.HISTORIAL.marcar(i, "leida")                 # si las pidió, ya las leyó: pasan al historial corto
         return {"resultado": [f"{i['hora']} · {i['app']} · {i['titulo']}: {i['texto']}".strip(": ") for i in items]}
+
+    if name == "historial_notificaciones":
+        import notifications as _nt
+        accion = str(args.get("accion") or "ver").lower()
+        app = str(args.get("app", "")).strip()
+        if accion == "vaciar":
+            _nt.HISTORIAL.vaciar()
+            return {"resultado": "Listo, borré el historial de notificaciones."}
+        if accion == "descartar":
+            if ctx.notif is None:
+                return {"error": "Las notificaciones no están disponibles."}
+            tira = [i for i in ctx.notif.recent(60, app) if not i.get("quitada")]
+            for i in tira:
+                i["quitada"] = True
+                _nt.HISTORIAL.marcar(i, "descartada", forzar=True)
+            return {"resultado": f"Descarté {len(tira)} notificación(es)" + (f" de {app}." if app else ".") if tira
+                    else "No había notificaciones recientes que descartar."}
+        try:
+            cant = max(1, min(30, int(args.get("cantidad", 10))))
+        except (TypeError, ValueError):
+            cant = 10
+        est = {"leidas": "leida", "leida": "leida", "descartadas": "descartada", "descartada": "descartada"}.get(
+            str(args.get("estado", "")).lower(), "")
+        items = _nt.HISTORIAL.ver(est, cant, app)
+        if not items:
+            return {"resultado": "El historial está vacío (solo guardo las últimas horas)."}
+        return {"resultado": [_nt.Historial.linea(i) for i in items]}
 
     return {"error": f"Tool desconocida: {name}"}
 

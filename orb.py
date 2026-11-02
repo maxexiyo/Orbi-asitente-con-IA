@@ -8,6 +8,19 @@ from PySide6.QtGui import (QPainter, QRadialGradient, QLinearGradient, QColor, Q
 from PySide6.QtWidgets import QApplication, QWidget, QMenu, QLabel, QVBoxLayout
 import orb_dodge
 
+
+def _cfg_val(clave: str, defecto):
+    """Valor de config.json / orbi_config_ventana.json (el segundo manda). Sirve para interruptores de diagnóstico de la bolita."""
+    val = defecto
+    for nombre in ("config.json", "orbi_config_ventana.json"):
+        try:
+            d = json.loads((Path(__file__).resolve().parent / nombre).read_text(encoding="utf-8"))
+            if isinstance(d, dict) and clave in d:
+                val = d[clave]
+        except Exception:                                           # noqa: BLE001
+            pass
+    return val
+
 def _cfg_value(key, default):
     """ORBI_<KEY> en el entorno/.env o la clave en config.json (así se ajusta sin tocar el código)."""
     v = os.environ.get("ORBI_" + key.upper())
@@ -298,8 +311,9 @@ class Orb(QWidget):
         self.setAttribute(Qt.WA_TranslucentBackground)
         self.resize(W, H)
         self.setMouseTracking(True)                     # para detectar caricias (pasar el mouse por encima sin clic)
-        self.halo_clickthrough = True                   # el brillo de alrededor deja pasar los clics a lo que hay debajo
+        self.halo_clickthrough = bool(_cfg_val("halo_clickthrough", True))   # el brillo de alrededor deja pasar los clics a lo que hay debajo
         self._hit_clickthrough = None
+        self._hit_t = 0.0                               # última vez que se cambió entre sólida y transparente (anti-parpadeo del puntero, #47)
         self._hit_timer = QTimer(self); self._hit_timer.timeout.connect(self._hit_tick); self._hit_timer.start(30)
 
         self.state = "idle"
@@ -346,7 +360,11 @@ class Orb(QWidget):
         self._menu_actions = []
         self._menu_groups = []
 
-        t = QTimer(self); t.timeout.connect(self._tick); t.start(16)
+        try:                                            # "orb_fps": 60 por defecto; 30 repinta la bolita la mitad de veces (prueba contra parpadeos)
+            _ms = max(16, int(1000 / max(15, min(60, int(_cfg_val("orb_fps", 60))))))
+        except (TypeError, ValueError):
+            _ms = 16
+        t = QTimer(self); t.timeout.connect(self._tick); t.start(_ms)
         h = QTimer(self); h.timeout.connect(self._poll_edge); h.start(120)
         v = QTimer(self); v.timeout.connect(self._keep_visible); v.start(1500)
 
@@ -925,6 +943,10 @@ class Orb(QWidget):
             through = not dentro
             if through == self._hit_clickthrough:
                 return
+            ahora = time.time()
+            if self._hit_clickthrough is not None and ahora - self._hit_t < 0.15:
+                return                                              # cada cambio hace que Windows revise el cursor: no más de ~6 por segundo
+            self._hit_t = ahora
             u = ctypes.windll.user32
             u.GetWindowLongW.argtypes = [wintypes.HWND, ctypes.c_int]
             u.GetWindowLongW.restype = ctypes.c_long

@@ -199,15 +199,22 @@ def focus_window(hwnd: int) -> bool:
 
 
 def force_topmost(hwnd: int) -> None:
-    """Re-afirma 'siempre encima' sin robar el foco (Windows a veces lo pierde al abrir otras apps)."""
+    """Re-afirma 'siempre encima' sin robar el foco (Windows a veces lo pierde al abrir otras apps).
+
+    Solo toca la ventana si de verdad perdió el «siempre encima»: antes se llamaba a SetWindowPos cada 1.5 s aunque no hiciera falta
+    (y con SWP_SHOWWINDOW), y eso hace que Windows revise el cursor y la pila de ventanas una y otra vez (parpadeo del puntero, #47)."""
     if sys.platform != "win32":
         return
     try:
         ctypes, wintypes, u, _k = _api()
-        # HWND_TOPMOST = -1 ; SWP_NOSIZE|NOMOVE|NOACTIVATE|SHOWWINDOW = 0x0001|0x0002|0x0010|0x0040
+        u.GetWindowLongW.argtypes = [wintypes.HWND, ctypes.c_int]
+        u.GetWindowLongW.restype = ctypes.c_long
+        if u.GetWindowLongW(wintypes.HWND(hwnd), -20) & 0x00000008:          # WS_EX_TOPMOST: sigue encima, no hace falta nada
+            return
+        # HWND_TOPMOST = -1 ; SWP_NOSIZE|NOMOVE|NOACTIVATE = 0x0001|0x0002|0x0010
         u.SetWindowPos.argtypes = [wintypes.HWND, wintypes.HWND, ctypes.c_int, ctypes.c_int, ctypes.c_int,
                                    ctypes.c_int, wintypes.UINT]
-        u.SetWindowPos(wintypes.HWND(hwnd), wintypes.HWND(-1), 0, 0, 0, 0, 0x0001 | 0x0002 | 0x0010 | 0x0040)
+        u.SetWindowPos(wintypes.HWND(hwnd), wintypes.HWND(-1), 0, 0, 0, 0, 0x0001 | 0x0002 | 0x0010)
     except Exception:
         pass
 

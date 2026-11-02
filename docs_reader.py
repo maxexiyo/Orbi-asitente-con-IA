@@ -6,8 +6,12 @@
   find_open_document(title)-> el archivo que corresponde al título de la ventana activa (Word, Chrome, VS Code...)
 
 docx/pptx se leen con zipfile (sin dependencias). xlsx necesita openpyxl y pdf necesita pypdf (opcionales).
+
+Carpetas permitidas: las de siempre (Documentos, Escritorio, Descargas, Imágenes, Videos, Música), las unidades externas y las
+que agregues tú en Ajustes > Carpetas (config.json / orbi_config_ventana.json -> "carpetas_extra"). Solo desde Ajustes: la IA
+no puede ampliar sus propios permisos.
 """
-import html, os, re, time, zipfile
+import html, json, os, re, time, zipfile
 from datetime import datetime
 from pathlib import Path
 
@@ -59,6 +63,90 @@ def external_drives() -> list:
         return []
 
 
+# ------------------------------------------------------------------ carpetas extra (las que agregas en Ajustes)
+EXTRA_DIRS = None        # None = leer "carpetas_extra" de config.json / orbi_config_ventana.json; una lista = fija (pruebas)
+_extra_cache = {"sig": None, "dirs": []}
+
+
+def _cfg_dir() -> Path:
+    return Path(__file__).resolve().parent               # igual que perfil.ROOT y config.ROOT: ahí están config.json y orbi_config_ventana.json
+
+
+def _carpetas_de_orbi() -> list:
+    out = [_cfg_dir()]
+    try:
+        from paths import APP_DIR
+        out.append(Path(APP_DIR).resolve())
+    except Exception:                                    # noqa: BLE001
+        pass
+    return out
+
+
+def validar_dir(ruta) -> tuple:
+    """(Path resuelta | None, motivo). Rechaza lo que no debería ver Orbi: el disco del sistema completo, tu carpeta de usuario
+    entera, Windows, Program Files, ProgramData, AppData, carpetas de claves (.ssh, .aws...) y la carpeta de Orbi (tiene tus claves)."""
+    try:
+        p = Path(str(ruta).strip().strip('"')).expanduser().resolve()
+    except (OSError, ValueError):
+        return None, "Esa ruta no es válida."
+    try:
+        if not p.is_dir():
+            return None, "Esa carpeta no existe (o el disco no está conectado)."
+    except OSError:
+        return None, "No puedo acceder a esa carpeta."
+    home = Path.home().resolve()
+    if p.parent == p and os.name == "nt" and p.drive.upper() == (os.environ.get("SystemDrive") or "C:").upper()[:2]:
+        return None, "No agregues todo el disco del sistema: elige una carpeta de él (por ejemplo, una de tus proyectos)."
+    if p == home or p in home.parents:
+        return None, "No agregues tu carpeta de usuario completa: elige una carpeta dentro de ella."
+    bloqueadas = [os.environ.get(v) for v in ("SystemRoot", "ProgramFiles", "ProgramFiles(x86)", "ProgramData")]
+    bloqueadas = [Path(b).resolve() for b in bloqueadas if b] + [home / "AppData"]
+    for b in bloqueadas:
+        if p == b or b in p.parents:
+            return None, f"Por seguridad no se puede dar acceso a {b.name}."
+    if any(part in _DIR_SENSIBLE for part in p.parts):
+        return None, "Esa carpeta guarda claves o datos de aplicaciones; no la agregues."
+    for app in _carpetas_de_orbi():
+        if p == app or p in app.parents:
+            return None, "Esa carpeta contiene a Orbi y tus claves (.env, config.json). Elige otra."
+    return p, ""
+
+
+def _leer_extra() -> list:
+    """Lista de carpetas extra de la config. Lo de Ajustes (orbi_config_ventana.json) manda sobre config.json."""
+    archivos = [_cfg_dir() / "config.json", _cfg_dir() / "orbi_config_ventana.json"]
+    sig = []
+    for a in archivos:
+        try:
+            sig.append(a.stat().st_mtime_ns)
+        except OSError:
+            sig.append(None)
+    sig = tuple(sig)
+    if _extra_cache["sig"] == sig:
+        return _extra_cache["dirs"]
+    crudo = []
+    for a in archivos:
+        try:
+            v = json.loads(a.read_text(encoding="utf-8")).get("carpetas_extra")
+            if isinstance(v, list):
+                crudo = v
+        except Exception:                                # noqa: BLE001
+            pass
+    _extra_cache.update(sig=sig, dirs=[str(x) for x in crudo if str(x).strip()])
+    return _extra_cache["dirs"]
+
+
+def extra_dirs() -> list:
+    """Carpetas extra válidas y conectadas ahora mismo (las que ya no existen o no pasan la validación se ignoran sin error)."""
+    crudo = EXTRA_DIRS if EXTRA_DIRS is not None else _leer_extra()
+    out = []
+    for r in crudo:
+        p, _m = validar_dir(r)
+        if p is not None and p not in out:
+            out.append(p)
+    return out
+
+
 def file_roots() -> list:
     """Documentos, Escritorio, Descargas, Imágenes (incluye «Capturas de pantalla»), Videos y Música, y sus versiones en
     OneDrive / en español. Las de documentos van primero para que las búsquedas las revisen antes que las fotos."""
@@ -82,6 +170,12 @@ def file_roots() -> list:
                     roots.append(p.resolve())
             except OSError:
                 pass
+    for d in extra_dirs():                                 # las que agregaste en Ajustes: después de las de siempre
+        try:
+            if d.resolve() not in roots:
+                roots.append(d.resolve())
+        except OSError:
+            pass
     if EXTERNAL_DRIVES:                                    # al final: las búsquedas revisan primero tus carpetas de siempre
         for d in external_drives():
             try:

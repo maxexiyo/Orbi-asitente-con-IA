@@ -18,7 +18,7 @@ Qué hace con ellas (la parte importante, pensada para todos los casos):
   7. LÍMITE: máximo N avisos por minuto; el resto queda en la lista.
 Todo se ajusta en config.json (ver README, sección Notificaciones).
 """
-import datetime, html, os, re, shutil, sqlite3, tempfile, threading, time
+import datetime, html, json, os, re, shutil, sqlite3, tempfile, threading, time
 from collections import deque
 from pathlib import Path
 
@@ -102,6 +102,109 @@ def parse_cuenta(xml: str) -> str:
     return ""
 
 
+# --------------------------------------------------------------------------- historial corto (leídas / descartadas)
+HIST_PATH = Path(__file__).resolve().parent / "orbi_notif_historial.json"   # orbi_*.json ya está en .gitignore
+ESTADOS = {"leida": "👁 leída", "descartada": "🗑 descartada"}
+
+
+class Historial:
+    """Notificaciones que ya se leyeron (Orbi te las dijo o las pediste) o se descartaron (reglas, silenciadas, las quitaste).
+
+    Dura pocas horas (`historial_horas`, 6 por defecto; 0 = no guarda nada) y como máximo `historial_max` entradas.
+    Se guarda en orbi_notif_historial.json para que sobreviva si reinicias Orbi; lo viejo se borra solo al leer y al guardar.
+    Del texto solo se conservan los primeros 140 caracteres."""
+
+    def __init__(self, cfg: dict = None, path=None):
+        self.path = Path(path) if path else HIST_PATH
+        self._lock = threading.Lock()
+        self._items = []
+        self.horas, self.max = 6.0, 40
+        self.configurar(cfg)
+        self._cargar()
+
+    def configurar(self, cfg: dict = None):
+        c = cfg or {}
+        try:
+            self.horas = max(0.0, float(c.get("historial_horas", 6)))
+            self.max = max(5, min(200, int(c.get("historial_max", 40))))
+        except (TypeError, ValueError):
+            self.horas, self.max = 6.0, 40
+        with self._lock:
+            self._podar()
+
+    def _podar(self):
+        corte = time.time() - self.horas * 3600
+        self._items = [i for i in self._items if i.get("ts", 0) >= corte][-self.max:] if self.horas > 0 else []
+
+    def _cargar(self):
+        try:
+            data = json.loads(self.path.read_text(encoding="utf-8"))
+            self._items = [i for i in data if isinstance(i, dict) and i.get("estado") in ESTADOS]
+        except Exception:                                     # noqa: BLE001
+            self._items = []
+        with self._lock:
+            self._podar()
+
+    def _guardar(self):
+        try:
+            if not self._items:
+                self.path.unlink(missing_ok=True)
+                return
+            tmp = self.path.with_suffix(".tmp")
+            tmp.write_text(json.dumps(self._items, ensure_ascii=False), encoding="utf-8")
+            os.replace(tmp, self.path)
+        except OSError:
+            pass
+
+    def marcar(self, n: dict, estado: str, forzar: bool = False):
+        """Anota (o actualiza) la notificación `n` como 'leida' o 'descartada'. Sola, una leída no pasa a descartada
+        (si Orbi ya te la dijo, sigue siendo leída); con forzar=True (tú pediste descartarla) sí."""
+        if estado not in ESTADOS or self.horas <= 0 or not isinstance(n, dict):
+            return
+        with self._lock:
+            nid = n.get("id")
+            for i in self._items:
+                if nid is not None and i.get("nid") == nid:
+                    if forzar or not (i["estado"] == "leida" and estado == "descartada"):
+                        i["estado"] = estado
+                    break
+            else:
+                self._items.append(dict(nid=nid, ts=time.time(), hora=n.get("hora") or datetime.datetime.now().strftime("%H:%M"),
+                                        app=str(n.get("app", ""))[:40], titulo=str(n.get("titulo", ""))[:90],
+                                        texto=str(n.get("texto", ""))[:140], categoria=n.get("categoria", ""), estado=estado))
+            self._podar()
+            self._guardar()
+        n["estado"] = estado
+
+    def ver(self, estado: str = "", n: int = 15, app: str = "") -> list:
+        """Más recientes primero. estado: '' (todas), 'leida' o 'descartada'."""
+        with self._lock:
+            self._podar()
+            items = list(self._items)[::-1]
+        if estado in ESTADOS:
+            items = [i for i in items if i["estado"] == estado]
+        if app:
+            items = [i for i in items if app.lower() in i["app"].lower()]
+        return items[:max(1, n)]
+
+    def vaciar(self):
+        with self._lock:
+            self._items = []
+            self._guardar()
+
+    @staticmethod
+    def linea(i: dict) -> str:
+        cuando = i.get("hora", "")
+        return f"{cuando} · {ESTADOS.get(i.get('estado'), '')} · {i.get('app', '')} · {i.get('titulo', '')}: {i.get('texto', '')}".strip(": ")
+
+
+HISTORIAL = Historial()          # la misma instancia la usan el vigilante, el anunciador, las tools y Ajustes
+
+
+def configurar_historial(ncfg: dict = None):
+    HISTORIAL.configurar(ncfg)
+
+
 class NotificationWatcher:
     """Lee notificaciones nuevas y las manda a `on_notification(dict)`. `recent()` devuelve las últimas guardadas."""
 
@@ -115,6 +218,7 @@ class NotificationWatcher:
         self._stop = threading.Event()
         self._thread = None
         self.last_error = ""
+        configurar_historial(self.cfg)
 
     # ------------------------------------------------------------ control
     def start(self):
@@ -281,8 +385,11 @@ class Announcer:
         """Devuelve 'avisada' | 'en_cola' | 'ignorada' | 'guardada' (para pruebas y para el log)."""
         v = self._rule_verdict(n)
         if v:
+            if v == "ignorada":
+                HISTORIAL.marcar(n, "descartada")      # una regla tuya la tira: queda en el historial como descartada
             return v
         if any(a in n["app"].lower() for a in self.mute_apps):
+            HISTORIAL.marcar(n, "descartada")
             return "ignorada"
         vip = self._is_vip(n)
         if not vip and n["categoria"] not in self.categories:
@@ -313,6 +420,8 @@ class Announcer:
             return                                           # límite: quedan en la lista, se pueden consultar
         self._spoken.append(t)
         texto = self.summarize(batch)
+        for n in batch:
+            HISTORIAL.marcar(n, "leida")               # Orbi te la dijo
         try:
             self.speak(texto, batch)                         # el lote va aparte para que la mini ventana pueda hacerlo clicable
         except TypeError:                                    # speak antiguo de un solo argumento

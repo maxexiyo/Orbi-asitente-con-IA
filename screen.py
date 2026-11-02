@@ -3,7 +3,31 @@
 capture()  -> (jpeg_bytes, monitor)   monitor = dict(left, top, width, height) del monitor capturado
 changed()  -> True si la pantalla cambió lo suficiente respecto a la captura anterior
 """
-import io, time
+import importlib, io, sys, time
+
+
+def _quitar_captureblt() -> bool:
+    """Evita el parpadeo (y desaparición) del puntero del mouse al capturar la pantalla en Windows (#47).
+
+    mss captura con BitBlt + el flag CAPTUREBLT, que incluye las ventanas «en capas» (translúcidas, como las de Orbi). Windows
+    reacomoda esas ventanas en cada captura y el cursor parpadea o se esconde un instante; con capturas seguidas
+    (esperar a que la pantalla se asiente, el modo compañero...) se nota como parpadeo constante.
+    Quitarlo solo deja fuera de la captura esas ventanas translúcidas (justo las de Orbi, que ya no queremos ver)."""
+    if sys.platform != "win32":
+        return False
+    hecho = False
+    for nombre in ("mss.windows.gdi", "mss.windows"):             # mss 10 lo define en gdi; las versiones anteriores en mss.windows
+        try:
+            m = importlib.import_module(nombre)
+            if getattr(m, "CAPTUREBLT", 0):
+                m.CAPTUREBLT = 0
+                hecho = True
+        except Exception:                                          # noqa: BLE001  (sin mss o versión distinta: queda como estaba)
+            pass
+    return hecho
+
+
+_quitar_captureblt()
 
 MAX_SIDE = 1600      # lado más largo del JPEG que se manda (antes 1280: en pantallas grandes el texto chico no se leía)
 QUALITY = 78         # config.json: pantalla_max_side / pantalla_quality (ver configure())

@@ -8,6 +8,9 @@ Se abre desde el menú de la bolita («Ajustes…») o desde el clic derecho de 
   Internet      · paciencia con redes lentas, navegador como último recurso
   Memoria       · resumir conversaciones para recordarlas, olvidar lo guardado
   Alarmas       · tono (con botón de prueba)
+  Calendarios   · calendarios que Orbi lee (iCal) y avisos de eventos (al iniciar, 15 min antes, 1 día antes…)
+  Carpetas      · otras carpetas a las que Orbi puede entrar (además de Documentos, Escritorio, Descargas…)
+  Notificaciones· qué avisar, horario de silencio e historial corto (leídas / descartadas, unas horas)
   Rutinas y alarmas · ver, agregar, editar y borrar a mano rutinas/reglas, alarmas, recordatorios y timers (ajustes_pendientes.py)
   General       · lo de config.json que tiene sentido para un usuario normal (voz, tamaño de la bolita, cuándo se duerme,
                   modo compañero, notificaciones, privacidad). Se guarda en orbi_config_ventana.json y manda sobre config.json;
@@ -40,6 +43,7 @@ FIN_TURNO = [("low", "Que me deje terminar de pensar lo que digo (normal)"), ("h
 REVISAR = [(1, "Cada segundo (gasta mucha cuota)"), (5, "Cada 5 segundos"), (10, "Cada 10 segundos"), (20, "Cada 20 segundos (normal)"), (40, "Cada 40 segundos"), (60, "Cada minuto"), (120, "Cada 2 minutos")]
 TOPE = [(0, "Sin tope: Orbi decide cuándo vale la pena"), (3, "Máximo 3 por hora"), (6, "Máximo 6 por hora"), (12, "Máximo 12 por hora")]
 PAUSA = [(0, "Ninguna"), (60, "1 minuto"), (120, "2 minutos"), (300, "5 minutos")]
+HIST_HORAS = [(0, "No guardar historial"), (2, "2 horas"), (6, "6 horas (normal)"), (12, "12 horas")]
 CATEG = [("mensajes", "Mensajes"), ("correo", "Correo"), ("calendario", "Calendario"), ("seguridad", "Seguridad")]
 SECCIONES = [("calendario", "Calendario"), ("alarmas", "Alarmas"), ("recordatorios", "Recordatorios"),
              ("timers", "Timers (cuenta regresiva)"), ("busquedas", "Resúmenes de búsquedas web con imagen"),
@@ -373,7 +377,17 @@ class AjustesDialog(QDialog):
         f.addRow("", self.c_aviso); f.addRow("Revisar el correo:", self.c_cada); f.addRow("", self.c_voz); f.addRow("", self.c_imp)
         nn = QLabel("Las notificaciones también necesitan el permiso «notificaciones» en la configuración inicial de Orbi.")
         nn.setWordWrap(True); nn.setObjectName("nota"); f.addRow("", nn)
+        # historial corto: lo que ya se leyó o se descartó (dura pocas horas y sobrevive si reinicias Orbi)
+        self.n_hist_h = _combo(HIST_HORAS, _near(HIST_HORAS, nt.get("historial_horas", 6)))
+        f.addRow("Guardar el historial de notificaciones leídas y descartadas:", self.n_hist_h)
+        self.n_hist = QListWidget(); self.n_hist.setMinimumHeight(120); self.n_hist.setMaximumHeight(170)
+        f.addRow("", self.n_hist)
+        hb = QHBoxLayout()
+        b = QPushButton("Actualizar"); b.clicked.connect(self._hist_refresh); hb.addWidget(b)
+        b = QPushButton("Vaciar historial"); b.clicked.connect(self._hist_vaciar); hb.addWidget(b); hb.addStretch(1)
+        f.addRow("", hb)
         tabs.addTab(_scroll(w), "Notificaciones")
+        self._hist_refresh()
 
         # ---------------- Alarmas
         w = QWidget(); f = _form(w)
@@ -449,8 +463,52 @@ class AjustesDialog(QDialog):
         b = QPushButton("➕ Agregar calendario…"); b.clicked.connect(self._cal_add); rb.addWidget(b)
         b = QPushButton("Quitar el seleccionado"); b.clicked.connect(self._cal_del); rb.addWidget(b)
         lay.addLayout(rb)
+        # avisos de eventos (#46): cuándo te avisa Orbi antes de cada evento
+        import avisos_cal as _ac
+        _av = (cfg or {}).get("avisos_calendario") if isinstance((cfg or {}).get("avisos_calendario"), dict) else {}
+        _antes = _ac.parse_lista(_av.get("antes_min", _ac.DEFAULTS["antes_min"]))
+        self.av_activo = QCheckBox("Avisarme de mis eventos del calendario"); self.av_activo.setChecked(bool(_av.get("activo", True)))
+        lay.addWidget(self.av_activo)
+        lay.addWidget(QLabel("Avisarme (puedes marcar varios):"))
+        self.av_chk, g = {}, QGridLayout()
+        for k, (m, txt) in enumerate(_ac.PRESETS):
+            cb = QCheckBox(txt); cb.setChecked(m in _antes); self.av_chk[m] = cb
+            g.addWidget(cb, k // 2, k % 2)
+        lay.addLayout(g)
+        otros = [m for m in _antes if m not in self.av_chk]
+        self.av_otros = QLineEdit(", ".join(f"{m} min" for m in otros))
+        self.av_otros.setPlaceholderText("Otros, por ejemplo: 45 minutos, 3 horas, 2 días")
+        lay.addWidget(self.av_otros)
+        self.av_voz = QCheckBox("Decírmelo en voz alta (si no, solo sale en la burbuja y en la mini ventana)")
+        self.av_voz.setChecked(bool(_av.get("voz", True)))
+        lay.addWidget(self.av_voz)
+        nota_av = QLabel("Cada aviso se dice una sola vez por evento. En tu horario de silencio solo sale en pantalla. "
+                         "También puedes decirle a Orbi: «avísame de mis eventos 15 minutos antes y 1 día antes». "
+                         "Necesita el permiso «agenda».")
+        nota_av.setWordWrap(True); nota_av.setObjectName("nota"); lay.addWidget(nota_av)
         tabs.addTab(w, "Calendarios")
         self._cal_refresh()
+
+        # ---------------- Carpetas (a cuáles puede entrar Orbi además de las de siempre)
+        import docs_reader as _dr
+        self._dr = _dr
+        _ce = (cfg or {}).get("carpetas_extra")
+        self._carp = [str(x) for x in _ce] if isinstance(_ce, list) else []
+        w = QWidget(); lay = QVBoxLayout(w)
+        info = QLabel("Orbi busca, lee, abre y organiza archivos <b>solo</b> dentro de las carpetas que puede ver: siempre Documentos, Escritorio, "
+                      "Descargas, Imágenes, Videos y Música (y tus memorias USB o discos externos si lo dejas activado en General). "
+                      "Aquí agregas otras, por ejemplo la carpeta de tus proyectos. Para pedírselas por voz dile su nombre, "
+                      "como «abre la carpeta Proyectos».<br>Solo se agregan desde esta ventana: Orbi no puede darse acceso por su cuenta. "
+                      "El cambio se aplica al pulsar «Aplicar».")
+        info.setWordWrap(True); info.setTextFormat(Qt.RichText)
+        self.carp_list = QListWidget()
+        lay.addWidget(info); lay.addWidget(self.carp_list, 1)
+        rb = QHBoxLayout()
+        b = QPushButton("➕ Agregar carpeta…"); b.clicked.connect(self._carp_add); rb.addWidget(b)
+        b = QPushButton("Quitar la seleccionada"); b.clicked.connect(self._carp_del); rb.addWidget(b)
+        lay.addLayout(rb)
+        tabs.addTab(w, "Carpetas")
+        self._carp_refresh()
 
         # ---------------- Funciones (lo que antes estaba en el clic derecho de Orbi)
         items = (extras or {}).get("items") or []
@@ -587,6 +645,69 @@ class AjustesDialog(QDialog):
                                 "(Las notas que te pidió recordar no se tocan.)") == QMessageBox.Yes:
             self._clear()
 
+    # ---- historial de notificaciones
+    def _hist_refresh(self):
+        self.n_hist.clear()
+        try:
+            import notifications as _nt
+            items = _nt.HISTORIAL.ver("", 30)
+        except Exception:                                    # noqa: BLE001
+            items = []
+        for i in items:
+            self.n_hist.addItem(_nt.Historial.linea(i)[:140])
+        if not items:
+            self.n_hist.addItem("(vacío: aquí aparecen las notificaciones que Orbi ya te dijo o descartó)")
+
+    def _hist_vaciar(self):
+        if QMessageBox.question(self, "Historial", "¿Borrar el historial de notificaciones leídas y descartadas?") == QMessageBox.Yes:
+            try:
+                import notifications as _nt
+                _nt.HISTORIAL.vaciar()
+            except Exception:                                # noqa: BLE001
+                pass
+            self._hist_refresh()
+
+    # ---- avisos de eventos
+    def _av_antes(self) -> list:
+        import avisos_cal as _ac
+        marcados = [m for m, cb in self.av_chk.items() if cb.isChecked()]
+        return sorted(set(marcados) | set(_ac.parse_lista(self.av_otros.text())), reverse=True)[:_ac.MAX_AVISOS]
+
+    # ---- carpetas extra
+    def _carp_refresh(self):
+        self.carp_list.clear()
+        for r in self._carp:
+            p, motivo = self._dr.validar_dir(r)
+            it = QListWidgetItem(f"📁 {p}" if p else f"⚠ {r} — {motivo}")
+            it.setData(Qt.UserRole, r)
+            self.carp_list.addItem(it)
+        if not self._carp:
+            self.carp_list.addItem("(todavía no agregaste ninguna)")
+
+    def _carp_add(self):
+        d = QFileDialog.getExistingDirectory(self, "Elegir una carpeta a la que Orbi pueda entrar")
+        if not d:
+            return
+        p, motivo = self._dr.validar_dir(d)
+        if p is None:
+            QMessageBox.warning(self, "Carpetas", motivo)
+            return
+        if str(p) in [str(self._dr.validar_dir(r)[0]) for r in self._carp]:
+            QMessageBox.information(self, "Carpetas", "Esa carpeta ya está en la lista.")
+            return
+        if self._dr.inside_roots(p):
+            QMessageBox.information(self, "Carpetas", "Esa carpeta ya está dentro de una que Orbi puede ver; no hace falta agregarla.")
+            return
+        self._carp.append(str(p))
+        self._carp_refresh()
+
+    def _carp_del(self):
+        it = self.carp_list.currentItem()
+        r = it.data(Qt.UserRole) if it else None
+        if r in self._carp:
+            self._carp.remove(r)
+            self._carp_refresh()
+
     def collect(self) -> dict:
         mini = {"modo": self.m_modo.currentData(), "tam": self.m_tam.currentData(), "esquina": self.m_esq.currentData(),
                 "ubicacion": self.m_ubi.currentData(), "proximo_min": self.m_prox.currentData(),
@@ -600,7 +721,9 @@ class AjustesDialog(QDialog):
                                 "pausa_tras_comentario_s": self.g_pausa.value()},
                   "esquivar_al_trabajar": self.g_esq.isChecked(), "preferir_mouse": self.g_mouse.isChecked(),
                   "ocultar_orbi_en_capturas": self.g_ocul.isChecked(), "busqueda_web": self.g_web.isChecked(),
-                  "unidades_externas": self.g_ext.isChecked(), "calendarios": dict(self._cal),
+                  "unidades_externas": self.g_ext.isChecked(), "calendarios": dict(self._cal), "carpetas_extra": list(self._carp),
+                  "avisos_calendario": {"activo": self.av_activo.isChecked(), "voz": self.av_voz.isChecked(),
+                                        "antes_min": self._av_antes()},
                   "correo_avisos": {"activo": self.c_aviso.isChecked(), "cada_s": self.c_cada.value(), "voz": self.c_voz.isChecked(),
                                     "solo_importantes": self.c_imp.isChecked()},
                   "mic_umbral": round(0.30 - 0.0026 * self.au_mic.value(), 3), "volumen_voz": round(self.au_vol.value() / 100.0, 2),
@@ -610,7 +733,8 @@ class AjustesDialog(QDialog):
                                      "vip": [x.strip() for x in self.n_vip.text().split(",") if x.strip()],
                                      "horas_silencio": [self.n_ini.time().toString("HH:mm"), self.n_fin.time().toString("HH:mm")]
                                      if self.n_sil.isChecked() else [],
-                                     "leer_contenido": self.n_leer.isChecked()}}
+                                     "leer_contenido": self.n_leer.isChecked(),
+                                     "historial_horas": self.n_hist_h.currentData()}}
         return {"config": config, "permisos": {"modo_delicadas": modo_d, "modo_normales": self.c_nor.currentData(),
                              "confirmar_acciones": modo_d != "permitir"},       # compatibilidad con el asistente de configuración
                 "ajustes": {"mini": mini, "internet_lento": self.i_lento.currentData(), "busqueda_navegador": self.i_nav.isChecked(),
@@ -631,4 +755,9 @@ class AjustesDialog(QDialog):
 
     def _aplicar(self):
         self._tema_aplicado = self.t_tema.currentData()
+        try:                                                  # el historial de notificaciones cambia al momento, sin reiniciar
+            import notifications as _nt
+            _nt.configurar_historial({"historial_horas": self.n_hist_h.currentData(), "historial_max": _nt.HISTORIAL.max})
+        except Exception:                                     # noqa: BLE001
+            pass
         self._apply(self.collect())
