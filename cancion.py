@@ -110,6 +110,9 @@ PROMPT_IA = ("Clasifica esta canción por género musical. Responde SOLO con una
              "hiphop, metal, rock, electronica, regional, ranchera, suave, disco, pop, ninguno. Usa «cumbia» también para cumbia electrónica "
              "o sonidera, «regional» para corridos, banda y norteño, «suave» para baladas, lo-fi y música clásica, y «ninguno» si no es "
              "música o no la conoces.\nCanción: {t}")
+PROMPT_TIPO = ("¿Esto que está sonando es MÚSICA (una canción, un mix, lo-fi, música instrumental, un video musical, un álbum) o es un VIDEO de otro "
+               "tipo (película, serie, tutorial, gameplay, reacción, noticias, podcast, entrevista, charla, clase)? Responde SOLO una palabra: "
+               "«musica» o «video». Si dudas, responde «musica».\nTítulo: {t}")
 _CACHE = {"d": None}
 
 
@@ -133,7 +136,7 @@ def cache_get(texto: str):
 
 def cache_put(texto: str, gen: str):
     d = _cache()
-    d[fold(texto).strip()] = gen
+    d[texto if texto.startswith("tipo:") else fold(texto).strip()] = gen          # la llave «tipo:...» ya viene lista (ver tipo_put)
     if len(d) > 2000:
         for k in list(d)[:200]:
             d.pop(k, None)
@@ -149,3 +152,18 @@ def parse_ia(texto: str) -> str:
         if w in VALIDOS:
             return w
     return "ninguno"
+
+
+def tipo_get(texto: str):
+    """«musica» / «video» recordado para ese título (lo decidió Gemini una vez), o None si nunca se preguntó."""
+    return _cache().get("tipo:" + fold(texto).strip())
+
+
+def tipo_put(texto: str, tipo: str):
+    cache_put("tipo:" + fold(texto).strip(), tipo)
+
+
+def parse_tipo(texto: str) -> str:
+    """«video» solo si la respuesta del modelo lo dice claro; ante cualquier duda, «musica» (mejor bailar de más que dejar de bailar música)."""
+    f = fold(texto).split()
+    return "video" if ("video" in f and "musica" not in f) else "musica"

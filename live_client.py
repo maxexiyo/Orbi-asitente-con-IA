@@ -8,7 +8,7 @@ Eventos que emite (emit(kind, data)):
 Visión: `send_image(jpeg)` manda un frame a la conversación; `screen_watch = True` manda la pantalla
 sola cada ~2 s (solo si cambió). Las tools pueden devolver {"_image": jpeg} para que la IA lo vea.
 """
-import asyncio, collections, copy, json, re, time
+import asyncio, collections, concurrent.futures, copy, json, re, time
 
 import numpy as np
 from google import genai
@@ -129,6 +129,8 @@ class LiveSession:
         self.emit = emit
         self.gate = None                              # callable -> bool: ¿mandar el micro a Live? (None = siempre)
         self.mic_hooks = []                           # callables(bytes) que reciben cada trozo de micro (palabra clave)
+        self.mic_cleaner = None                       # audio_clean.MicCleaner: quita el audio de la PC (eco) y el ruido del micro antes de todo lo demás
+        self._clean_ex = None                         # hilo propio de la limpieza: en el hilo de asyncio frenaba la bocina de Orbi (voz entrecortada)
         self._bad_models = {}                          # modelo -> hasta cuándo se descarta (caduca: puede ser un fallo pasajero)
         self._worked = set()                           # modelos que ya conectaron alguna vez en esta ejecución
         self.thinking_level = "low"                    # modelos «extended-thinking» lo exigen en el setup (low = más rápido). config: live_thinking
@@ -151,6 +153,7 @@ class LiveSession:
         # filtro por nombre (sin Vosk): te oye siempre, pero solo contesta si te diriges a Orbi
         self.name_gate = False
         self.asr_vocab, self.asr_langs = [], []         # opcional: vocabulario / idiomas para la transcripción de lo que dices (config.json)
+        self.asr_nota = ""                              # texto que se agrega al prompt: en qué idioma(s) te oye (config.json «idioma_oido»)
         self.addressed_check = lambda text: True      # live_orb: texto que dijiste -> ¿es para Orbi?
         self.gate_wait_s = 1.5                        # cuánto retiene la voz de Orbi esperando la transcripción de lo que dijiste
         self._turn_text, self._gate_decision, self._hold, self._hold_txt = "", None, [], []
@@ -219,6 +222,20 @@ class LiveSession:
             return False
         self._task.get_loop().call_soon_threadsafe(self._enqueue_text, text)
         return True
+
+    def send_silent(self, text: str) -> bool:
+        """Le cuenta algo a Orbi («te acaban de acariciar») SIN que conteste: se manda como texto y se tira lo que diga en ese turno
+        (voz, texto y herramientas). Solo si no está hablando ni ocupado; devuelve False si no lo mandó. Cualquier hilo."""
+        if not self._task or self._task.done():
+            return False
+        self._task.get_loop().call_soon_threadsafe(self._enqueue_silent, text)
+        return True
+
+    def _enqueue_silent(self, text):
+        if self._speaking or self._waiting or time.time() < self._suppress_until:
+            return
+        self._suppress_until = time.time() + 12.0         # el fin de turno lo suelta antes (turn_complete → _suppress_until = 0)
+        self._text_q.put_nowait(text)
 
     def send_image(self, jpeg: bytes) -> bool:
         """Manda un frame JPEG a la conversación en vivo. Se puede llamar desde cualquier hilo."""
@@ -397,6 +414,8 @@ class LiveSession:
         if self._handle_key != key:          # el handle solo sirve con la key que lo creó
             self._handle = None
         sysi = self.system_prompt
+        if self.asr_nota:
+            sysi = f"{sysi}\n\n{self.asr_nota}"
         if self._handle is None and self.recap_fn:           # sesión nueva (primera vez, reconexión sin handle o handle caducado)
             try:
                 rec = (self.recap_fn() or "").strip()
@@ -585,6 +604,13 @@ class LiveSession:
                         self.emit("info", f"[audio] No pude reabrir el micrófono ({type(e).__name__}); reintento en unos segundos.")
                         await asyncio.sleep(3.0)
                     continue
+                cl = self.mic_cleaner
+                if cl is not None:                            # limpieza ANTES de todo (palabra clave, VAD, barge-in, Gemini); ve el micro aunque estés en mute
+                    if self._clean_ex is None:
+                        self._clean_ex = concurrent.futures.ThreadPoolExecutor(max_workers=1, thread_name_prefix="orbi-limpieza")
+                    data = await asyncio.get_running_loop().run_in_executor(self._clean_ex, cl.process, data)   # sin frenar el hilo que reproduce la voz
+                    if not data:
+                        continue
                 if self.muted:
                     continue
                 now = time.time()
@@ -664,6 +690,13 @@ class LiveSession:
         self._speaking = False
 
     # ------------------------------------------------------------------ filtro de basura en lo que Orbi dice
+    _PIDE_SONIDO = re.compile(r"\b(canta|cantame|cantar|cancion|tarare\w*|silba\w*|ruido\w*|sonido\w*|imita\w*|beatbox|rie\w*|risa\w*|bosteza\w*|"
+                              r"maull\w*|ladr\w*|grita\w*|onomatopey\w*|haz el|haz un|suspira\w*|ronronea\w*)\b")
+
+    def _pide_sonido(self) -> bool:
+        """¿Le pediste cantar o hacer ruidos? Entonces un «mmm» o un «ahhh» suyo no es muletilla: es lo que pediste."""
+        return bool(self._PIDE_SONIDO.search(_norm_txt(self._turn_text)))
+
     def _junk_reset(self):
         self._jh_state, self._jh, self._jh_txt, self._jh_ptxt, self._jh_t0 = None, [], "", [], 0.0
 
@@ -676,7 +709,7 @@ class LiveSession:
             return
         now = time.time()
         timeout = now - self._jh_t0 >= self.junk_wait_s
-        why = es_basura_salida(self._jh_txt, self._turn_text, final=final or timeout)
+        why = es_basura_salida(self._jh_txt, self._turn_text, final=(final or timeout) and not self._pide_sonido())
         if why:
             self._jh_state = "junk"
             self._jh, self._jh_ptxt = [], []

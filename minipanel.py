@@ -29,6 +29,8 @@ from PySide6.QtGui import QColor, QDesktopServices, QPainter, QPixmap, QPen, QBr
 from PySide6.QtWidgets import QApplication, QHBoxLayout, QLabel, QMenu, QPushButton, QVBoxLayout, QWidget
 from PySide6.QtGui import QGuiApplication
 
+import temas as _temas      # colores y fuentes del tema elegido en Ajustes → Apariencia (la mini ventana se repinta al cambiar de tema)
+
 DEFAULT = {"modo": "orbi", "tam": "media", "opacidad": 92, "esquina": "inferior_derecha",
            "secciones": {"calendario": True, "alarmas": True, "recordatorios": True, "timers": True, "busquedas": True}, "pos": None}
 TAM = {"compacta": dict(w=250, fs=11, items=2, img=0), "media": dict(w=310, fs=12, items=4, img=84),
@@ -38,7 +40,12 @@ TIMER_MAX_S = 3 * 3600
 MAX_PUSH = 4
 _URL = re.compile(r"(https?://[^\s<>\"']+)")
 _RUTA = re.compile(r"([A-Za-z]:\\[^\s<>\"|?*]+)")
-LINK_STYLE = "color:#9cc2ff;text-decoration:none"
+def _T():
+    return _temas.actual()
+
+
+def _link_style() -> str:
+    return f"color:{_T().enlace};text-decoration:none"
 
 
 def merged(cfg: dict | None) -> dict:
@@ -104,12 +111,12 @@ class MiniPanel(QWidget):
         self._close.setFixedSize(20, 20)
         self._close.setCursor(Qt.PointingHandCursor)
         self._close.setFocusPolicy(Qt.NoFocus)
-        self._close.setStyleSheet("QPushButton{color:#cfd6e6;background:rgba(255,255,255,25);border:none;border-radius:10px;"
-                                  "font-size:11px;}QPushButton:hover{background:rgba(255,80,80,170);color:white;}")
+        self._estilo_cerrar()
         self._close.clicked.connect(self.hide_now)
         self._close.raise_()
         self._timer = QTimer(self); self._timer.timeout.connect(self._tick); self._timer.start(1000)
         self._n = 0
+        _temas.al_cambiar(self.aplicar_tema)
         self.refresh()
 
     # ------------------------------------------------------------------ enlaces clicables
@@ -118,7 +125,7 @@ class MiniPanel(QWidget):
         """Envuelve inner_html en un enlace; el destino real (url, ruta, dict de acción o función) se guarda en store."""
         k = str(len(store))
         store[k] = target
-        return f"<a href='orbi://{k}' style='{LINK_STYLE}'>{inner_html}</a>"
+        return f"<a href='orbi://{k}' style='{_link_style()}'>{inner_html}</a>"
 
     def _rich(self, store: dict, txt: str, target=None) -> str:
         """Texto -> html. Con target, toda la línea es un enlace; sin target, se enlazan solas las URLs y rutas de archivo."""
@@ -354,7 +361,7 @@ class MiniPanel(QWidget):
         if c["modo"] == "oculta" or (c["modo"] in ("con_datos", "orbi") and not hay):
             self.hide()
             return
-        self._text.setStyleSheet(f"color:#e8ecf5; font-size:{fs}px;")
+        self._text.setStyleSheet(f"color:{_T().texto}; font-size:{fs}px; font-family:{_temas.familias(_T())};")
         self._text.setText(self._html(d, n, fs))
         self._rebuild_cards(d["cards"], c, t, fs)
         self._lay.activate()
@@ -368,26 +375,26 @@ class MiniPanel(QWidget):
         st = self._tlinks
 
         def h(txt):
-            return f"<div style='color:#8fb4ff;font-weight:bold;margin-top:4px'>{txt}</div>"
+            return f"<div style='color:{_T().acento};font-weight:bold;margin-top:4px'>{txt}</div>"
         out = []
         if d["tarea"]:
             tk = d["tarea"]
             out.append(h("🖱️ Trabajando en tu PC"))
             out.append(f"<div>{_esc(tk['texto'])}</div>")
             if tk["paso"]:
-                out.append(f"<div style='color:#9aa4b8'>{_esc(tk['paso'])}…</div>")
+                out.append(f"<div style='color:{_T().tenue}'>{_esc(tk['paso'])}…</div>")
         if d["acts"]:
             now = time.time()
             out.append(h("⚙️ Orbi está trabajando" if any(a["t1"] is None for a in d["acts"]) else "⚙️ Listo"))
             hechos = [a for a in d["acts"] if a["t1"] is not None][-2:]
             for a in hechos:
-                out.append(f"<div style='color:#7f8c8d'>{'✓' if a['ok'] else '✗'} {_esc(a['label'])}</div>")
+                out.append(f"<div style='color:{_T().tenue}'>{'✓' if a['ok'] else '✗'} {_esc(a['label'])}</div>")
             for a in [a for a in d["acts"] if a["t1"] is None][-2:]:
                 seg = int(now - a["t0"])
                 tiempo = f"{seg // 60}:{seg % 60:02d}" if seg >= 60 else f"{seg} s"
-                out.append(f"<div><b>▶ {_esc(a['label'])}</b>{' · en segundo plano' if a['bg'] else ''} <span style='color:#9aa4b8'>{tiempo}</span></div>")
+                out.append(f"<div><b>▶ {_esc(a['label'])}</b>{' · en segundo plano' if a['bg'] else ''} <span style='color:{_T().tenue}'>{tiempo}</span></div>")
             if d["pend"]:
-                out.append(f"<div style='color:#9aa4b8'>⏭ sigue: {_esc(', '.join(d['pend'][:3]))}</div>")
+                out.append(f"<div style='color:{_T().tenue}'>⏭ sigue: {_esc(', '.join(d['pend'][:3]))}</div>")
         for p in d["pushes"]:
             ttl = f"{_esc(p['icono'])} {_esc(p['titulo'])}"
             if p.get("url"):
@@ -416,7 +423,7 @@ class MiniPanel(QWidget):
                 url = url or self._ev_url(txt)
                 shown = _esc(re.sub(r"\s*\(id:[^)]*\)", "", txt)[:48])  # el id interno no le sirve al usuario
                 out.append(f"<div>{self._a(st, shown, url)}</div>")
-        return "".join(out) or "<div style='color:#9aa4b8'>Nada pendiente por ahora ✨</div>"
+        return "".join(out) or f"<div style='color:{_T().tenue}'>Nada pendiente por ahora ✨</div>"
 
     def _rebuild_cards(self, cards: list, c: dict, t: dict, fs: int) -> None:
         for w in self._card_boxes:
@@ -425,7 +432,7 @@ class MiniPanel(QWidget):
         self._clinks.clear()
         if not cards:
             return
-        head = QLabel("🔎 Búsquedas recientes"); head.setStyleSheet(f"color:#8fb4ff;font-weight:bold;font-size:{fs}px;")
+        head = QLabel("🔎 Búsquedas recientes"); head.setStyleSheet(f"color:{_T().acento};font-weight:bold;font-size:{fs}px;")
         self._lay.addWidget(head); self._card_boxes.append(head)
         for k in cards[: 2 if c["tam"] == "grande" else 1]:
             row = QWidget(); hl = QHBoxLayout(row); hl.setContentsMargins(0, 0, 0, 0); hl.setSpacing(8)
@@ -453,9 +460,9 @@ class MiniPanel(QWidget):
             ttl = _esc((k["titulo"] or k["consulta"])[:40])
             if k.get("url"):
                 ttl = self._a(self._clinks, ttl, k["url"])
-            tx.setText(f"<b>{ttl}</b><br><span style='color:#cfd6e6'>{_esc(k['resumen'][:lim])}…</span>"
-                       + (f"<br><span style='color:#7f8aa3;font-size:{max(9, fs - 3)}px'>{fu}</span>" if fu else ""))
-            tx.setStyleSheet(f"color:#e8ecf5;font-size:{fs - 1}px;")
+            tx.setText(f"<b>{ttl}</b><br><span style='color:{_T().texto}'>{_esc(k['resumen'][:lim])}…</span>"
+                       + (f"<br><span style='color:{_T().tenue};font-size:{max(9, fs - 3)}px'>{fu}</span>" if fu else ""))
+            tx.setStyleSheet(f"color:{_T().texto};font-size:{fs - 1}px;")
             hl.addWidget(tx, 1)
             self._lay.addWidget(row); self._card_boxes.append(row)
 
@@ -464,10 +471,32 @@ class MiniPanel(QWidget):
         self._close.move(self.width() - self._close.width() - 8, 8)
         self._close.raise_()
 
+    def _estilo_cerrar(self) -> None:
+        t = _T()
+        self._close.setStyleSheet(f"QPushButton{{color:{t.tenue};background:transparent;border:none;border-radius:10px;font-size:11px;}}"
+                                  "QPushButton:hover{background:rgba(255,80,80,190);color:white;}")
+
+    def aplicar_tema(self, _t=None) -> None:
+        """Se llama al cambiar de tema en Ajustes: repinta y vuelve a armar el texto con los colores nuevos."""
+        self._estilo_cerrar()
+        self.update()
+        try:
+            self.refresh()
+        except Exception:                                    # noqa: BLE001
+            pass
+
     def paintEvent(self, _e):
+        t = _T()
         p = QPainter(self); p.setRenderHint(QPainter.Antialiasing)
-        p.setBrush(QBrush(QColor(20, 25, 40, 235))); p.setPen(QPen(QColor(120, 160, 255, 90), 1))
-        p.drawRoundedRect(self.rect().adjusted(1, 1, -1, -1), 14, 14)
+        r = self.rect().adjusted(1, 1, -1 - (t.sombra[0] if t.sombra else 0), -1 - (t.sombra[1] // 2 if t.sombra else 0))
+        rad = max(0, min(t.radio, 18))
+        if t.sombra:                                         # sombra dura (juego, neobrutalista)
+            sh = t.sombra[2]
+            p.setPen(Qt.NoPen); p.setBrush(QColor(*sh))
+            p.drawRoundedRect(r.translated(t.sombra[0] // 2, t.sombra[1] // 2), rad, rad)
+        bg = t.bg
+        p.setBrush(QBrush(QColor(bg[0], bg[1], bg[2], max(bg[3], 235)))); p.setPen(QPen(QColor(*t.borde), min(t.borde_px, 3)))
+        p.drawRoundedRect(r, rad, rad)
 
     def _tick(self) -> None:
         self._n += 1

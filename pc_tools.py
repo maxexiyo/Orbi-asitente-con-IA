@@ -383,7 +383,11 @@ _tool("dashboard", "Abre el DASHBOARD: varios paneles estilo HUD a la vez en la 
       "Se cierra solo (accion='ocultar' lo quita ya). Dices lo importante por voz en una frase; los paneles son para verlo, no para repetirlo.",
       dict(titulo=S("Título corto del dashboard, ej. «Resumen del día»"), paneles=S("JSON con la lista de paneles (ver descripción)"),
            segundos=N("Cuánto tiempo dejarlo abierto (por defecto 90)"),
+           estilo=S("Solo si te piden un estilo para ESTA vez: orbita, vidrio, juego, editorial, terminal, neobrutalista, cinta, reloj o hud. Si no, no lo pongas: usa el tema que eligió el usuario en Ajustes."),
            accion={"type": "STRING", "enum": ["mostrar", "ocultar"]}), [], scopes=("live", "agent"))
+_tool("cambiar_tema", "Cambia el TEMA VISUAL de Orbi (dashboard, mini ventana, Ajustes y menús) y lo deja guardado. Úsalo cuando te pidan «cámbiate a estilo terminal», "
+      "«ponlo en modo reloj», etc. Opciones: orbita (el predeterminado), vidrio, juego, editorial, terminal, neobrutalista, cinta, reloj, hud.",
+      dict(estilo=S("orbita | vidrio | juego | editorial | terminal | neobrutalista | cinta | reloj | hud")), ["estilo"], scopes=("live", "agent"))
 _tool("cancelar_alarma", "Cancela alarmas/recordatorios: por texto, por hora (ej. '07:30'), por id o 'todas'.",
       dict(cual=S("texto, hora, id o 'todas'")), ["cual"])
 _tool("detener_alarma", "Apaga la alarma que está sonando; con posponer_minutos la vuelve a sonar después (ej. 10).",
@@ -1200,6 +1204,16 @@ def _run(name: str, args: dict, ctx: ToolContext) -> dict:
         ctx.emit("panel_mostrar", dict(accion="mostrar", titulo=titulo or "Orbi", lineas=lineas, segundos=seg,
                                        icono=str(args.get("icono", "") or "📌")[:4]))
         return {"resultado": "Listo: lo puse en la mini ventana, junto a mí."}
+    if name == "cambiar_tema":
+        est = str(args.get("estilo", "") or "").strip().lower().replace("é", "e").replace("ó", "o").replace(" ", "")
+        alias = {"orbital": "orbita", "glass": "vidrio", "cristal": "vidrio", "animalcrossing": "juego", "game": "juego", "claro": "editorial",
+                 "consola": "terminal", "hacker": "terminal", "brutalista": "neobrutalista", "barra": "cinta", "compacto": "cinta", "clasico": "hud"}
+        est = alias.get(est, est)
+        import temas as _tm
+        if est not in _tm.TEMAS:
+            return {"error": "Ese estilo no existe. Opciones: " + ", ".join(_tm.TEMAS)}
+        ctx.emit("tema_cambiar", est)
+        return {"resultado": f"Listo: cambié el tema a «{_tm.TEMAS[est].nombre}»."}
     if name == "dashboard":
         accion = str(args.get("accion", "mostrar") or "mostrar").lower()
         if accion.startswith(("ocult", "cerr")):
@@ -1217,7 +1231,7 @@ def _run(name: str, args: dict, ctx: ToolContext) -> dict:
         except (TypeError, ValueError):
             seg = 90.0
         ctx.emit("dashboard_mostrar", dict(accion="mostrar", titulo=str(args.get("titulo", "") or "Orbi").strip()[:40],
-                                           paneles=paneles, segundos=seg))
+                                           paneles=paneles, segundos=seg, estilo=str(args.get("estilo", "") or "").strip().lower()))
         return {"resultado": f"Listo: abrí el dashboard con {len(paneles)} panel(es). Dile lo más importante en una frase; no leas todo."}
     if name == "recursos":
         try:

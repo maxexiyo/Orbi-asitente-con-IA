@@ -1,0 +1,149 @@
+{
+ "id": "2026-10-31_145225",
+ "inicio": "2026-10-31T14:52:25",
+ "continua": null,
+ "turnos": [
+  {
+   "t": "2026-10-31T14:56:41",
+   "tu": "¿Cómo andas?",
+   "orbi": "Todo bien por acá, viviendo en tu compu y checando que todo funcione."
+  },
+  {
+   "t": "2026-10-31T14:57:33",
+   "tu": "la Orbi, ¿cómo andas?",
+   "orbi": "¡Hola, Omar! Todo al cien, aquí en tu escritorio y listo para lo que sea."
+  },
+  {
+   "t": "2026-10-31T16:32:38",
+   "tu": "las playudas",
+   "orbi": "Es una tortilla gigante y crujiente típica de Oaxaca, con frijoles, carne y queso, básicamente la gloria en forma de comida callejera."
+  },
+  {
+   "t": "2026-10-31T16:34:57",
+   "tu": "Orbi, pon una alarma a las 7:40.",
+   "orbi": "Listo, alarma programada."
+  },
+  {
+   "t": "2026-10-31T16:35:08",
+   "tu": "Orbe",
+   "orbi": "Aquí sigo, dime."
+  },
+  {
+   "t": "2026-10-31T20:14:26",
+   "tu": "Orbi",
+   "orbi": "Aquí sigo, dime qué traes en mente."
+  },
+  {
+   "t": "2026-10-31T22:01:10",
+   "tu": "I have a reservation.",
+   "orbi": "your reservations"
+  }
+ ],
+ "herramientas": [
+  {
+   "t": "2026-10-31T16:34:55",
+   "herramienta": "poner_alarma",
+   "args": "{'hora': '7:40'}",
+   "ok": true,
+   "error": "",
+   "seg": 0.0
+  },
+  {
+   "t": "2026-10-31T18:52:49",
+   "herramienta": "wiz_controlar",
+   "args": "{'accion': 'apagar', 'nombre': 'todas'}",
+   "ok": true,
+   "error": "",
+   "seg": 1.7
+  },
+  {
+   "t": "2026-10-31T19:15:29",
+   "herramienta": "investigar_web",
+   "args": "{'consulta': 'como correr juegos J2ME en Android modernos emulador'}",
+   "ok": true,
+   "error": "",
+   "seg": 99.9
+  },
+  {
+   "t": "2026-10-31T20:13:57",
+   "herramienta": "modo_interprete",
+   "args": "{'activar': True, 'idioma_b': 'español', 'idioma_a': 'japonés'}",
+   "ok": true,
+   "error": "",
+   "seg": 0.0
+  },
+  {
+   "t": "2026-10-31T22:08:26",
+   "herramienta": "usar_skill",
+   "args": "{'nombre': 'classroom'}",
+   "ok": true,
+   "error": "",
+   "seg": 0.4
+  },
+  {
+   "t": "2026-10-31T22:08:37",
+   "herramienta": "correo_buscar",
+   "args": "{'texto': 'Classroom', 'cuenta': 'ceti'}",
+   "ok": true,
+   "error": "",
+   "seg": 10.6
+  },
+  {
+   "t": "2026-10-31T22:08:38",
+   "herramienta": "correo_leer",
+   "args": "{'id': '2-3562', 'cuenta': 'ceti'}",
+   "ok": true,
+   "error": "",
+   "seg": 0.8
+  },
+  {
+   "t": "2026-10-31T22:08:41",
+   "herramienta": "abrir_url",
+   "args": "{'url': 'https://classroom.google.com/a/not-turned-in/all'}",
+   "ok": true,
+   "error": "",
+   "seg": 2.0
+  },
+  {
+   "t": "2026-10-31T22:08:46",
+   "herramienta": "leer_pantalla",
+   "args": "{'instruccion': 'Buscar la fecha y hora de entrega del TRABAJO FINAL DE SEGUNDO PARCIAL.'}",
+   "ok": true,
+   "error": "",
+   "seg": 4.8
+  },
+  {
+   "t": "2026-10-31T22:08:54",
+   "herramienta": "esperar_listo",
+   "args": "{'ventana': 'classroom', 'segundos': 5}",
+   "ok": true,
+   "error": "",
+   "seg": 7.0
+  },
+  {
+   "t": "2026-10-31T22:08:56",
+   "herramienta": "esperar_listo",
+   "args": "{'ventana': 'classroom', 'segundos': 5}",
+   "ok": true,
+   "error": "",
+   "seg": 1.2
+  },
+  {
+   "t": "2026-10-31T22:09:01",
+   "herramienta": "leer_pantalla",
+   "args": "{'instruccion': 'Leer la hora de entrega del TRABAJO FINAL DE SEGUNDO PARCIAL en la lista de tareas pendientes.'}",
+   "ok": true,
+   "error": "",
+   "seg": 4.7
+  },
+  {
+   "t": "2026-10-31T22:09:02",
+   "herramienta": "mini_ventana",
+   "args": "{'titulo': 'Entrega de mañana', 'lineas': 'Materia: 6F ORGANISMOS\\nEntrega: 11:00 AM'}",
+   "ok": true,
+   "error": "",
+   "seg": 0.0
+  }
+ ],
+ "fin": "2026-10-31T22:09:02"
+}

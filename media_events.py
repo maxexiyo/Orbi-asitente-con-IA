@@ -32,6 +32,7 @@ class MediaWatcher:
         self.on_state, self.on_track, self.interval, self.debug = on_state, on_track, interval, debug
         self._stop = threading.Event()
         self._th = None
+        self.source = ""                                       # app que está sonando (Spotify.exe, chrome.exe, Netflix...): en minúsculas
 
     def start(self) -> bool:
         """False si no está la librería de Windows (entonces no hay eventos de música)."""
@@ -59,6 +60,11 @@ class MediaWatcher:
                     if self.debug:
                         print(f"[música] {'sonando' if nuevo else 'en pausa' if nuevo is False else 'sin reproductor'}")
                     self.on_state(nuevo)
+                if sonando:
+                    try:
+                        self.source = (getattr(sonando[0], "source_app_user_model_id", "") or "").lower()
+                    except Exception:                          # noqa: BLE001
+                        pass
                 if sonando and time.time() - t_props > 1.0:
                     t_props = time.time()
                     p = await sonando[0].try_get_media_properties_async()

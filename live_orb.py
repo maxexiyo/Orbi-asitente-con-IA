@@ -40,6 +40,7 @@ _setup_logging()
 from PySide6.QtCore import QObject, Qt, Signal, QTimer
 from PySide6.QtGui import QColor, QIcon, QPainter, QPixmap, QRadialGradient
 from PySide6.QtWidgets import QApplication, QMenu, QMessageBox, QSystemTrayIcon
+import temas      # tema visual elegido en Ajustes → Apariencia («orbita» por defecto)
 
 import llm
 from agent import Agent
@@ -243,6 +244,8 @@ def main():
             save_profile(st["profile"])
         except Exception as e:                                     # noqa: BLE001
             print(f"[ajustes] no pude guardar «{k}»: {e}")
+
+    temas.cambiar(ajuste("tema"))                                   # tema guardado (o «orbita») para Ajustes, menús, mini ventana y dashboard
 
     # ---------------------------------------------- integraciones opcionales
     ha = None
@@ -495,7 +498,9 @@ def main():
                       "(=SUM(B2:B10), =AVERAGE(B2:B10), =B2*C2, =IF(B2>C2,\"Sí\",\"No\")), apuntando a las celdas reales; la fila de totales "
                       "empieza con la palabra «Total». Pon UNA tabla por hoja cuando uses fórmulas. Si piden una gráfica, una línea sola "
                       "«[grafica: barras]» (o lineas / pastel) justo ANTES de su tabla (1.ª columna = etiquetas, el resto números). Nada de "
-                      "texto fuera de las tablas. No inventes cifras: si faltan datos, deja la celda vacía o usa ejemplos claramente genéricos.")
+                      "texto fuera de las tablas (salvo imágenes). No inventes cifras: si faltan datos, deja la celda vacía o usa ejemplos claramente genéricos. "
+                      "Imágenes: SOLO si te mencionan archivos de imagen que ya existen, ponlos en una línea sola así: ![descripción](nombre_del_archivo.png) "
+                      "(en su propia hoja o después de una tabla); nunca inventes archivos.")
         else:
             reglas = ("Salida en MARKDOWN SIMPLE: primera línea «# Título», secciones con «## », subsecciones con «### », viñetas con «- », "
                       "listas numeradas «1. », **negritas** solo donde ayuden; párrafos completos separados por una línea en blanco.")
@@ -595,6 +600,49 @@ def main():
                     except IW.ImgError as e:
                         return {"error": str(e)}
         return {"error": "El modelo no devolvió ninguna imagen (puede que haya rechazado la descripción). Prueba con otra."}
+
+    def editar_imagen_ia(ruta: str, instruccion: str) -> dict:
+        """Edita una imagen que YA existe con un modelo de imágenes de Gemini («quítale el fondo», «ponle un sombrero»...).
+        Guarda una COPIA nueva junto al original (nunca lo toca). -> {ruta, credito} | {error}. Modelos: config.json «modelos_imagen»."""
+        import io
+        from google.genai import types
+        from PIL import Image, ImageOps
+        import archivos_ops as AO
+        modelos = cfg.get("modelos_imagen") or ["gemini-3.1-flash-image", "gemini-3-pro-image-preview", "gemini-2.5-flash-image"]
+        p = Path(ruta)
+        try:
+            im = Image.open(p)
+            im = ImageOps.exif_transpose(im)
+            im.load()
+        except Exception:                                          # noqa: BLE001
+            return {"error": f"No pude abrir «{p.name}»."}
+        if max(im.size) > 2048:                                    # no mandar fotos enormes: la edición no gana nada
+            im.thumbnail((2048, 2048))
+        if im.mode not in ("RGB", "RGBA", "L"):
+            im = im.convert("RGBA" if im.mode in ("P", "PA", "LA") else "RGB")
+        buf = io.BytesIO()
+        im.save(buf, "PNG")
+        texto = ("Edita esta imagen siguiendo la instrucción y devuelve la imagen editada COMPLETA. Conserva todo lo que la instrucción no "
+                 "mencione (personas, composición, encuadre, colores). No agregues texto, letras ni marcas de agua, salvo que la instrucción lo pida.\n"
+                 f"Instrucción: {str(instruccion).strip()[:900]}")
+        try:
+            r, modelo = llm.generate(pool, modelos, [types.Part.from_bytes(data=buf.getvalue(), mime_type="image/png"), texto],
+                                     types.GenerateContentConfig(response_modalities=["TEXT", "IMAGE"]))
+        except llm.AllBusy as e:
+            return {"error": f"No pude editar la imagen ahora: {str(e)[:150]}. (Los modelos de imágenes a veces piden una key con facturación.)"}
+        for cand in (getattr(r, "candidates", None) or []):
+            for part in (getattr(getattr(cand, "content", None), "parts", None) or []):
+                data = getattr(getattr(part, "inline_data", None), "data", None)
+                if data:
+                    try:
+                        out = Image.open(io.BytesIO(data))
+                        out.load()
+                        dst = AO._libre(p.with_name(f"{p.stem}_ia.png"))
+                        out.save(dst, "PNG")
+                    except Exception as e:                         # noqa: BLE001
+                        return {"error": f"El modelo devolvió algo que no pude guardar como imagen ({type(e).__name__})."}
+                    return {"ruta": str(dst), "credito": "Imagen editada con IA", "modelo": modelo}
+        return {"error": "El modelo no devolvió ninguna imagen (puede que haya rechazado la instrucción). Prueba con otra."}
 
     def describir_imagen(jpeg: bytes) -> str:
         """Descripción corta de una imagen que está dentro de un documento (para buscarla después). '' si falla."""
@@ -869,6 +917,7 @@ def main():
         reglas=reglas,
         control_enabled=lambda: st["control"], analyze=analyze, describe_image=describir_imagen, write=redactar, make_image=generar_imagen, research=research, before_input=before_input, ha=ha, notif=notif,
     )
+    ctx.edit_image = editar_imagen_ia          # fuera del constructor: si pc_tools.py es una versión vieja (sin este campo), no se cae; solo falta la herramienta
 
     # ---------------------------------------------- agente (tareas de varios pasos)
     agent = Agent(pool, cfg["agent_models"], ctx, lambda: st["profile"], emit, flags)
@@ -1081,6 +1130,21 @@ def main():
         return ("CONVERSACIÓN RECIENTE (la conexión se reinició; esto es lo último que platicaron, de más viejo a más nuevo). "
                 "Continúa con naturalidad: no la resumas, no saludes de nuevo y úsala si tu dueño se refiere a algo de ahí:\n"
                 + "\n".join(f"- Él/ella: {t['tu'][:260]} | Tú: {t['orbi'][:260]}" for t in turns[-12:]))
+    # limpieza del micrófono: quita el audio de la PC (eco de bocinas) y el ruido ANTES de que llegue a Gemini (audio_clean.py).
+    # live_client.py la aplica con session.mic_cleaner.process(pcm) a cada trozo del micro. Con audífonos solo quita ruido.
+    # Ajustes en config.json: limpiar_mic, limpiar_eco, limpiar_ruido, aec_filtro_ms, aec_residuo_db, aec_debug (imprime cuánto eco quita)
+    session.mic_cleaner = None
+    try:
+        from audio_clean import crear_limpiador
+        session.mic_cleaner = crear_limpiador(cfg, headphones=bool(a.headphones or cfg.get("headphones", False)),
+                                              on_error=lambda m: print(f"[audio] {m}"))
+        if session.mic_cleaner:
+            session.mic_cleaner.start()
+            app.aboutToQuit.connect(session.mic_cleaner.stop)
+            print(f"[audio] limpieza del micrófono: eco={'sí' if session.mic_cleaner.aec_on else 'no'}, ruido={'sí' if session.mic_cleaner._rn else 'no'}")
+    except Exception as e:                            # noqa: BLE001
+        session.mic_cleaner = None
+        print(f"[audio] sin limpieza del micrófono ({type(e).__name__}: {e})")
     session.junk_filter = bool(cfg.get("filtro_basura", True))
     session.recap_fn = _recap if cfg.get("recap_al_reconectar", True) else None
 
@@ -1104,6 +1168,10 @@ def main():
     # ---------------------------------------------- atención: ¿cuándo me hablan a mí?
     attn = Attention(profile.get("escucha_modo", "palabra"), window=float(cfg.get("conversation_window_s", 25)))
     followup_s = float(cfg.get("seguimiento_s", 12))     # segundos de ventana tras terminar de hablar Orbi (para un seguimiento)
+
+    def _seguimiento_s() -> float:
+        """Cuánto dura la ventana en la que puedes seguir la plática SIN decir «Orbi»: más larga en el modo siempre (ambiente)."""
+        return float(cfg.get("seguimiento_ambiente_s", 30)) if st.get("ambiente") else float(cfg.get("seguimiento_s", 12))
     session.proactive = bool(cfg.get("live_proactive_audio", False))   # opcional: que el modelo decida solo cuándo callar
     default_aliases = ("orvi", "orbe", "horbi", "horvi", "orby", "urbi", "orvy", "orbit", "orbis", "horno", "orno", "orvit",
                        "robi", "hornby", "orbita", "orbitas", "urbi", "orbin")      # cómo suele transcribir Gemini «Orbi» (lo que agregues en wake_aliases se SUMA a esta lista)
@@ -1139,6 +1207,9 @@ def main():
         («or bi», «or bee», «Or B»), porque la transcripción escribe el nombre como le suena, a veces separado."""
         claves = {_fon(x) for x in (wake.word, *wake.aliases)} - {""}
         toks = _norm(text).split()
+        _ex = {"rv", "erreve", *(_norm(x).replace(" ", "") for x in (cfg.get("wake_exactos") or ()))}      # nombres cortos que el comparador por sonido no ve
+        if toks and (any(w in _ex for w in toks[:3]) or "".join(toks[:2]) in _ex):
+            return True
         if not toks or not claves:
             return False
         cands = list(toks) + ["".join(toks[i:i + 2]) for i in range(len(toks) - 1)] + ["".join(toks[i:i + 3]) for i in range(len(toks) - 2)]
@@ -1166,19 +1237,29 @@ def main():
         "Responde SOLO «SI» o «NO».\n"
         "Orbi acaba de hablar: {conv}\n{ultimo}Frase: «{txt}»\nRespuesta:")
 
+    _AMB_PROMPT_SEGUIR = (
+        "Eres el filtro de un asistente de voz llamado Orbi. Orbi ACABA de hablar con su dueño y todavía está en plena conversación con él "
+        "(ventana de seguimiento), así que lo normal es que lo siguiente que diga sea para Orbi, aunque sea vago o corto "
+        "(«puedes hacer algo», «y eso qué», «a ver», «sí», «dime», «hazlo»).\n"
+        "Responde NO SOLO si es CLARO que no es para Orbi: le habla a otra persona (mamá, amigos, llamada), lee en voz alta, canta o repite un video, "
+        "o es un comentario suelto sin relación con lo que hablaban. Ante la duda, SI.\n"
+        "Responde SOLO «SI» o «NO».\n"
+        "{ultimo}Frase: «{txt}»\nRespuesta:")
+
     def _ambiente_clasifica(txt: str, en_conv: bool, ultimo: str) -> None:
         res = False                                       # si falla el modelo, no contesta (mejor callado que metiche)
         try:
             from google.genai import types
-            prompt = _AMB_PROMPT.format(conv="sí" if en_conv else "no", txt=txt[:300],
-                                        ultimo=f"Lo último que dijo Orbi: «{ultimo[:160]}»\n" if (en_conv and ultimo) else "")
+            ult = f"Lo último que dijo Orbi: «{ultimo[:160]}»\n" if (en_conv and ultimo) else ""
+            prompt = (_AMB_PROMPT_SEGUIR.format(txt=txt[:300], ultimo=ult) if en_conv
+                      else _AMB_PROMPT.format(conv="no", txt=txt[:300], ultimo=ult))
             r, _m = llm.generate(pool, cfg.get("ambiente_models") or cfg["analysis_models"], prompt,
                                  types.GenerateContentConfig(temperature=0.0, max_output_tokens=8), thinking="low")
             res = (r.text or "").strip().upper().replace("Í", "I").startswith("SI")
         except Exception as e:                            # noqa: BLE001
             print(f"[ambiente] no pude decidir ({type(e).__name__}): no contesto")
         _amb.update(txt=txt, res=res, busy=False)
-        print(f"[ambiente] {'CONTESTO' if res else 'no contesto'}: «{txt[:70]}»")
+        print(f"[ambiente{' · seguimiento' if en_conv else ''}] {'CONTESTO' if res else 'no contesto'}: «{txt[:70]}»")
 
     def _ambiente(text, en_conv: bool) -> bool:
         t = " ".join(_norm(text).split())
@@ -1212,7 +1293,16 @@ def main():
         if ahora < st.get("follow_until", 0.0) and ahora >= st.get("solo_nombre_hasta", 0.0):
             if palabras & _VOCATIVOS:
                 return False                               # le hablas a mamá, papá...
-            return _ambiente(text, True) if st.get("ambiente") else True      # sigue la conversación con Orbi
+            # Sigue la conversación con Orbi. En modo ambiente las respuestas cortas («sí», «dale», «y eso qué», «hazlo») pasan directo:
+            # antes TODAS esperaban al clasificador (y una sola palabra nunca pasaba), por eso había que volver a decir «Orbi».
+            # Solo lo largo se filtra (para no contestarle a un video o a una plática con otra persona).
+            if st.get("ambiente") and len(palabras) > int(cfg.get("seguimiento_directo_palabras", 4)):
+                ok = _ambiente(text, True)
+            else:
+                ok = True
+            if ok:                                         # sigues platicando con él: la ventana se renueva
+                st["follow_until"] = max(st.get("follow_until", 0.0), ahora + _seguimiento_s())
+            return ok
         if st.get("ambiente") and ahora >= st.get("solo_nombre_hasta", 0.0):
             return _ambiente(text, False)                  # modo ambiente: solo si de verdad hay algo que contestar
         return False
@@ -1222,7 +1312,34 @@ def main():
     # "idiomas_asr": ["es-MX"] -> pista de idioma. Apagado por defecto: si tu versión de la API no lo acepta, quítalo.
     _vv = cfg.get("vocabulario_asr", False)
     session.asr_vocab = [wake.word.capitalize()] if _vv is True else (list(_vv) if isinstance(_vv, (list, tuple)) else [])
-    session.asr_langs = [str(x) for x in (cfg.get("idiomas_asr") or [])]
+    def _aplicar_idioma():
+        # IDIOMA con el que te oye: Ajustes → Audio (y el asistente de primera vez) lo guardan en profile["ajustes"]["idioma_oido"]; también se puede
+        # poner en config.json. "es" (por defecto) = español de México · "es+en" = español e inglés · "auto" = sin pista (como antes) · o una lista de
+        # códigos, ej. ["es-MX", "en-US"]. Solo afecta a cómo te transcribe y a cómo te interpreta Live (pista de idioma + una nota en su prompt);
+        # el modo intérprete, los traductores y los demás usos de transcripción no cambian. Se vuelve a calcular al «Aplicar» en Ajustes
+        # (lo toma en la siguiente conexión con Live; al reiniciar Orbi, seguro).
+        _io = cfg.get("idiomas_asr") or ajuste("idioma_oido", cfg.get("idioma_oido", "es"))      # Ajustes (profile) manda sobre config.json
+        if isinstance(_io, str):
+            _io = {"es": ["es-MX"], "es+en": ["es-MX", "en-US"], "auto": [], "": [], "no": [], "ninguno": []}.get(_io.lower().strip(), [_io.strip()])
+        session.asr_langs = [str(x) for x in (_io or [])]
+        _notas = []
+        if session.asr_langs:
+            _nom = {"es": "español", "en": "inglés", "ja": "japonés", "zh": "chino", "fr": "francés", "pt": "portugués", "de": "alemán", "it": "italiano"}
+            _hab = " y ".join(dict.fromkeys(_nom.get(c.split("-")[0].lower(), c) for c in session.asr_langs))
+            _notas.append(f"IDIOMA: tu dueño te habla en {_hab}" + (" (de México)" if session.asr_langs[0].lower().startswith("es") else "") +
+                                ", salvo que te pida expresamente otro idioma o esté activo el modo intérprete. Si lo que crees oír suena a otro idioma "
+                                "(japonés, chino, inglés...) y no tiene sentido en la plática, casi seguro es ruido, música, un video o español mal oído: "
+                                "NO contestes en ese idioma ni lo tomes como una orden; ignóralo o pídele que lo repita.")
+        if cfg.get("orbi_canta", True):
+            _notas.append("VOZ: puedes cantar, tararear, silbar y hacer ruidos u onomatopeyas (risas, bostezos, suspiros, beatbox, maullidos, efectos de sonido) "
+                          "cuando te lo pidan o venga al caso, con ganas y en corto (unos segundos) salvo que pidan más. No tienes que decir que no puedes: "
+                          "inténtalo. Si piden una canción con derechos de autor, no recites su letra: tararea la melodía o inventa una letra tuya parecida.")
+        if cfg.get("sentir_caricias", True):
+            _notas.append("SENSACIONES: un mensaje que empieza con «[Sensación]» es algo que sientes en tu cuerpo (por ejemplo que tu dueño te acaricia). "
+                          "Es solo para que lo sepas: NO contestes en voz alta ni escribas nada al recibirlo. Si más tarde te preguntan si sentiste algo, "
+                          "responde con naturalidad según lo que sentiste.")
+        session.asr_nota = "\n\n".join(_notas)
+    _aplicar_idioma()
     # fin de turno (cuánto silencio espera Live antes de darte por terminado)
     session.barge = bool(cfg.get("interrumpir_con_voz", False))          # (apagado: los aplausos lo cortaban) interrumpirlo con la voz sin audífonos
     session.barge_min = float(cfg.get("barge_min", 0.22))               # voz mínima para interrumpir (sube si te corta por ruido)
@@ -1519,7 +1636,7 @@ def main():
         orb.say("¡Listo, ya me actualicé! ✨\n(Si cambiaste permisos de herramientas, reinicia Orbi para que apliquen del todo)", 7)
 
     # ---------------------------------------------- bailar con la música (se analiza en tu PC; nada se manda a la IA)
-    dance = dict(obj=None, warned=False, audio="", cancion="", genero="", media=None, media_titulo="")
+    dance = dict(obj=None, warned=False, audio="", cancion="", genero="", media=None, media_titulo="", tipo_pedido=set())
 
     def dance_apply():
         """Elige cómo baila: por el género de la canción si se reconoce (título de Spotify/YouTube); si no, por tempo y graves."""
@@ -1540,6 +1657,69 @@ def main():
             cancion.cache_put(tit, g)
             emit("dance_genre", (tit, g))
         threading.Thread(target=run, daemon=True).start()
+
+    # ---- ¿lo que suena es MÚSICA o un VIDEO? (películas, tutoriales, gameplay...): los videos no se bailan aunque tengan ritmo ------------
+    _MUS_RX = (r"\b(official (music )?video|official audio|video oficial|audio oficial|lyrics?|letra|visuali[sz]er|remix|feat|ft|lofi|lo fi|playlist|"
+               r"vevo|topic|instrumental|soundtrack|karaoke|nightcore|slowed|reverb|full album|album completo)\b")
+    _VID_RX = (r"\b(tutorial|gameplay|reaction|reaccion|reaccionando|review|resena|podcast|entrevista|noticias|noticiero|noticia|como (hacer|se|crear|instalar)|"
+               r"how to|capitulo|episodio|temporada|trailer|vlog|clase|curso|documental|pelicula|explicado|resumen|analisis|stream|unboxing|speedrun|"
+               r"walkthrough|guia|conferencia|debate|discurso|minecraft|fortnite|roblox|lets play|let s play)\b")
+    _APPS_MUSICA = ("spotify", "zunemusic", "itunes", "applemusic", "deezer", "tidal", "amazonmusic", "youtubemusic")
+    _APPS_VIDEO = ("netflix", "disney", "primevideo", "hbo", "plex", "vlc", "mpv", "movies", "twitch", "crunchyroll", "kodi", "zoom", "teams",
+                   "skype", "discord", "whatsapp", "telegram", "obs")
+
+    def dance_es_musica(tit):
+        """True = música · False = video u otra cosa (no bailar) · None = no se sabe todavía (se baila según el audio, como antes)."""
+        import re as _re_d
+        import cancion
+        src = (getattr(dance.get("media"), "source", "") or "").lower()
+        if any(a in src for a in _APPS_MUSICA):
+            return True
+        if any(a in src for a in _APPS_VIDEO):
+            return False
+        if not tit:
+            return None
+        if cancion.genero(tit) or _re_d.search(_MUS_RX, cancion.fold(tit)):
+            return True
+        if _re_d.search(_VID_RX, cancion.fold(tit)):
+            return False
+        t = cancion.tipo_get(tit)                              # lo que Gemini dijo antes de ese título
+        return None if t is None else (t != "video")
+
+    def dance_ask_tipo(tit):
+        """Una pregunta corta a Gemini por título dudoso («¿música o video?»); se recuerda en orbi_generos.json. Ante la duda dice «musica»."""
+        def run():
+            try:
+                import cancion
+                from google.genai import types
+                r, _m = llm.generate(pool, cfg["analysis_models"], cancion.PROMPT_TIPO.format(t=tit[:150]),
+                                     types.GenerateContentConfig(temperature=0.0, max_output_tokens=8))
+                t = cancion.parse_tipo(r.text or "")
+            except Exception:                                      # noqa: BLE001
+                return
+            cancion.tipo_put(tit, t)
+            emit("dance_tipo", (tit, t))
+        threading.Thread(target=run, daemon=True).start()
+
+    def dance_media_check():
+        """Cada ~2 s (y al cambiar la canción): si lo que suena es un video, el baile se bloquea (no empieza, o se detiene)."""
+        obj = dance.get("obj")
+        if obj is None or not cfg.get("bailar_filtrar_videos", True):
+            return
+        import cancion
+        try:
+            tit = dance.get("media_titulo") or cancion.actual()
+        except Exception:                                        # noqa: BLE001
+            tit = ""
+        k = dance_es_musica(tit)
+        if k is None and tit and cfg.get("bailar_tipo_ia", True) and tit not in dance["tipo_pedido"]:
+            dance["tipo_pedido"].add(tit)
+            dance_ask_tipo(tit)
+        if (k is False) != bool(getattr(obj, "bloqueado", False)) and cfg.get("bailar_debug"):
+            print(f"[baile] «{tit or dance['media'] and dance['media'].source or '?'}» -> {'VIDEO: no bailo' if k is False else 'música: bailo'}")
+        obj.bloquear(k is False)
+
+    media_timer = QTimer(app); media_timer.timeout.connect(dance_media_check); media_timer.start(int(float(cfg.get("bailar_video_s", 2)) * 1000))
 
     def dance_song_check():
         """Cada pocos segundos, mientras baila: ¿cambió la canción? (solo lee el título de la ventana)"""
@@ -1641,12 +1821,12 @@ def main():
                   "minimizar_ventana", "abrir_app", "abrir_url", "ejecutar_plan", "tarea_pc", "investigar_web",
                   "copiar_texto_de_ventana", "analizar_documento", "buscar_archivos", "buscar_en_archivos", "leer_archivo",
                   "crear_carpeta", "mover_archivo", "copiar_archivo", "renombrar_archivo", "organizar_carpeta", "deshacer_organizacion",
-                  "escribir_archivo", "redactar_documento", "crear_presentacion", "crear_hoja_excel", "buscar_imagen_web", "generar_imagen", "esperar_listo", "esperar", "listar_carpeta",
+                  "escribir_archivo", "redactar_documento", "crear_presentacion", "crear_hoja_excel", "buscar_imagen_web", "generar_imagen", "editar_imagen_ia", "esperar_listo", "esperar", "listar_carpeta",
                   "abrir_archivo", "abrir_carpeta", "buscar_en_web", "ver_pantalla", "acercar_pantalla", "leer_pantalla"}
     # carita según el TIPO de chamba (la herramienta que está usando); lo que no está aquí = «working» (clics, teclas, ventanas)
     WORK_KIND = {}
     for _k, _names in {
-        "writing": ("escribir_texto", "redactar_documento", "escribir_archivo", "crear_presentacion", "crear_hoja_excel", "generar_imagen", "buscar_imagen_web"),
+        "writing": ("escribir_texto", "redactar_documento", "escribir_archivo", "crear_presentacion", "crear_hoja_excel", "generar_imagen", "editar_imagen_ia", "buscar_imagen_web"),
         "searching": ("buscar_archivos", "buscar_en_archivos", "leer_archivo", "analizar_documento", "investigar_web", "buscar_en_web",
                       "copiar_texto_de_ventana", "ver_pantalla", "acercar_pantalla", "leer_pantalla", "listar_carpeta"),
         "waiting": ("abrir_app", "abrir_url", "abrir_archivo", "abrir_carpeta", "esperar_listo", "esperar"),
@@ -1657,7 +1837,7 @@ def main():
             WORK_KIND[_n] = _k
     TOOL_LABEL = {"redactar_documento": "Redactando un documento", "crear_presentacion": "Armando una presentación",
                   "crear_hoja_excel": "Armando una hoja de Excel", "buscar_imagen_web": "Buscando una imagen",
-                  "generar_imagen": "Generando una imagen", "analizar_documento": "Analizando un documento",
+                  "generar_imagen": "Generando una imagen", "editar_imagen_ia": "Editando una imagen", "analizar_documento": "Analizando un documento",
                   "leer_pantalla": "Leyendo la pantalla", "ver_pantalla": "Mirando la pantalla", "scroll": "Desplazándose",
                   "hacer_clic": "Haciendo clic", "escribir_texto": "Escribiendo", "presionar_teclas": "Pulsando teclas",
                   "enfocar_ventana": "Cambiando de ventana", "cerrar_ventana": "Cerrando ventanas", "abrir_archivo": "Abriendo un archivo",
@@ -1698,6 +1878,18 @@ def main():
         elif orb.emotion in ("working", "writing", "searching", "waiting", "organizing"):
             orb.set_emotion("neutral")
     work_timer = QTimer(app); work_timer.timeout.connect(_work_tick); work_timer.start(1000)
+
+    def _avisar_sensacion():
+        """Orbi «siente» la caricia: se le cuenta en silencio (no contesta) en cuanto está callado y sin hacer nada; si no se pudo, se reintenta ~90 s."""
+        t = st.get("sensacion")
+        if not t:
+            return
+        if time.time() - t > 90:
+            st["sensacion"] = None; return
+        if st["connected"] and st["state"] == "idle" and \
+                session.send_silent("[Sensación] Tu dueño te acaba de acariciar (pasó el mouse sobre ti). Se siente agradable y tranquilo."):
+            st["sensacion"] = None
+    sens_timer = QTimer(app); sens_timer.timeout.connect(_avisar_sensacion); sens_timer.start(4000)
 
     import capture_guard as _cg
     _cg.install(app, bool(ajuste("ocultar_en_capturas", cfg.get("ocultar_orbi_en_capturas", False))))
@@ -1968,7 +2160,7 @@ def main():
     dash = hud_panels.HudDashboard(
         get_anchor=lambda: (orb.anchor(), R0, bool(orb.edge) and not orb.revealed), on_action=panel_action,
         get_opacity=lambda: minipanel.merged(ajuste("mini"))["opacidad"],
-        move_orb=_dash_move_orb, restore_orb=_dash_restore_orb)
+        move_orb=_dash_move_orb, restore_orb=_dash_restore_orb, get_tema=temas.actual)
 
     def aplicar_ajustes(nuevo: dict):
         """Guarda lo elegido en la ventana de Ajustes y lo aplica ya (sin reiniciar)."""
@@ -1976,6 +2168,7 @@ def main():
         prof.setdefault("permisos", {}).update(nuevo.get("permisos", {}))
         aj = prof.setdefault("ajustes", {})
         aj.update(nuevo.get("ajustes", {}))
+        temas.cambiar(aj.get("tema"))                        # el tema elegido en Apariencia (dashboard, mini ventana, ajustes y menús)
         try:
             save_profile(prof)
         except Exception as e:                               # noqa: BLE001
@@ -1999,6 +2192,7 @@ def main():
             import docs_reader as _dr2
             _dr2.EXTERNAL_DRIVES = bool(cfg.get("unidades_externas", True))      # este sí se aplica ya
             _aplicar_audio()                                                      # micrófono, volumen y bocina también al momento
+        _aplicar_idioma()                                    # idioma con el que te oye (lo toma en la siguiente conexión con Live)
         refresh_events()
         panel.refresh()
         orb.say("Ajustes aplicados ✔" + (" (voz, tamaño y compañero, al reiniciar)" if nueva_cfg else ""), 4)
@@ -2064,7 +2258,7 @@ def main():
     _MOSTRAR = {"listar_alarmas": ("🗒", "Pendientes", 40), "listar_reglas": ("📌", "Mis reglas", 45),
                 "ver_agenda": ("📅", "Agenda", 45), "correo_no_leidos": ("✉️", "Correos sin leer", 45),
                 "correo_buscar": ("✉️", "Correos encontrados", 45), "leer_notificaciones": ("🔔", "Notificaciones recientes", 40),
-                "analizar_documento": ("📄", "Documento", 60), "listar_ventanas": ("🪟", "Ventanas abiertas", 30),
+                "analizar_documento": ("📄", "Documento", 60), "listar_ventanas": ("🪟", "Ventanas abiertas", 30), "listar_pestanas": ("🗂", "Pestañas abiertas", 40),
                 "buscar_archivos": ("📁", "Archivos encontrados", 45), "buscar_en_archivos": ("📁", "En tus archivos", 45),
                 "casa_estado": ("💡", "Casa", 30), "wiz_listar": ("💡", "Luces", 30), "escuchar_audio_pc": ("🎧", "Lo que oí", 40)}
 
@@ -2136,7 +2330,7 @@ def main():
                 _ses_turno(st["user"].strip(), st["model"].strip())      # registro de pruebas (sesiones/*.json)
                 st["last_turn_t"] = time.time()
             if st["model"].strip():
-                st["follow_until"] = time.time() + float(cfg.get("seguimiento_s", 12))     # puedes seguir sin decir «Orbi»
+                st["follow_until"] = time.time() + _seguimiento_s()     # puedes seguir sin decir «Orbi»
             st["user"] = st["model"] = ""; st["last"] = None
             _work["until"] = 0.0
         elif kind == "model_text":
@@ -2173,9 +2367,12 @@ def main():
         elif kind == "dance":
             orb.set_dancing(data)
             if data:
+                dance_media_check()
                 dance_song_check()                           # al empezar a bailar: ¿qué canción es?
             else:
                 dance["cancion"] = dance["genero"] = ""
+        elif kind == "tema_cambiar":                         # «ponte en modo terminal» (herramienta cambiar_tema)
+            guardar_ajuste("tema", temas.cambiar(data).id)
         elif kind == "media_state":                          # True sonando · False pausa · None sin reproductor
             if dance["obj"] is not None:
                 dance["obj"].media_state(data)
@@ -2185,7 +2382,11 @@ def main():
             dance["media_titulo"] = (f"{data[1]} - {data[0]}" if data[1] else data[0])
             if dance["obj"] is not None:
                 dance["obj"].reset_ritmo()
+            dance_media_check()
             dance_song_check()
+        elif kind == "dance_tipo":                           # Gemini ya dijo si ese título es música o video
+            if data[0] == (dance.get("media_titulo") or dance["cancion"]):
+                dance_media_check()
         elif kind == "dance_style":
             dance["audio"] = data; dance_apply()
         elif kind == "dance_genre":
@@ -2228,6 +2429,9 @@ def main():
                                   " | ".join(str(m["traduccion"]).strip() for m in data[:3]))
         elif kind == "petted":
             orb.say("💙", 1.5)
+            if cfg.get("sentir_caricias", True):
+                st["sensacion"] = time.time()
+                _avisar_sensacion()
         elif kind == "voz":
             owner, dist, text, dur = data
             print(f"[voz] distancia={dist:.2f} (límite {voz.umbral_efectivo:.2f}) -> {'dueño' if owner else 'OTRA VOZ'} «{text[:60]}»")
@@ -2377,7 +2581,7 @@ def main():
                 dash.ocultar()
             else:
                 panel.hide()                                  # la mini ventana no se encima con el dashboard
-                dash.mostrar(data.get("titulo") or "Orbi", data.get("paneles") or [], data.get("segundos") or 90)
+                dash.mostrar(data.get("titulo") or "Orbi", data.get("paneles") or [], data.get("segundos") or 90, data.get("estilo") or None)
         elif kind == "panel_mostrar":
             if data.get("accion") == "ocultar":
                 panel.hide_now()

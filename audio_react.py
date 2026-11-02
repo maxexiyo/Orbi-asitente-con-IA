@@ -97,6 +97,7 @@ class AudioReact:
         self._frac_avg, self._rms_avg = 0.0, 0.0
         self.bpm, self.estilo = 0.0, ""
         self.speechy = False
+        self.bloqueado = False                    # lo pone live_orb.py: lo que suena es un VIDEO (no música): no baila aunque haya ritmo
 
     def process(self, mono, now=None):
         """Procesa un bloque (float32 mono, -1..1). Dispara on_beat/on_dance/on_style."""
@@ -152,6 +153,11 @@ class AudioReact:
                 self.on_beat(min(1.0, max(bass / (avg * 3.0 + 1e-9), flux / (fm * 3.0 + 1e-9))))
 
         self._habla(now)
+        if self.bloqueado:                                  # el título/la app dicen que es un video: nada de bailar (ni empezar a medir el ritmo)
+            if self.dancing:
+                self._para(now, "es un video, no música")
+            self._since = None
+            return
         if self.dancing and self._locked:
             self._clock(now)
         music = self._keep_dancing(now) if self.dancing else self._is_music(now)
@@ -192,6 +198,15 @@ class AudioReact:
             self._fast = True                   # si el audio sigue (otra app), vuelve a bailar rápido; si de verdad se calló, no hay nada que detectar
         elif playing:
             self._fast = True
+
+    def bloquear(self, si: bool) -> None:
+        """True: lo que suena es un video (película, tutorial, gameplay...), no música → no baila. False: vuelve a decidir por el audio."""
+        si = bool(si)
+        if si != self.bloqueado:
+            self.bloqueado = si
+            if si:
+                self._para(self._now, "es un video, no música")
+            if self.debug: print(f"[baile] {'bloqueado: es un video' if si else 'desbloqueado'}")
 
     def reset_ritmo(self) -> None:
         """Canción nueva: olvida el tempo y la fase para volver a medirlos (si no, se tarda en soltar el de la canción anterior)."""

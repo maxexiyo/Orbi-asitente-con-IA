@@ -5,7 +5,7 @@ Se abre solo la primera vez (cuando no existe orbi_profile.json) y desde Ajustes
 """
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (QWizard, QWizardPage, QVBoxLayout, QLabel, QLineEdit, QPlainTextEdit,
-                               QRadioButton, QButtonGroup, QCheckBox)
+                               QRadioButton, QButtonGroup, QCheckBox, QComboBox)
 
 from perfil import DEFAULT_PROFILE, PERMISOS_DEFAULT, TONOS, save_profile
 
@@ -18,6 +18,8 @@ QLineEdit, QPlainTextEdit { background: #18264d; color: #eaf2ff; border: 1px sol
                             border-radius: 10px; padding: 8px 10px; }
 QLineEdit:focus, QPlainTextEdit:focus { border: 1px solid #8cc8ff; }
 QRadioButton, QCheckBox { color: #eaf2ff; padding: 4px 0; }
+QComboBox { background: #18264d; color: #eaf2ff; border: 1px solid #3d5ba8; border-radius: 10px; padding: 6px 10px; }
+QComboBox QAbstractItemView { background: #18264d; color: #eaf2ff; selection-background-color: #2c4a9a; }
 QPushButton { background: #2c4a9a; color: white; border: none; border-radius: 10px; padding: 8px 18px; }
 QPushButton:hover { background: #3a5cb8; }
 QPushButton:disabled { background: #22305c; color: #7384ad; }
@@ -93,6 +95,8 @@ class PageSobreTi(QWizardPage):
         lay.addWidget(self.quiere)
 
 
+IDIOMAS = [("es", "Español (México) — recomendado"), ("es+en", "Español e inglés"), ("auto", "Automático (cualquier idioma)")]
+
 ESCUCHA_TEXTOS = {
     "palabra": "Solo cuando diga «Orbi» (recomendado): no contesta si hablo solo o con otras personas",
     "atajo": "Solo cuando use el atajo Ctrl+Alt+Espacio",
@@ -117,10 +121,23 @@ class PageEscucha(QWizardPage):
         self.palabra = QLineEdit(prof.get("palabra_clave", "orbi")); lay.addWidget(self.palabra)
         lay.addWidget(_hint("La primera vez que uses la palabra clave se descarga un modelo de voz pequeño (~40 MB). "
                             "Una vez abierta la conversación, sigo escuchando unos 25 s sin que tengas que repetir mi nombre."))
+        lay.addSpacing(8)
+        lay.addWidget(QLabel("Idioma con el que te hablo:"))
+        self.idioma = QComboBox()
+        for val, txt in IDIOMAS:
+            self.idioma.addItem(txt, val)
+        actual_i = (prof.get("ajustes") or {}).get("idioma_oido", "es")
+        self.idioma.setCurrentIndex(max(0, self.idioma.findData(actual_i)))
+        lay.addWidget(self.idioma)
+        lay.addWidget(_hint("Así no confundo tu voz con japonés, chino o inglés cuando hay ruido, música o videos. "
+                            "No afecta al modo intérprete ni a los traductores. Lo puedes cambiar en Ajustes → Audio."))
         lay.addStretch()
 
     def modo(self):
         return next((k for k, r in self.radios.items() if r.isChecked()), "palabra")
+
+    def idioma_oido(self):
+        return self.idioma.currentData() or "es"
 
 
 class PagePermisos(QWizardPage):
@@ -198,6 +215,9 @@ class Wizard(QWizard):
             escucha_modo=self.p_escucha.modo(),
             palabra_clave=(self.p_escucha.palabra.text().strip().lower() or "orbi"),
         )
+        aj = dict(prof.get("ajustes") or {})
+        aj["idioma_oido"] = self.p_escucha.idioma_oido()
+        prof["ajustes"] = aj
         return prof
 
 

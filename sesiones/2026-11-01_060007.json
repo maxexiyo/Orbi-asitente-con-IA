@@ -1,0 +1,119 @@
+{
+ "id": "2026-11-01_060007",
+ "inicio": "2026-11-01T06:00:07",
+ "continua": null,
+ "turnos": [
+  {
+   "t": "2026-11-01T10:42:27",
+   "tu": "Me la voy a chaquetear porque me la debo chaquetear. Es una gran necesidad. Me la debo chaquetear, pero",
+   "orbi": "​"
+  },
+  {
+   "t": "2026-11-01T10:42:47",
+   "tu": "Hola, Orbi.",
+   "orbi": "¡Hola, Omar! ¿Qué onda? Aquí al cien, viviendo en tu compu y al pendiente."
+  },
+  {
+   "t": "2026-11-01T10:43:28",
+   "tu": "¿Orbi, tienes lag o algo así?",
+   "orbi": "Todo se ve normal por acá, la compu anda bien y yo ando al cien."
+  },
+  {
+   "t": "2026-11-01T10:43:49",
+   "tu": "¿Orde algo?",
+   "orbi": "Dime qué necesitas saber o recordar y le echamos un ojo."
+  },
+  {
+   "t": "2026-11-01T12:02:25",
+   "tu": "orbe Pon un recordatorio a las 3:50 de la tarde. de que los créditos de Claude se han restablecido.",
+   "orbi": "Listo, ya quedó el recordatorio."
+  },
+  {
+   "t": "2026-11-01T13:51:46",
+   "tu": "Toby",
+   "orbi": "Aquí sigo, dime qué traes en mente."
+  },
+  {
+   "t": "2026-11-01T13:55:31",
+   "tu": "Ya estás copiarme el puto mapa, hermano.",
+   "orbi": "para que no ande adivinando."
+  },
+  {
+   "t": "2026-11-01T13:55:42",
+   "tu": "¿Qué haces, Orbi?",
+   "orbi": "Aquí ando, viviendo en tu compu y checando que todo ande al cien."
+  },
+  {
+   "t": "2026-11-01T13:55:49",
+   "tu": "¿Orri, qué haces?",
+   "orbi": "Aquí ando, viviendo en tu compu y checando que todo funcione bien."
+  }
+ ],
+ "herramientas": [
+  {
+   "t": "2026-11-01T10:43:13",
+   "herramienta": "set_emotion",
+   "args": "{'emocion': 'neutral'}",
+   "ok": true,
+   "error": "",
+   "seg": 0.0
+  },
+  {
+   "t": "2026-11-01T10:43:21",
+   "herramienta": "recursos",
+   "args": "{}",
+   "ok": true,
+   "error": "",
+   "seg": 8.5
+  },
+  {
+   "t": "2026-11-01T12:02:22",
+   "herramienta": "poner_recordatorio",
+   "args": "{'texto': 'Que los créditos de Claude se han restablecido', 'hora': '3:50 pm'}",
+   "ok": true,
+   "error": "",
+   "seg": 0.0
+  },
+  {
+   "t": "2026-11-01T12:09:46",
+   "herramienta": "traducir_pantalla",
+   "args": "{'accion': 'una_vez'}",
+   "ok": true,
+   "error": "",
+   "seg": 275.6
+  },
+  {
+   "t": "2026-11-01T13:55:18",
+   "herramienta": "set_emotion",
+   "args": "{'emocion': 'happy'}",
+   "ok": true,
+   "error": "",
+   "seg": 0.0
+  },
+  {
+   "t": "2026-11-01T13:55:29",
+   "herramienta": "volumen",
+   "args": "{'accion': 'subir'}",
+   "ok": true,
+   "error": "",
+   "seg": 3.0
+  },
+  {
+   "t": "2026-11-01T18:20:42",
+   "herramienta": "wiz_listar",
+   "args": "{}",
+   "ok": true,
+   "error": "",
+   "seg": 1.8
+  },
+  {
+   "t": "2026-11-01T18:20:42",
+   "herramienta": "wiz_controlar",
+   "args": "{'nombre': 'foco 1', 'accion': 'brillo', 'valor': '100'}",
+   "ok": true,
+   "error": "",
+   "seg": 0.0
+  }
+ ],
+ "fin": "2026-11-01T18:20:42"
+}

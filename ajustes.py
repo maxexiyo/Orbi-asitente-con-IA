@@ -14,6 +14,8 @@ Se abre desde el menú de la bolita («Ajustes…») o desde el clic derecho de 
                   casi todo se aplica al reiniciar Orbi.
 """
 from PySide6.QtCore import QObject, QTime, QTimer, Qt, Signal, Slot
+
+import temas
 from PySide6.QtWidgets import (QApplication, QCheckBox, QComboBox, QDialog, QFileDialog, QFormLayout, QHBoxLayout, QInputDialog, QLabel,
                                QLineEdit, QListWidget, QListWidgetItem, QMessageBox, QPushButton, QScrollArea, QSlider, QSpinBox,
                                QTabWidget, QTimeEdit, QVBoxLayout, QWidget, QGridLayout, QStackedWidget, QButtonGroup)
@@ -195,7 +197,6 @@ class _TabsEnFilas(QWidget):
     def addTab(self, w, titulo) -> int:
         i = self._stack.addWidget(w)
         b = QPushButton(titulo); b.setCheckable(True); b.setMinimumHeight(30)
-        b.setStyleSheet("QPushButton:checked { font-weight: 600; border: 2px solid #3b82f6; }")
         b.clicked.connect(lambda _=False, i=i: self.setCurrentIndex(i))
         self._group.addButton(b); self._btns.append(b)
         self._grid.addWidget(b, i // self._cols, i % self._cols)
@@ -241,11 +242,11 @@ class AjustesDialog(QDialog):
         self.c_del = _combo(DELICADAS, modo_d)
         self.c_nor = _combo(NORMALES, perm.get("modo_normales", "permitir"))
         f.addRow("Cosas delicadas (enviar mensajes, pagar, borrar):", self.c_del)
-        self.aviso = QLabel(); self.aviso.setWordWrap(True); self.aviso.setStyleSheet("color:#c0392b;")
+        self.aviso = QLabel(); self.aviso.setWordWrap(True); self.aviso.setObjectName("aviso")
         f.addRow("", self.aviso)
         f.addRow("Cosas no delicadas (clics, escribir, teclas):", self.c_nor)
         nota = QLabel("Enviar un correo desde tu Gmail siempre pide tu OK, sin importar el modo (un correo podría intentar engañar a la IA).")
-        nota.setWordWrap(True); nota.setStyleSheet("color:#7f8c8d;")
+        nota.setWordWrap(True); nota.setObjectName("nota")
         f.addRow("", nota)
         self.c_del.currentIndexChanged.connect(self._warn); self._warn()
         tabs.addTab(w, "Permisos")
@@ -259,7 +260,7 @@ class AjustesDialog(QDialog):
         _p = min(PROXIMO, key=lambda v: abs(v - int(mini.get("proximo_min", 60) or 60)))
         self.m_prox = _combo([(v, f"{v} min" if v < 60 else f"{v // 60} h") for v in PROXIMO], _p)
         nota_m = QLabel("En el modo «Solo cuando Orbi decida» la ventana no se abre sola: las secciones de abajo aplican a los otros modos.")
-        nota_m.setWordWrap(True); nota_m.setStyleSheet("color:#7f8c8d;")
+        nota_m.setWordWrap(True); nota_m.setObjectName("nota")
         self.m_op = QSlider(Qt.Horizontal); self.m_op.setRange(30, 100); self.m_op.setValue(int(mini["opacidad"]))
         f.addRow("Mostrar:", self.m_modo); f.addRow("", nota_m); f.addRow("Dónde aparece:", self.m_ubi); f.addRow("Tamaño:", self.m_tam)
         f.addRow("Esquina (si va fija):", self.m_esq); f.addRow("Cuenta como «próximo» lo que ocurra en:", self.m_prox)
@@ -271,6 +272,21 @@ class AjustesDialog(QDialog):
         b = QPushButton("Pegarla otra vez a Orbi (olvidar dónde la arrastré)"); b.clicked.connect(lambda: setattr(self, "_mini_pos", None))
         f.addRow("", b)
         tabs.addTab(w, "Mini ventana")
+
+        # ---------------- Apariencia (el mismo tema para dashboard, mini ventana, Ajustes y menús)
+        w = QWidget(); f = _form(w)
+        self._tema_aplicado = aj.get("tema") if aj.get("tema") in temas.TEMAS else temas.DEFAULT
+        self.t_tema = _combo([(i, n) for i, n, _d in temas.lista()], self._tema_aplicado)
+        self.t_desc = QLabel(); self.t_desc.setWordWrap(True); self.t_desc.setObjectName("nota")
+        f.addRow("Tema:", self.t_tema)
+        f.addRow("", self.t_desc)
+        nota_t = QLabel("El tema cambia cómo se ven el dashboard (los paneles que Orbi suelta de golpe), la mini ventana, esta ventana de Ajustes y los menús. "
+                        "Lo ves aquí mismo al elegirlo; si cierras sin pulsar «Aplicar» se queda el que tenías. «Órbita» deja a la bolita al centro con los paneles "
+                        "alrededor; los demás la mandan a la esquina mientras el dashboard está abierto.")
+        nota_t.setWordWrap(True); nota_t.setObjectName("nota")
+        f.addRow("", nota_t)
+        self.t_tema.currentIndexChanged.connect(self._tema_vista_previa); self._tema_desc()
+        tabs.addTab(w, "Apariencia")
 
         # ---------------- Internet y memoria
         w = QWidget(); f = _form(w)
@@ -321,7 +337,7 @@ class AjustesDialog(QDialog):
         for cb in (self.g_esq, self.g_mouse, self.g_ocul, self.g_web, self.g_ext):
             f.addRow("", cb)
         reinicio = QLabel("Voz, tamaño, compañero y privacidad se aplican al reiniciar Orbi.")
-        reinicio.setWordWrap(True); reinicio.setStyleSheet("color:#7f8c8d;")
+        reinicio.setWordWrap(True); reinicio.setObjectName("nota")
         f.addRow("", reinicio)
         tabs.addTab(_scroll(w), "General")
 
@@ -356,7 +372,7 @@ class AjustesDialog(QDialog):
         self.c_imp.setChecked(bool(ca.get("solo_importantes", True)))
         f.addRow("", self.c_aviso); f.addRow("Revisar el correo:", self.c_cada); f.addRow("", self.c_voz); f.addRow("", self.c_imp)
         nn = QLabel("Las notificaciones también necesitan el permiso «notificaciones» en la configuración inicial de Orbi.")
-        nn.setWordWrap(True); nn.setStyleSheet("color:#7f8c8d;"); f.addRow("", nn)
+        nn.setWordWrap(True); nn.setObjectName("nota"); f.addRow("", nn)
         tabs.addTab(_scroll(w), "Notificaciones")
 
         # ---------------- Alarmas
@@ -379,8 +395,14 @@ class AjustesDialog(QDialog):
         self.au_mic.setValue(max(0, min(100, round((0.30 - u) / 0.0026))))
         nota_mic = QLabel("Más a la derecha = el micrófono capta voces más bajitas (pero también más ruido). Si Orbi se activa solo, bájalo; "
                           "si no te oye, súbelo. Se aplica al momento.")
-        nota_mic.setWordWrap(True); nota_mic.setStyleSheet("color:#7f8c8d;")
+        nota_mic.setWordWrap(True); nota_mic.setObjectName("nota")
         f.addRow("Sensibilidad del micrófono:", self.au_mic); f.addRow("", nota_mic)
+        self.au_idioma = _combo([("es", "Español (México) — recomendado"), ("es+en", "Español e inglés"), ("auto", "Automático (cualquier idioma)")],
+                                aj.get("idioma_oido", cfg.get("idioma_oido", "es")))
+        nota_idioma = QLabel("En qué idioma te habla normalmente. Así Orbi no confunde tu voz con japonés, chino o inglés cuando hay ruido, música o "
+                             "videos. No afecta al modo intérprete ni a los traductores. Se aplica en la siguiente conexión (o al reiniciar Orbi).")
+        nota_idioma.setWordWrap(True); nota_idioma.setObjectName("nota")
+        f.addRow("Idioma con el que te oye:", self.au_idioma); f.addRow("", nota_idioma)
         self.au_vol = QSlider(Qt.Horizontal); self.au_vol.setRange(10, 150)
         self.au_vol.setValue(max(10, min(150, round(float(cfg.get("volumen_voz", 1.0) or 1.0) * 100))))
         self.au_vol_txt = QLabel(f"{self.au_vol.value()}%")
@@ -396,7 +418,7 @@ class AjustesDialog(QDialog):
         f.addRow("Dónde suena Orbi:", dr)
         self.au_nota = QLabel("La lista se actualiza sola cada pocos segundos mientras esta pestaña está abierta. Un dispositivo conectado "
                               "DESPUÉS de abrir Orbi se usa al reiniciarlo; «Predeterminado» siempre sigue lo que elija Windows.")
-        self.au_nota.setWordWrap(True); self.au_nota.setStyleSheet("color:#7f8c8d;")
+        self.au_nota.setWordWrap(True); self.au_nota.setObjectName("nota")
         f.addRow("", self.au_nota)
         self.au_alm = QSlider(Qt.Horizontal); self.au_alm.setRange(10, 150)
         self.au_alm.setValue(max(10, min(150, round(float(cfg.get("volumen_alarmas", 1.0) or 1.0) * 100))))
@@ -406,7 +428,7 @@ class AjustesDialog(QDialog):
         f.addRow("Volumen de las alarmas:", ar)
         pend = QLabel("Las alarmas suenan por la bocina predeterminada de Windows, y el tono «Clásico (pitidos)» no cambia de volumen. "
                       "Pulsa «Aplicar» y usa «▶ Probar» en la pestaña Alarmas para oírlo.")
-        pend.setWordWrap(True); pend.setStyleSheet("color:#7f8c8d;")
+        pend.setWordWrap(True); pend.setObjectName("nota")
         f.addRow("", pend)
         self._au_bg = _ListaBg(self, self._au_llenar)
         self._au_tab = tabs.addTab(w, "Audio")
@@ -438,7 +460,7 @@ class AjustesDialog(QDialog):
         if fns:
             w = QWidget(); lay = QVBoxLayout(w)
             info = QLabel("Todo lo que Orbi sabe hacer y se puede prender o apagar. Las casillas aplican al momento.")
-            info.setWordWrap(True); info.setStyleSheet("color:#7f8c8d;")
+            info.setWordWrap(True); info.setObjectName("nota")
             lay.addWidget(info)
             for it in fns:
                 if it.get("checkable"):
@@ -592,7 +614,21 @@ class AjustesDialog(QDialog):
         return {"config": config, "permisos": {"modo_delicadas": modo_d, "modo_normales": self.c_nor.currentData(),
                              "confirmar_acciones": modo_d != "permitir"},       # compatibilidad con el asistente de configuración
                 "ajustes": {"mini": mini, "internet_lento": self.i_lento.currentData(), "busqueda_navegador": self.i_nav.isChecked(),
-                            "memoria_larga": self.mem.isChecked(), "alarma_tono": self.a_tono.currentData()}}
+                            "memoria_larga": self.mem.isChecked(), "alarma_tono": self.a_tono.currentData(),
+                            "tema": self.t_tema.currentData(), "idioma_oido": self.au_idioma.currentData()}}
+
+    def _tema_desc(self) -> None:
+        self.t_desc.setText(temas.get(self.t_tema.currentData()).desc)
+
+    def _tema_vista_previa(self) -> None:
+        temas.cambiar(self.t_tema.currentData())          # se ve ya mismo en toda la app (si no aplicas, se revierte al cerrar)
+        self._tema_desc()
+
+    def done(self, r):
+        if self.t_tema.currentData() != self._tema_aplicado:
+            temas.cambiar(self._tema_aplicado)            # cerraste sin «Aplicar»: vuelve el tema de antes
+        super().done(r)
 
     def _aplicar(self):
+        self._tema_aplicado = self.t_tema.currentData()
         self._apply(self.collect())
