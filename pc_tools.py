@@ -52,7 +52,13 @@ APPS = {
 
 
 def load_apps() -> dict:
-    """APPS + las que agregues en apps.json  ({"spotify": "spotify.exe", "chrome": "chrome.exe"})."""
+    """APPS + las que agregues en apps.json, SIN las que el dueño bloqueó en Ajustes > Apps y límites (para Orbi no existen)."""
+    import restricciones as RS
+    return RS.filtrar_apps(load_apps_todas())
+
+
+def load_apps_todas() -> dict:
+    """APPS + las que agregues en apps.json  ({"spotify": "spotify.exe", "chrome": "chrome.exe"}). Incluye las bloqueadas."""
     apps = dict(APPS)
     p = ROOT / "apps.json"
     if p.exists():
@@ -1288,8 +1294,11 @@ def _run(name: str, args: dict, ctx: ToolContext) -> dict:
         ctx.alarms.stop_ring()
         return {"resultado": "Alarma apagada."}
     if name == "abrir_app":
-        apps = load_apps()
+        import restricciones as RS
+        apps = load_apps()                               # sin las bloqueadas: es lo que Orbi «conoce»
         app = str(args.get("nombre", "")).lower().strip()
+        if RS.app_bloqueada(app, load_apps_todas().get(app)):
+            return {"error": RS.mensaje_no_encontrada(app, apps)}       # igual que una app que no existe
         from windows import find_start_app, focus_window, match_windows, wait_for_window
         exe_hint = (apps.get(app) or app).lower().removesuffix(".exe")
         ya = match_windows(exe_hint, "") if sys.platform == "win32" else []
@@ -1298,8 +1307,10 @@ def _run(name: str, args: dict, ctx: ToolContext) -> dict:
             return {"resultado": f"{app} ya estaba abierta; la puse al frente.", "ventana": ya[0]["title"],
                     "_sin_captura": True}
         target = apps.get(app) or find_start_app(app)   # lista segura, o cualquier app del menú Inicio
+        if target and RS.app_bloqueada(target):          # lo pidió con otro nombre («el navegador») pero resuelve a una app bloqueada
+            target = None
         if not target:
-            return {"error": f"No encontré la app '{app}' (ni en mi lista ni en el menú Inicio). Conocidas: {', '.join(apps)}"}
+            return {"error": RS.mensaje_no_encontrada(app, apps)}
         antes = {w["hwnd"] for w in match_windows(exe_hint, "")}
         _launch(target)
         w = wait_for_window(exe_hint, 8.0, antes) if sys.platform == "win32" else None

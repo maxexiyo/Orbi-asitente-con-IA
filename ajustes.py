@@ -10,6 +10,7 @@ Se abre desde el menú de la bolita («Ajustes…») o desde el clic derecho de 
   Alarmas       · tono (con botón de prueba)
   Calendarios   · calendarios que Orbi lee (iCal) y avisos de eventos (al iniciar, 15 min antes, 1 día antes…)
   Carpetas      · otras carpetas a las que Orbi puede entrar (además de Documentos, Escritorio, Descargas…)
+  Apps y límites· apps que Orbi NO debe abrir (para él no están instaladas) y cosas que no debe hacer (restricciones.py)
   Notificaciones· qué avisar, horario de silencio e historial corto (leídas / descartadas, unas horas)
   Rutinas y alarmas · ver, agregar, editar y borrar a mano rutinas/reglas, alarmas, recordatorios y timers (ajustes_pendientes.py)
   General       · lo de config.json que tiene sentido para un usuario normal (voz, tamaño de la bolita, cuándo se duerme,
@@ -510,6 +511,41 @@ class AjustesDialog(QDialog):
         tabs.addTab(w, "Carpetas")
         self._carp_refresh()
 
+        # ---------------- Apps y límites (apps que Orbi no abre + cosas que no debe hacer)
+        import restricciones as _rs
+        self._rs = _rs
+        self._apps_bl = _rs.limpiar_apps((cfg or {}).get("apps_bloqueadas"))
+        self._no_hacer = _rs.limpiar_reglas((cfg or {}).get("no_hacer"))
+        w = QWidget(); lay = QVBoxLayout(w)
+        info = QLabel("<b>Apps que Orbi no debe abrir.</b> Para él es como si no estuvieran instaladas: no salen en su lista de apps, "
+                      "«abrir» le contesta que no la encontró y tiene prohibido usarlas por otro camino (menú Inicio, barra de tareas…). "
+                      "El bloqueo de «abrir app» es firme; el resto depende de que la IA obedezca.")
+        info.setWordWrap(True); info.setTextFormat(Qt.RichText)
+        self.apps_list = QListWidget()
+        self.apps_list.setMaximumHeight(130)
+        lay.addWidget(info); lay.addWidget(self.apps_list)
+        rb = QHBoxLayout()
+        b = QPushButton("➕ Agregar app…"); b.clicked.connect(self._apps_add); rb.addWidget(b)
+        b = QPushButton("Quitar la seleccionada"); b.clicked.connect(self._apps_del); rb.addWidget(b)
+        lay.addLayout(rb)
+        info2 = QLabel("<b>Cosas que Orbi no debe hacer.</b> Frases con tus propias palabras, por ejemplo: «no mandes mensajes a mi mamá», "
+                       "«no cambies el volumen de noche», «no cierres ventanas sin avisarme». Orbi las toma como límites que mandan sobre "
+                       "cualquier otra instrucción, pero son indicaciones para la IA, no un candado: para lo grave (pagos, borrar, enviar) "
+                       "usa también la pestaña Permisos.")
+        info2.setWordWrap(True); info2.setTextFormat(Qt.RichText)
+        self.nh_list = QListWidget()
+        lay.addWidget(info2); lay.addWidget(self.nh_list, 1)
+        rb = QHBoxLayout()
+        b = QPushButton("➕ Agregar…"); b.clicked.connect(self._nh_add); rb.addWidget(b)
+        b = QPushButton("Editar"); b.clicked.connect(self._nh_edit); rb.addWidget(b)
+        b = QPushButton("Quitar la seleccionada"); b.clicked.connect(self._nh_del); rb.addWidget(b)
+        lay.addLayout(rb)
+        nota = QLabel("Los cambios se aplican al pulsar «Aplicar». Solo se editan desde esta ventana: Orbi no puede quitarse un límite por su cuenta.")
+        nota.setWordWrap(True); nota.setObjectName("nota")
+        lay.addWidget(nota)
+        tabs.addTab(w, "Apps y límites")
+        self._apps_refresh(); self._nh_refresh()
+
         # ---------------- Funciones (lo que antes estaba en el clic derecho de Orbi)
         items = (extras or {}).get("items") or []
         ocultar = ("Ajustes", "Cuenta de Google", "Mini ventana:", "Abrir mi memoria")        # ya tienen su propia pestaña
@@ -708,6 +744,90 @@ class AjustesDialog(QDialog):
             self._carp.remove(r)
             self._carp_refresh()
 
+    # ---- apps bloqueadas y cosas que no hacer
+    def _apps_refresh(self):
+        self.apps_list.clear()
+        for a in self._apps_bl:
+            it = QListWidgetItem(f"🚫 {a}")
+            it.setData(Qt.UserRole, a)
+            self.apps_list.addItem(it)
+        if not self._apps_bl:
+            self.apps_list.addItem("(ninguna: Orbi puede abrir cualquier app instalada)")
+
+    def _apps_add(self):
+        QApplication.setOverrideCursor(Qt.WaitCursor)
+        try:
+            opciones = self._rs.apps_instaladas()
+        finally:
+            QApplication.restoreOverrideCursor()
+        nombre, ok = QInputDialog.getItem(self, "Apps y límites", "Elige una app de la lista o escribe su nombre (ej. discord, spotify, chrome):",
+                                          opciones, 0, True)
+        nombre = (nombre or "").strip()
+        if not ok or not nombre:
+            return
+        if self._rs.norm(nombre) in [self._rs.norm(x) for x in self._apps_bl]:
+            QMessageBox.information(self, "Apps y límites", "Esa app ya está en la lista.")
+            return
+        if len(self._apps_bl) >= self._rs.MAX_APPS:
+            QMessageBox.warning(self, "Apps y límites", f"Máximo {self._rs.MAX_APPS} apps.")
+            return
+        self._apps_bl = self._rs.limpiar_apps(self._apps_bl + [nombre])
+        self._apps_refresh()
+
+    def _apps_del(self):
+        it = self.apps_list.currentItem()
+        a = it.data(Qt.UserRole) if it else None
+        if a in self._apps_bl:
+            self._apps_bl.remove(a)
+            self._apps_refresh()
+
+    def _nh_refresh(self):
+        self.nh_list.clear()
+        for r in self._no_hacer:
+            it = QListWidgetItem(f"⛔ {r}")
+            it.setData(Qt.UserRole, r)
+            it.setToolTip(r)
+            self.nh_list.addItem(it)
+        if not self._no_hacer:
+            self.nh_list.addItem("(todavía no agregaste ninguna)")
+
+    def _nh_pedir(self, actual: str = ""):
+        txt, ok = QInputDialog.getText(self, "Apps y límites", "Orbi NO debe… (una frase, con tus palabras):", QLineEdit.Normal, actual)
+        txt = " ".join((txt or "").split())
+        if not ok or not txt:
+            return None
+        if len(txt) > self._rs.MAX_LARGO_REGLA:
+            QMessageBox.warning(self, "Apps y límites", f"Máximo {self._rs.MAX_LARGO_REGLA} caracteres: sepárala en dos frases.")
+            return None
+        return txt
+
+    def _nh_add(self):
+        if len(self._no_hacer) >= self._rs.MAX_REGLAS:
+            QMessageBox.warning(self, "Apps y límites", f"Máximo {self._rs.MAX_REGLAS} límites.")
+            return
+        txt = self._nh_pedir()
+        if txt:
+            self._no_hacer = self._rs.limpiar_reglas(self._no_hacer + [txt])
+            self._nh_refresh()
+
+    def _nh_edit(self):
+        it = self.nh_list.currentItem()
+        r = it.data(Qt.UserRole) if it else None
+        if r not in self._no_hacer:
+            return
+        txt = self._nh_pedir(r)
+        if txt:
+            self._no_hacer[self._no_hacer.index(r)] = txt
+            self._no_hacer = self._rs.limpiar_reglas(self._no_hacer)
+            self._nh_refresh()
+
+    def _nh_del(self):
+        it = self.nh_list.currentItem()
+        r = it.data(Qt.UserRole) if it else None
+        if r in self._no_hacer:
+            self._no_hacer.remove(r)
+            self._nh_refresh()
+
     def collect(self) -> dict:
         mini = {"modo": self.m_modo.currentData(), "tam": self.m_tam.currentData(), "esquina": self.m_esq.currentData(),
                 "ubicacion": self.m_ubi.currentData(), "proximo_min": self.m_prox.currentData(),
@@ -722,6 +842,7 @@ class AjustesDialog(QDialog):
                   "esquivar_al_trabajar": self.g_esq.isChecked(), "preferir_mouse": self.g_mouse.isChecked(),
                   "ocultar_orbi_en_capturas": self.g_ocul.isChecked(), "busqueda_web": self.g_web.isChecked(),
                   "unidades_externas": self.g_ext.isChecked(), "calendarios": dict(self._cal), "carpetas_extra": list(self._carp),
+                  "apps_bloqueadas": list(self._apps_bl), "no_hacer": list(self._no_hacer),
                   "avisos_calendario": {"activo": self.av_activo.isChecked(), "voz": self.av_voz.isChecked(),
                                         "antes_min": self._av_antes()},
                   "correo_avisos": {"activo": self.c_aviso.isChecked(), "cada_s": self.c_cada.value(), "voz": self.c_voz.isChecked(),

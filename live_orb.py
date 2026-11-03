@@ -2310,6 +2310,13 @@ def main():
             _dr2.EXTERNAL_DRIVES = bool(cfg.get("unidades_externas", True))      # este sí se aplica ya
             _aplicar_audio()                                                      # micrófono, volumen y bocina también al momento
         _aplicar_idioma()                                    # idioma con el que te oye (lo toma en la siguiente conexión con Live)
+        try:                                                 # apps bloqueadas / cosas que no hacer: la voz y el chat los saben ya
+            _sp = build_system_prompt(st["profile"])
+            session.system_prompt = _sp
+            st["hist"][0] = {"role": "system", "content": _sp}
+            session.tools = None if a.no_tools else build_tools(st["profile"], "live", flags())     # la lista de apps conocidas cambió
+        except Exception as e:                               # noqa: BLE001
+            print(f"[ajustes] no pude refrescar el prompt: {type(e).__name__}: {e}")
         refresh_events()
         panel.refresh()
         orb.say("Ajustes aplicados ✔" + (" (voz, tamaño y compañero, al reiniciar)" if nueva_cfg else ""), 4)

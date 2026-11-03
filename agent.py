@@ -134,6 +134,13 @@ class Agent:
         from perfil import call_name
         from perfil import fecha_actual_texto
         system = SYSTEM.format(quien=call_name(prof) or "tu dueño") + "\n\n" + fecha_actual_texto()
+        try:                                               # límites del dueño (Ajustes > Apps y límites)
+            import restricciones as _rs
+            _lim = _rs.prompt_text()
+            if _lim:
+                system += "\n\n" + _lim
+        except Exception:                                  # noqa: BLE001
+            pass
         try:
             import skills as _sk
             system += "\n\n" + _sk.prompt_text()
