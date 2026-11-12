@@ -1,0 +1,1259 @@
+{
+"fecha": 1794493069.6281526,
+"instaladas": [
+"Acceso por voz",
+"Access",
+"Administraci�n de equipos",
+"Administrador de tareas",
+"Administrative Tools",
+"Android Studio",
+"Arduino IDE",
+"Arduino IDE 2.3.10",
+"AuroraEngine",
+"AuroraEngine versión 1.0.0.2",
+"Ayuda WinRAR",
+"Bitnami for XAMPP",
+"Blend for Visual Studio",
+"Bloc de notas",
+"Calculadora",
+"Character Map",
+"Click to Do",
+"Command Prompt",
+"Component Services",
+"Composer - PHP Dependency Manager",
+"Computer Management",
+"Conexi�n a Escritorio remoto",
+"Configuraci�n",
+"Configuraci�n del sistema",
+"Control Panel",
+"Copias de seguridad de Windows",
+"Debuggable Package Manager",
+"Desfragmentar y optimizar unidades",
+"Developer Command Prompt for VS",
+"Developer PowerShell for VS",
+"dfrgui",
+"Diagn�stico de memoria de Windows",
+"Discord",
+"Disk Cleanup",
+"Dolby Access",
+"Easy Photo Print",
+"Editor del Registro",
+"Ejecutar",
+"Enlace M�vil",
+"Enviar a OneNote",
+"Epson Customer Research Participation",
+"Epson Easy Photo Print 2",
+"Epson Event Manager",
+"Epson Scan 2",
+"Epson Scan 2 Utility",
+"Epson Software Updater",
+"EpsonNet Print",
+"Event Manager",
+"Event Viewer",
+"Excel",
+"Explorador de archivos",
+"FFmpeg",
+"File Explorer",
+"Firefox",
+"Fotos",
+"FreeLLMAPI",
+"FreeLLMAPI 0.13.4",
+"Git",
+"Git Bash",
+"Git CMD",
+"Git FAQs (Frequently Asked Questions)",
+"Git GUI",
+"Git Release Notes",
+"GitHub Desktop",
+"Google Chrome",
+"Grabaci�n de acciones de usuario",
+"Herramienta Recortes",
+"Herramientas de Windows",
+"History",
+"IDLE (Python 3.12 64-bit)",
+"IIS 10.0 Express",
+"Informaci�n del sistema",
+"Iniciador iSCSI",
+"Inkscape",
+"Install Additional Tools for Node.js",
+"Intel Driver & Support Assistant",
+"Intel(R) Computing Improvement Program",
+"Intel(R) Wireless Bluetooth(R)",
+"Intel® Graphics Software",
+"Intel� Connectivity Performance Suite",
+"Intel� Graphics Software",
+"Intel� UnisonT",
+"Introducci�n",
+"iSCSI Initiator",
+"Lenovo Hotkeys",
+"Lenovo Smart Appearance",
+"Lenovo Smart Appearance Components",
+"Lenovo Vantage",
+"Lenovo Vantage Service",
+"Lenovo Voice",
+"Liberador de espacio en disco",
+"License",
+"LiveCaptions",
+"Lupa",
+"Magnify",
+"Malwarebytes",
+"Malwarebytes version 5.7.3.376",
+"Manual RAR para consola",
+"Mapa de caracteres",
+"McAfee LiveSafe",
+"Mem Reduct",
+"Memory Diagnostics Tool",
+"Microsoft 365 - es-es",
+"Microsoft Defender",
+"Microsoft Edge",
+"Microsoft GameInput",
+"Microsoft OneDrive",
+"Microsoft OneNote - es-es",
+"Microsoft SQL Server 2025 LocalDB",
+"Microsoft Store",
+"Microsoft System CLR Types para SQL Server 2019",
+"Microsoft Teams",
+"Microsoft Teams Meeting Add-in for Microsoft Office",
+"Microsoft Visual Studio Code (User)",
+"Microsoft Visual Studio Installer",
+"Microsoft Web Deploy 4.0",
+"Microsoft Windows Application Compatibility Fix Database",
+"Monitor de recursos",
+"Monitor de rendimiento",
+"Motrix",
+"Motrix 2.2.1",
+"Mozilla Firefox (x64 es-ES)",
+"Mozilla Maintenance Service",
+"Narrador",
+"Narrator",
+"Navegación privada de Firefox",
+"Navegaci�n privada de Firefox",
+"Node.js",
+"Node.js command prompt",
+"Node.js documentation",
+"Node.js website",
+"OBS Studio",
+"ODBC Data Sources (32-bit)",
+"ODBC Data Sources (64-bit)",
+"Ollama",
+"Ollama version 0.40.13",
+"On-Screen Keyboard",
+"oneAPI Level Zero",
+"OneDrive",
+"OneNote",
+"Or�genes de datos ODBC (32 bits)",
+"Or�genes de datos ODBC (64 bits)",
+"Outlook",
+"Outlook (classic)",
+"Paint",
+"Panel de control",
+"Performance Monitor",
+"Polytoria",
+"PowerPoint",
+"Preferencias de idioma de Office",
+"Programador de tareas",
+"Proton VPN",
+"Proyecci�n inal�mbrica",
+"Publisher",
+"Python 3.12 (64-bit)",
+"Python 3.12 Manuals (64-bit)",
+"Python 3.12 Module Docs (64-bit)",
+"Python 3.12.10 (64-bit)",
+"Python Launcher",
+"Que hay de nuevo en la última versión",
+"Que hay de nuevo en la �ltima versi�n",
+"Readme",
+"RecoveryDrive",
+"Redragon  K526-WL   GAMING  KEYBOARD",
+"Redragon  K526-WL   GAMING  KEYBOARD version 1.0.4.14",
+"Redragon K526-PRO 3 Modes Membrane Keyboard",
+"Registry Editor",
+"Remote Desktop Connection",
+"Resource Monitor",
+"Roblox",
+"Roblox Player",
+"Roblox Player for maxex",
+"Roblox Studio",
+"Roblox Studio for maxex",
+"Run",
+"Seguridad de Windows",
+"services",
+"Servicios",
+"Servicios de componentes",
+"Spotify",
+"Steam",
+"Steam Support Center",
+"Steps Recorder",
+"Sticky Notes (new)",
+"Subt�tulos en directo",
+"System Configuration",
+"System Information",
+"S�mbolo del sistema",
+"Task Manager",
+"Task Scheduler",
+"Teclado en pantalla",
+"Tenorshare 4DDiG",
+"Tenorshare 4DDiG 11.0.3.10",
+"Ubuntu",
+"Unidad de recuperaci�n",
+"Visor de eventos",
+"Visual Studio",
+"Visual Studio Code",
+"Visual Studio Community 2026",
+"Visual Studio Installer",
+"VoiceAccess",
+"vs_CoreEditorFonts",
+"WhatsApp",
+"Windows Defender Firewall con seguridad avanzada",
+"Windows Defender Firewall with Advanced Security",
+"Windows File Recovery",
+"Windows Media Player Legacy",
+"Windows PowerShell",
+"Windows PowerShell (x86)",
+"Windows PowerShell ISE 5.1",
+"Windows PowerShell ISE 5.1 (x86)",
+"Windows�PowerShell ISE 5.1",
+"Windows�PowerShell ISE 5.1 (x86)",
+"WinRAR",
+"WinRAR 7.23 (64-bit)",
+"Wondershare Filmora 14",
+"Wondershare Filmora 14(Build 14.9.3.14445)",
+"Wondershare Helper Compact 2.6.0",
+"Wondershare NativePush(Build 1.1.1.0)",
+"Wondershare Recoverit(Build 13.5.10.10)",
+"Word",
+"WSL",
+"WSL Settings",
+"x64 Native Tools Command Prompt for VS",
+"x64_x86 Cross Tools Command Prompt for VS",
+"x86 Native Tools Command Prompt for VS",
+"x86_x64 Cross Tools Command Prompt for VS",
+"XAMPP",
+"XAMPP Control Panel",
+"XAMPP htdocs folder",
+"XBOX",
+"Xbox Service"
+],
+"portables": [
+{
+"nombre": "7z2501",
+"ruta": "C:\\Users\\maxex\\OneDrive\\Descargasaaaa\\7z2501-x64.exe",
+"mtime": 1757361694.0
+},
+{
+"nombre": "AC NH Design Pattern Editor",
+"ruta": "C:\\Users\\maxex\\OneDrive\\Descargasaaaa\\Revisar\\ACNHDesignPatternEditorv0.9.7.2a-WinX64\\AC NH Design Pattern Editor.exe",
+"mtime": 1769034655.0
+},
+{
+"nombre": "ACToolkit",
+"ruta": "C:\\Users\\maxex\\OneDrive\\no se\\ACToolkit\\ACToolkit.exe",
+"mtime": 1248325902.0
+},
+{
+"nombre": "adb",
+"ruta": "C:\\Users\\maxex\\OneDrive\\Descargasaaaa\\ADB_AppControl\\adb\\adb.exe",
+"mtime": 1722063358.0
+},
+{
+"nombre": "ADBAppControl",
+"ruta": "C:\\Users\\maxex\\OneDrive\\Descargasaaaa\\ADB_AppControl\\ADBAppControl.exe",
+"mtime": 1732816370.0
+},
+{
+"nombre": "agendav1",
+"ruta": "C:\\Users\\maxex\\OneDrive\\ESCUELA (USB BACKUP)\\CETI\\2°do semestre\\Programacion estructurada\\Agenda\\agendav1.exe",
+"mtime": 1745447717.0
+},
+{
+"nombre": "agendaV2",
+"ruta": "C:\\Users\\maxex\\OneDrive\\ESCUELA (USB BACKUP)\\CETI\\2°do semestre\\atyuil,f\\agendaV2.exe",
+"mtime": 1731507624.0
+},
+{
+"nombre": "AgendaV2 1",
+"ruta": "C:\\Users\\maxex\\OneDrive\\ESCUELA (USB BACKUP)\\CETI\\2°do semestre\\atyuil,f\\AgendaV2.1.exe",
+"mtime": 1732107612.0
+},
+{
+"nombre": "AgendaV3",
+"ruta": "C:\\Users\\maxex\\OneDrive\\ESCUELA (USB BACKUP)\\CETI\\2°do semestre\\atyuil,f\\AgendaV3.exe",
+"mtime": 1732718742.0
+},
+{
+"nombre": "agregarinfo",
+"ruta": "C:\\Users\\maxex\\OneDrive\\ESCUELA (USB BACKUP)\\CETI\\2°do semestre\\agregarinfo.exe",
+"mtime": 1732715072.0
+},
+{
+"nombre": "AME Beta",
+"ruta": "C:\\Users\\maxex\\OneDrive\\Descargasaaaa\\AME-Beta.exe",
+"mtime": 1760661489.0
+},
+{
+"nombre": "android studio quail3 windows",
+"ruta": "C:\\Users\\maxex\\OneDrive\\Descargas\\Programas\\android-studio-quail3-windows.exe",
+"mtime": 1787443788.8466542
+},
+{
+"nombre": "Antigravity IDE",
+"ruta": "C:\\Users\\maxex\\OneDrive\\Descargas\\Programas\\Antigravity IDE.exe",
+"mtime": 1780709628.0
+},
+{
+"nombre": "Apache NetBeans 27",
+"ruta": "C:\\Users\\maxex\\OneDrive\\Documentos\\apps Ceti\\Apache-NetBeans-27.exe",
+"mtime": 1762315408.0
+},
+{
+"nombre": "arduino ide 2 3 8 Windows",
+"ruta": "C:\\Users\\maxex\\OneDrive\\Descargas\\Programas\\arduino-ide_2.3.8_Windows_64bit.exe",
+"mtime": 1779502596.0
+},
+{
+"nombre": "aria chk",
+"ruta": "C:\\Users\\maxex\\OneDrive\\Xampp\\mysql\\bin\\aria_chk.exe",
+"mtime": 1698670750.0
+},
+{
+"nombre": "aria dump log",
+"ruta": "C:\\Users\\maxex\\OneDrive\\Xampp\\mysql\\bin\\aria_dump_log.exe",
+"mtime": 1698670750.0
+},
+{
+"nombre": "aria ftdump",
+"ruta": "C:\\Users\\maxex\\OneDrive\\Xampp\\mysql\\bin\\aria_ftdump.exe",
+"mtime": 1698670751.0
+},
+{
+"nombre": "aria pack",
+"ruta": "C:\\Users\\maxex\\OneDrive\\Xampp\\mysql\\bin\\aria_pack.exe",
+"mtime": 1698670751.0
+},
+{
+"nombre": "aria read log",
+"ruta": "C:\\Users\\maxex\\OneDrive\\Xampp\\mysql\\bin\\aria_read_log.exe",
+"mtime": 1698670752.0
+},
+{
+"nombre": "ArknightsEndfield Downloader ua fsmh99p8h75e",
+"ruta": "C:\\Users\\maxex\\OneDrive\\Descargasaaaa\\Revisar\\ArknightsEndfield_Downloader_ua-fsmh99p8h75e.exe",
+"mtime": 1769281563.0
+},
+{
+"nombre": "AuroraEngine",
+"ruta": "C:\\Users\\maxex\\OneDrive\\Descargas\\Programas\\AuroraEngine.exe",
+"mtime": 1789090287.757485
+},
+{
+"nombre": "AutoClicker 3 0",
+"ruta": "C:\\Users\\maxex\\OneDrive\\Descargasaaaa\\Alex laptop\\AutoClicker-3.0.exe",
+"mtime": 1717809238.0
+},
+{
+"nombre": "autorun",
+"ruta": "C:\\Users\\maxex\\OneDrive\\Documentos\\apps Ceti\\Multisim 14\\autorun.exe",
+"mtime": 1485322098.0
+},
+{
+"nombre": "bspzip",
+"ruta": "C:\\Users\\maxex\\OneDrive\\Descargas\\Garrys Mod_2025.12.19_ElEnemigos\\bin\\bspzip.exe",
+"mtime": 1766520749.0
+},
+{
+"nombre": "BsSndRpt64",
+"ruta": "C:\\Users\\maxex\\OneDrive\\no se\\Wondershare Filmora.v14.2.9.11061.Portable.X64_DiarioPc2\\App\\Wondershare Filmora\\14.2.9.11061\\BsSndRpt64.exe",
+"mtime": 1735912730.0
+},
+{
+"nombre": "BT 24 20 0 64UWD Win10 Win11",
+"ruta": "C:\\Users\\maxex\\OneDrive\\Revisar descargas\\BT-24.20.0-64UWD-Win10-Win11.exe",
+"mtime": 1773967158.0
+},
+{
+"nombre": "BugSplatHD64",
+"ruta": "C:\\Users\\maxex\\OneDrive\\no se\\Wondershare Filmora.v14.2.9.11061.Portable.X64_DiarioPc2\\App\\Wondershare Filmora\\14.2.9.11061\\BugSplatHD64.exe",
+"mtime": 1735912730.0
+},
+{
+"nombre": "CaptureGameWin",
+"ruta": "C:\\Users\\maxex\\OneDrive\\no se\\Wondershare Filmora.v14.2.9.11061.Portable.X64_DiarioPc2\\App\\Wondershare Filmora\\14.2.9.11061\\CaptureGameWin.exe",
+"mtime": 1735912732.0
+},
+{
+"nombre": "CefViewWing",
+"ruta": "C:\\Users\\maxex\\OneDrive\\no se\\Wondershare Filmora.v14.2.9.11061.Portable.X64_DiarioPc2\\App\\Wondershare Filmora\\14.2.9.11061\\CefViewWing.exe",
+"mtime": 1735913014.0
+},
+{
+"nombre": "Cemu",
+"ruta": "C:\\Users\\maxex\\OneDrive\\Documentos\\juegos\\Basedata Emulator\\cemu_1.26.2 (Wii U)\\Cemu.exe",
+"mtime": 1711389367.0
+},
+{
+"nombre": "chrome",
+"ruta": "C:\\Users\\maxex\\OneDrive\\Descargas\\chrome-win\\chrome.exe",
+"mtime": 1778816377.0
+},
+{
+"nombre": "chrome proxy",
+"ruta": "C:\\Users\\maxex\\OneDrive\\Descargas\\chrome-win\\chrome_proxy.exe",
+"mtime": 1778816382.0
+},
+{
+"nombre": "chrome pwa launcher",
+"ruta": "C:\\Users\\maxex\\OneDrive\\Descargas\\chrome-win\\chrome_pwa_launcher.exe",
+"mtime": 1778816383.0
+},
+{
+"nombre": "claude",
+"ruta": "C:\\Users\\maxex\\.local\\bin\\claude.exe",
+"mtime": 1791051612.209072
+},
+{
+"nombre": "CoolSoft MIDIMapper 2 1 2",
+"ruta": "C:\\Users\\maxex\\OneDrive\\Revisar descargas\\CoolSoft_MIDIMapper_2.1.2.exe",
+"mtime": 1775791795.0
+},
+{
+"nombre": "CoolSoft VirtualMIDISynth 2 13 9",
+"ruta": "C:\\Users\\maxex\\OneDrive\\Revisar descargas\\CoolSoft_VirtualMIDISynth_2.13.9.exe",
+"mtime": 1775792004.0
+},
+{
+"nombre": "curl",
+"ruta": "C:\\Users\\maxex\\OneDrive\\Xampp\\apache\\bin\\curl.exe",
+"mtime": 1697002806.0
+},
+{
+"nombre": "DB Browser for SQLCipher",
+"ruta": "C:\\Users\\maxex\\OneDrive\\Descargas\\DB.Browser.for.SQLite-v3.13.1-win64\\DB Browser for SQLCipher.exe",
+"mtime": 1785540635.0
+},
+{
+"nombre": "DB Browser for SQLite",
+"ruta": "C:\\Users\\maxex\\OneDrive\\Descargas\\DB.Browser.for.SQLite-v3.13.1-win64\\DB Browser for SQLite.exe",
+"mtime": 1785540635.0
+},
+{
+"nombre": "DiscordChatExporter",
+"ruta": "C:\\Users\\maxex\\OneDrive\\Descargas\\DiscordChatExporter.win-x64\\DiscordChatExporter.exe",
+"mtime": 1789942671.3807323
+},
+{
+"nombre": "DiskInfo32",
+"ruta": "C:\\Users\\maxex\\OneDrive\\Descargas\\CrystalDiskInfo9_9_2\\DiskInfo32.exe",
+"mtime": 1785457466.0
+},
+{
+"nombre": "DiskInfo64",
+"ruta": "C:\\Users\\maxex\\OneDrive\\Descargas\\CrystalDiskInfo9_9_2\\DiskInfo64.exe",
+"mtime": 1785457466.0
+},
+{
+"nombre": "DiskInfoA64",
+"ruta": "C:\\Users\\maxex\\OneDrive\\Descargas\\CrystalDiskInfo9_9_2\\DiskInfoA64.exe",
+"mtime": 1785457466.0
+},
+{
+"nombre": "dmxconvert",
+"ruta": "C:\\Users\\maxex\\OneDrive\\Descargas\\Garrys Mod_2025.12.19_ElEnemigos\\bin\\dmxconvert.exe",
+"mtime": 1766520749.0
+},
+{
+"nombre": "Doki Doki Literature Club Plus",
+"ruta": "C:\\Users\\maxex\\OneDrive\\Documentos\\juegos\\Steam\\Doki Doki Literature Club Plus_ElEnemigos\\Doki Doki Literature Club Plus.exe",
+"mtime": 1707934281.394
+},
+{
+"nombre": "Dolphin",
+"ruta": "C:\\Users\\maxex\\OneDrive\\Documentos\\juegos\\Basedata Emulator\\Dolphin-x64 (Wii)\\Dolphin.exe",
+"mtime": 1738198749.0
+},
+{
+"nombre": "DolphinQt2",
+"ruta": "C:\\Users\\maxex\\OneDrive\\Documentos\\juegos\\Basedata Emulator\\Dolphin-x64 (Wii)\\DolphinQt2.exe",
+"mtime": 1515221136.0
+},
+{
+"nombre": "DolphinTool",
+"ruta": "C:\\Users\\maxex\\OneDrive\\Documentos\\juegos\\Basedata Emulator\\Dolphin-x64 (Wii)\\DolphinTool.exe",
+"mtime": 1738198752.0
+},
+{
+"nombre": "DownloadCenter",
+"ruta": "C:\\Users\\maxex\\OneDrive\\no se\\Wondershare Filmora.v14.2.9.11061.Portable.X64_DiarioPc2\\App\\Wondershare Filmora\\14.2.9.11061\\DownloadCenter.exe",
+"mtime": 1735913024.0
+},
+{
+"nombre": "DSPTool",
+"ruta": "C:\\Users\\maxex\\OneDrive\\Documentos\\juegos\\Basedata Emulator\\Dolphin-x64 (Wii)\\DSPTool.exe",
+"mtime": 1738198733.0
+},
+{
+"nombre": "eden",
+"ruta": "C:\\Users\\maxex\\OneDrive\\Documentos\\juegos\\Basedata Emulator\\Eden (switch)\\eden.exe",
+"mtime": 1769816484.0
+},
+{
+"nombre": "eden cli",
+"ruta": "C:\\Users\\maxex\\OneDrive\\Documentos\\juegos\\Basedata Emulator\\Eden (switch)\\eden-cli.exe",
+"mtime": 1769816484.0
+},
+{
+"nombre": "eden room",
+"ruta": "C:\\Users\\maxex\\OneDrive\\Documentos\\juegos\\Basedata Emulator\\Eden (switch)\\eden-room.exe",
+"mtime": 1769816484.0
+},
+{
+"nombre": "elevation service",
+"ruta": "C:\\Users\\maxex\\OneDrive\\Descargas\\chrome-win\\elevation_service.exe",
+"mtime": 1778816400.0
+},
+{
+"nombre": "EPM v14 Activator v1 1   De!",
+"ruta": "C:\\Users\\maxex\\OneDrive\\Descargas2\\Nueva carpeta\\EaseUS.Partition.Master.v19.6.0.Build.20250407.Multilingual.Incl.Activation\\EPM v14 Activator v1.1 - De!.exe",
+"mtime": 1588096944.0
+},
+{
+"nombre": "Export",
+"ruta": "C:\\Users\\maxex\\OneDrive\\no se\\Wondershare Filmora.v14.2.9.11061.Portable.X64_DiarioPc2\\App\\Wondershare Filmora\\14.2.9.11061\\Export.exe",
+"mtime": 1735913026.0
+},
+{
+"nombre": "fastboot",
+"ruta": "C:\\Users\\maxex\\OneDrive\\Descargasaaaa\\ADB_AppControl\\adb\\fastboot.exe",
+"mtime": 1722063356.0
+},
+{
+"nombre": "FeedBackUnit",
+"ruta": "C:\\Users\\maxex\\OneDrive\\no se\\Wondershare Filmora.v14.2.9.11061.Portable.X64_DiarioPc2\\App\\Wondershare Filmora\\14.2.9.11061\\FeedBackUnit.exe",
+"mtime": 1735913044.0
+},
+{
+"nombre": "fidentify win",
+"ruta": "C:\\Users\\maxex\\OneDrive\\Descargas\\testdisk-7.3-WIP\\fidentify_win.exe",
+"mtime": 1791257459.935666
+},
+{
+"nombre": "FileZilla server",
+"ruta": "C:\\Users\\maxex\\OneDrive\\Xampp\\FileZillaFTP\\FileZilla server.exe",
+"mtime": 1330274548.0
+},
+{
+"nombre": "FileZilla Server Interface",
+"ruta": "C:\\Users\\maxex\\OneDrive\\Xampp\\FileZillaFTP\\FileZilla Server Interface.exe",
+"mtime": 1330274572.0
+},
+{
+"nombre": "FileZillaServer",
+"ruta": "C:\\Users\\maxex\\OneDrive\\Xampp\\FileZillaFTP\\FileZillaServer.exe",
+"mtime": 1330274548.0
+},
+{
+"nombre": "filmora 64bit 14 0 11 full846",
+"ruta": "C:\\Users\\maxex\\OneDrive\\Descargas2\\Wondershare Filmora 14.0.11.9772 (x64)\\filmora_64bit_14.0.11_full846.exe",
+"mtime": 1730489008.0
+},
+{
+"nombre": "filmora 64bit full846",
+"ruta": "C:\\Users\\maxex\\OneDrive\\Descargas\\Wondershare Filmora_v15.5.3.19727_ElEnemigos\\filmora_64bit_full846.exe",
+"mtime": 1779753411.0
+},
+{
+"nombre": "FilmoraPlayer",
+"ruta": "C:\\Users\\maxex\\OneDrive\\no se\\Wondershare Filmora.v14.2.9.11061.Portable.X64_DiarioPc2\\App\\Wondershare Filmora\\14.2.9.11061\\FilmoraPlayer.exe",
+"mtime": 1735913138.0
+},
+{
+"nombre": "FilmStockService",
+"ruta": "C:\\Users\\maxex\\OneDrive\\no se\\Wondershare Filmora.v14.2.9.11061.Portable.X64_DiarioPc2\\App\\Wondershare Filmora\\14.2.9.11061\\FilmStockService.exe",
+"mtime": 1735913144.0
+},
+{
+"nombre": "Firefox",
+"ruta": "C:\\Users\\maxex\\OneDrive\\Escritorio\\Programas\\Firefox.exe",
+"mtime": 1792692343.180912
+},
+{
+"nombre": "five nights at freddys 4 1 0",
+"ruta": "C:\\Users\\maxex\\OneDrive\\Descargasaaaa\\five-nights-at-freddys-4-1-0.exe",
+"mtime": 1692721850.0
+},
+{
+"nombre": "FreeVideoToJPGConverter 5 2 3 112 o",
+"ruta": "C:\\Users\\maxex\\OneDrive\\Descargas2\\FreeVideoToJPGConverter_5.2.3.112_o.exe",
+"mtime": 1748754158.0
+},
+{
+"nombre": "FRSTEnglish",
+"ruta": "C:\\Users\\maxex\\OneDrive\\Descargas\\Programas\\FRSTEnglish.exe",
+"mtime": 1787449058.0
+},
+{
+"nombre": "Funkin",
+"ruta": "C:\\Users\\maxex\\OneDrive\\Documentos\\juegos\\tuvieja\\Funkin.exe",
+"mtime": 1772832649.0
+},
+{
+"nombre": "gfx win 101 7076",
+"ruta": "C:\\Users\\maxex\\OneDrive\\Descargasaaaa\\gfx_win_101.7076.exe",
+"mtime": 1761779969.0
+},
+{
+"nombre": "Git 2 56 0 2 64 bit",
+"ruta": "C:\\Users\\maxex\\OneDrive\\Descargas\\Programas\\Git-2.56.0.2-64-bit.exe",
+"mtime": 1792070169.0221229
+},
+{
+"nombre": "gmad",
+"ruta": "C:\\Users\\maxex\\OneDrive\\Descargas\\Garrys Mod_2025.12.19_ElEnemigos\\bin\\gmad.exe",
+"mtime": 1766520749.0
+},
+{
+"nombre": "gmod",
+"ruta": "C:\\Users\\maxex\\OneDrive\\Descargas\\Garrys Mod_2025.12.19_ElEnemigos\\gmod.exe",
+"mtime": 1766520749.0
+},
+{
+"nombre": "gmpublish",
+"ruta": "C:\\Users\\maxex\\OneDrive\\Descargas\\Garrys Mod_2025.12.19_ElEnemigos\\bin\\gmpublish.exe",
+"mtime": 1766520749.0
+},
+{
+"nombre": "go2rtc",
+"ruta": "C:\\Users\\maxex\\OneDrive\\Descargas\\Programas\\go2rtc.exe",
+"mtime": 1785358594.0
+},
+{
+"nombre": "hammer",
+"ruta": "C:\\Users\\maxex\\OneDrive\\Descargas\\Garrys Mod_2025.12.19_ElEnemigos\\bin\\hammer.exe",
+"mtime": 1766520749.0
+},
+{
+"nombre": "hlfaceposer",
+"ruta": "C:\\Users\\maxex\\OneDrive\\Descargas\\Garrys Mod_2025.12.19_ElEnemigos\\bin\\hlfaceposer.exe",
+"mtime": 1766520749.0
+},
+{
+"nombre": "hlmv",
+"ruta": "C:\\Users\\maxex\\OneDrive\\Descargas\\Garrys Mod_2025.12.19_ElEnemigos\\bin\\hlmv.exe",
+"mtime": 1766520749.0
+},
+{
+"nombre": "igfxCUIServiceN",
+"ruta": "C:\\DRIVER\\Intel_Graphic\\VGA\\igfxCUIServiceN.exe",
+"mtime": 1672845242.0
+},
+{
+"nombre": "igfxEMN",
+"ruta": "C:\\DRIVER\\Intel_Graphic\\VGA\\igfxEMN.exe",
+"mtime": 1672845252.0
+},
+{
+"nombre": "igfxextN",
+"ruta": "C:\\DRIVER\\Intel_Graphic\\VGA\\igfxextN.exe",
+"mtime": 1672845258.0
+},
+{
+"nombre": "igfxSDK",
+"ruta": "C:\\DRIVER\\Intel_Graphic\\VGA\\igfxSDK.exe",
+"mtime": 1672845264.0
+},
+{
+"nombre": "innochecksum",
+"ruta": "C:\\Users\\maxex\\OneDrive\\Xampp\\mysql\\bin\\innochecksum.exe",
+"mtime": 1698670726.0
+},
+{
+"nombre": "Intel PIE Service",
+"ruta": "C:\\DRIVER\\Intel_Wlan\\PIE\\Intel_PIE_Service.exe",
+"mtime": 1669274830.0
+},
+{
+"nombre": "IntelCpHDCPSvc",
+"ruta": "C:\\DRIVER\\Intel_Graphic\\VGA\\IntelCpHDCPSvc.exe",
+"mtime": 1672845332.0
+},
+{
+"nombre": "IntelCpHeciSvc",
+"ruta": "C:\\DRIVER\\Intel_Graphic\\VGA\\IntelCpHeciSvc.exe",
+"mtime": 1672845336.0
+},
+{
+"nombre": "interactive ui tests",
+"ruta": "C:\\Users\\maxex\\OneDrive\\Descargas\\chrome-win\\interactive_ui_tests.exe",
+"mtime": 1778816477.0
+},
+{
+"nombre": "ipf uf",
+"ruta": "C:\\DRIVER\\Intel_DPTF\\ipf\\ipf_uf.exe",
+"mtime": 1668414216.0
+},
+{
+"nombre": "ipfsvc",
+"ruta": "C:\\DRIVER\\Intel_DPTF\\drivers\\ipfsvc.exe",
+"mtime": 1668493406.0
+},
+{
+"nombre": "jdk 25 windows x64 bin",
+"ruta": "C:\\Users\\maxex\\OneDrive\\Descargasaaaa\\Revisar\\jdk-25_windows-x64_bin.exe",
+"mtime": 1769400949.0
+},
+{
+"nombre": "jhi service",
+"ruta": "C:\\DRIVER\\CSME\\JHI\\jhi_service.exe",
+"mtime": 1660070876.0
+},
+{
+"nombre": "juegos de windows 7",
+"ruta": "C:\\Users\\maxex\\OneDrive\\Descargas2\\juegos_de_windows_7.exe",
+"mtime": 1732229065.0
+},
+{
+"nombre": "L4150 Lite LA",
+"ruta": "C:\\Users\\maxex\\OneDrive\\Descargas\\Programas\\L4150_Lite_LA.exe",
+"mtime": 1787359185.3005743
+},
+{
+"nombre": "laragon wamp",
+"ruta": "C:\\Users\\maxex\\OneDrive\\Documentos\\apps Ceti\\laragon-wamp.exe",
+"mtime": 1762269487.0
+},
+{
+"nombre": "Launcher",
+"ruta": "C:\\Users\\maxex\\OneDrive\\Escritorio\\Nueva carpeta\\Launcher.exe",
+"mtime": 1752556560.0
+},
+{
+"nombre": "mailtodisk",
+"ruta": "C:\\Users\\maxex\\OneDrive\\Xampp\\mailtodisk\\mailtodisk.exe",
+"mtime": 1364646540.0
+},
+{
+"nombre": "mariabackup",
+"ruta": "C:\\Users\\maxex\\OneDrive\\Xampp\\mysql\\bin\\mariabackup.exe",
+"mtime": 1698670728.0
+},
+{
+"nombre": "MB SupportTool",
+"ruta": "C:\\Users\\maxex\\OneDrive\\Descargas\\Programas\\MB-SupportTool.exe",
+"mtime": 1787449048.484152
+},
+{
+"nombre": "mbstream",
+"ruta": "C:\\Users\\maxex\\OneDrive\\Xampp\\mysql\\bin\\mbstream.exe",
+"mtime": 1698670728.0
+},
+{
+"nombre": "MediaCreationTool",
+"ruta": "C:\\Users\\maxex\\OneDrive\\Descargas\\Programas\\MediaCreationTool.exe",
+"mtime": 1791260135.690129
+},
+{
+"nombre": "mercury",
+"ruta": "C:\\Users\\maxex\\OneDrive\\Xampp\\MercuryMail\\mercury.exe",
+"mtime": 1334597420.0
+},
+{
+"nombre": "Midi to Qwerty",
+"ruta": "C:\\Users\\maxex\\OneDrive\\Descargasaaaa\\miditoqwerty-v1.0.7\\Midi to Qwerty.exe",
+"mtime": 1757799870.0
+},
+{
+"nombre": "MidiPlayer",
+"ruta": "C:\\Users\\maxex\\OneDrive\\Revisar descargas\\MidiPlayer6\\MidiPlayer.exe",
+"mtime": 1776139539.0
+},
+{
+"nombre": "miditoqwerty velocityfix",
+"ruta": "C:\\Users\\maxex\\OneDrive\\Descargasaaaa\\miditoqwerty_velocityfix.exe",
+"mtime": 1754953972.0
+},
+{
+"nombre": "my print defaults",
+"ruta": "C:\\Users\\maxex\\OneDrive\\Xampp\\mysql\\bin\\my_print_defaults.exe",
+"mtime": 1698670726.0
+},
+{
+"nombre": "myisam ftdump",
+"ruta": "C:\\Users\\maxex\\OneDrive\\Xampp\\mysql\\bin\\myisam_ftdump.exe",
+"mtime": 1698670752.0
+},
+{
+"nombre": "myisamchk",
+"ruta": "C:\\Users\\maxex\\OneDrive\\Xampp\\mysql\\bin\\myisamchk.exe",
+"mtime": 1698670753.0
+},
+{
+"nombre": "myisamlog",
+"ruta": "C:\\Users\\maxex\\OneDrive\\Xampp\\mysql\\bin\\myisamlog.exe",
+"mtime": 1698670754.0
+},
+{
+"nombre": "myisampack",
+"ruta": "C:\\Users\\maxex\\OneDrive\\Xampp\\mysql\\bin\\myisampack.exe",
+"mtime": 1698670754.0
+},
+{
+"nombre": "mysql",
+"ruta": "C:\\Users\\maxex\\OneDrive\\Xampp\\mysql\\bin\\mysql.exe",
+"mtime": 1698670720.0
+},
+{
+"nombre": "mysql ldb",
+"ruta": "C:\\Users\\maxex\\OneDrive\\Xampp\\mysql\\bin\\mysql_ldb.exe",
+"mtime": 1698670755.0
+},
+{
+"nombre": "mysql plugin",
+"ruta": "C:\\Users\\maxex\\OneDrive\\Xampp\\mysql\\bin\\mysql_plugin.exe",
+"mtime": 1698670721.0
+},
+{
+"nombre": "mysql tzinfo to sql",
+"ruta": "C:\\Users\\maxex\\OneDrive\\Xampp\\mysql\\bin\\mysql_tzinfo_to_sql.exe",
+"mtime": 1698670745.0
+},
+{
+"nombre": "mysqladmin",
+"ruta": "C:\\Users\\maxex\\OneDrive\\Xampp\\mysql\\bin\\mysqladmin.exe",
+"mtime": 1698670722.0
+},
+{
+"nombre": "mysqlbinlog",
+"ruta": "C:\\Users\\maxex\\OneDrive\\Xampp\\mysql\\bin\\mysqlbinlog.exe",
+"mtime": 1698670722.0
+},
+{
+"nombre": "mysqlcheck",
+"ruta": "C:\\Users\\maxex\\OneDrive\\Xampp\\mysql\\bin\\mysqlcheck.exe",
+"mtime": 1698670723.0
+},
+{
+"nombre": "mysqld",
+"ruta": "C:\\Users\\maxex\\OneDrive\\Xampp\\mysql\\bin\\mysqld.exe",
+"mtime": 1698670746.0
+},
+{
+"nombre": "mysqldump",
+"ruta": "C:\\Users\\maxex\\OneDrive\\Xampp\\mysql\\bin\\mysqldump.exe",
+"mtime": 1698670723.0
+},
+{
+"nombre": "mysqlimport",
+"ruta": "C:\\Users\\maxex\\OneDrive\\Xampp\\mysql\\bin\\mysqlimport.exe",
+"mtime": 1698670724.0
+},
+{
+"nombre": "mysqlshow",
+"ruta": "C:\\Users\\maxex\\OneDrive\\Xampp\\mysql\\bin\\mysqlshow.exe",
+"mtime": 1698670724.0
+},
+{
+"nombre": "mysqlslap",
+"ruta": "C:\\Users\\maxex\\OneDrive\\Xampp\\mysql\\bin\\mysqlslap.exe",
+"mtime": 1698670725.0
+},
+{
+"nombre": "NDP461 KB3102436 x86 x64 AllOS ENU",
+"ruta": "C:\\Users\\maxex\\OneDrive\\Documentos\\apps Ceti\\Multisim 14\\Products\\DotNet40\\NDP461-KB3102436-x86-x64-AllOS-ENU.exe",
+"mtime": 1464234276.0
+},
+{
+"nombre": "NHSE WinForms",
+"ruta": "C:\\Users\\maxex\\OneDrive\\Descargasaaaa\\Revisar\\NHSE\\NHSE.WinForms.exe",
+"mtime": 1768672843.0
+},
+{
+"nombre": "NI Lic Act 1 2",
+"ruta": "C:\\Users\\maxex\\OneDrive\\Documentos\\apps Ceti\\Multisim 14\\Multisim 14\\Crack\\NI_Lic_Act_1.2.exe",
+"mtime": 1358548988.0
+},
+{
+"nombre": "nmhproxy",
+"ruta": "C:\\Users\\maxex\\OneDrive\\Escritorio\\Tor Browser\\Browser\\nmhproxy.exe",
+"mtime": 1762945200.0
+},
+{
+"nombre": "nssm 32",
+"ruta": "C:\\Users\\maxex\\OneDrive\\Xampp\\perl\\bin\\nssm_32.exe",
+"mtime": 1611503434.0
+},
+{
+"nombre": "nssm 64",
+"ruta": "C:\\Users\\maxex\\OneDrive\\Xampp\\perl\\bin\\nssm_64.exe",
+"mtime": 1611503434.0
+},
+{
+"nombre": "Odin3 v3 14 4",
+"ruta": "C:\\Users\\maxex\\OneDrive\\Escritorio\\Odin3_v3.14.4\\Odin3_v3.14.4.exe",
+"mtime": 1579253018.0
+},
+{
+"nombre": "openssl",
+"ruta": "C:\\Users\\maxex\\OneDrive\\Xampp\\php\\extras\\openssl\\openssl.exe",
+"mtime": 1697627002.0
+},
+{
+"nombre": "pconfig",
+"ruta": "C:\\Users\\maxex\\OneDrive\\Xampp\\MercuryMail\\pconfig.exe",
+"mtime": 901121298.0
+},
+{
+"nombre": "perf check",
+"ruta": "C:\\Users\\maxex\\OneDrive\\no se\\Wondershare Filmora.v14.2.9.11061.Portable.X64_DiarioPc2\\App\\Wondershare Filmora\\14.2.9.11061\\perf_check.exe",
+"mtime": 1735912734.0
+},
+{
+"nombre": "Performance",
+"ruta": "C:\\Users\\maxex\\OneDrive\\no se\\Wondershare Filmora.v14.2.9.11061.Portable.X64_DiarioPc2\\App\\Wondershare Filmora\\14.2.9.11061\\Performance.exe",
+"mtime": 1735913180.0
+},
+{
+"nombre": "perror",
+"ruta": "C:\\Users\\maxex\\OneDrive\\Xampp\\mysql\\bin\\perror.exe",
+"mtime": 1698670727.0
+},
+{
+"nombre": "photorec win",
+"ruta": "C:\\Users\\maxex\\OneDrive\\Descargas\\testdisk-7.3-WIP\\photorec_win.exe",
+"mtime": 1791257459.0758536
+},
+{
+"nombre": "phpdbg",
+"ruta": "C:\\xampp\\php\\phpdbg.exe",
+"mtime": 1698184608.0
+},
+{
+"nombre": "PlayServer",
+"ruta": "C:\\Users\\maxex\\OneDrive\\no se\\Wondershare Filmora.v14.2.9.11061.Portable.X64_DiarioPc2\\App\\Wondershare Filmora\\14.2.9.11061\\PlayServer.exe",
+"mtime": 1735913182.0
+},
+{
+"nombre": "plugin container",
+"ruta": "C:\\Users\\maxex\\OneDrive\\Escritorio\\Tor Browser\\Browser\\plugin-container.exe",
+"mtime": 1762945200.0
+},
+{
+"nombre": "qphotorec win",
+"ruta": "C:\\Users\\maxex\\OneDrive\\Descargas\\testdisk-7.3-WIP\\qphotorec_win.exe",
+"mtime": 1791257459.4511802
+},
+{
+"nombre": "r2modman 3 2 16",
+"ruta": "C:\\Users\\maxex\\OneDrive\\Descargas\\Programas\\r2modman-3.2.16.exe",
+"mtime": 1779417513.0
+},
+{
+"nombre": "recaverit",
+"ruta": "C:\\Users\\maxex\\OneDrive\\Descargasaaaa\\Wondershare Recoverit 13.5.10.10\\Medicina\\_recaverit.exe",
+"mtime": 1742856344.0
+},
+{
+"nombre": "replace",
+"ruta": "C:\\Users\\maxex\\OneDrive\\Xampp\\mysql\\bin\\replace.exe",
+"mtime": 1698670727.0
+},
+{
+"nombre": "RobloxPlayerBeta",
+"ruta": "C:\\XboxGames\\Roblox\\Content\\RobloxPlayerBeta.exe",
+"mtime": 1794453249.5858352
+},
+{
+"nombre": "rufus 4 13p",
+"ruta": "C:\\Users\\maxex\\OneDrive\\Revisar descargas\\rufus-4.13p.exe",
+"mtime": 1774283100.0
+},
+{
+"nombre": "Ryujinx",
+"ruta": "C:\\Users\\maxex\\OneDrive\\Documentos\\juegos\\Basedata Emulator\\publish\\Ryujinx.exe",
+"mtime": 1778380954.0
+},
+{
+"nombre": "SAMSUNG USB Driver for Mobile Phones v1 5 33 0(2)",
+"ruta": "C:\\Users\\maxex\\OneDrive\\Descargasaaaa\\archivos root Grand Prime\\SAMSUNG_USB_Driver_for_Mobile_Phones_v1.5.33.0(2).exe",
+"mtime": 1468118108.0
+},
+{
+"nombre": "SAMSUNG USB Driver for Mobile Phones v1 9 0 0",
+"ruta": "C:\\Users\\maxex\\OneDrive\\Descargasaaaa\\SAMSUNG_USB_Driver_for_Mobile_Phones_v1.9.0.0.exe",
+"mtime": 1757361044.0
+},
+{
+"nombre": "ScreenRecorder",
+"ruta": "C:\\Users\\maxex\\OneDrive\\no se\\Wondershare Filmora.v14.2.9.11061.Portable.X64_DiarioPc2\\App\\Wondershare Filmora\\14.2.9.11061\\ScreenRecorder.exe",
+"mtime": 1735913186.0
+},
+{
+"nombre": "SDIO R830",
+"ruta": "C:\\Users\\maxex\\OneDrive\\Documentos\\SDIO_1.18.0.830\\SDIO_R830.exe",
+"mtime": 1785519038.0
+},
+{
+"nombre": "SDIO x64 R830",
+"ruta": "C:\\Users\\maxex\\OneDrive\\Documentos\\SDIO_1.18.0.830\\SDIO_x64_R830.exe",
+"mtime": 1785519038.0
+},
+{
+"nombre": "SDIOTranslationTool",
+"ruta": "C:\\Users\\maxex\\OneDrive\\Documentos\\SDIO_1.18.0.830\\SDIOTranslationTool.exe",
+"mtime": 1785519038.0
+},
+{
+"nombre": "sendmail",
+"ruta": "C:\\Users\\maxex\\OneDrive\\Xampp\\sendmail\\sendmail.exe",
+"mtime": 1334597420.0
+},
+{
+"nombre": "setpmdefault",
+"ruta": "C:\\Users\\maxex\\OneDrive\\Xampp\\MercuryMail\\setpmdefault.exe",
+"mtime": 1312385714.0
+},
+{
+"nombre": "SmartSenseController",
+"ruta": "C:\\DRIVER\\ZeroTouchDriver\\SmartSenseController.exe",
+"mtime": 1663251176.0
+},
+{
+"nombre": "sqlite3",
+"ruta": "C:\\Users\\maxex\\OneDrive\\Xampp\\MercuryMail\\sqlite3.exe",
+"mtime": 1305801414.0
+},
+{
+"nombre": "srcds",
+"ruta": "C:\\Users\\maxex\\OneDrive\\Descargas\\Garrys Mod_2025.12.19_ElEnemigos\\_servidor dedicado\\srcds.exe",
+"mtime": 1766522621.0
+},
+{
+"nombre": "sst dump",
+"ruta": "C:\\Users\\maxex\\OneDrive\\Xampp\\mysql\\bin\\sst_dump.exe",
+"mtime": 1698670756.0
+},
+{
+"nombre": "Steamclouds Ultimate 2 4 0",
+"ruta": "C:\\Users\\maxex\\OneDrive\\Descargas\\Nueva carpeta\\Steamclouds Ultimate 2.4.0.exe",
+"mtime": 1778816376.0
+},
+{
+"nombre": "SteamcloudsUltimate",
+"ruta": "C:\\Users\\maxex\\OneDrive\\Descargasaaaa\\Revisar\\SteamcloudsUltimate.v2.1\\SteamcloudsUltimate.exe",
+"mtime": 1768453274.0
+},
+{
+"nombre": "studiomdl",
+"ruta": "C:\\Users\\maxex\\OneDrive\\Descargas\\Garrys Mod_2025.12.19_ElEnemigos\\bin\\studiomdl.exe",
+"mtime": 1766520749.0
+},
+{
+"nombre": "suyu",
+"ruta": "C:\\Users\\maxex\\OneDrive\\Documentos\\juegos\\Basedata Emulator\\Suyu-Windows_x64 (Nintendo switch)\\suyu.exe",
+"mtime": 1710935856.0
+},
+{
+"nombre": "suyu cmd",
+"ruta": "C:\\Users\\maxex\\OneDrive\\Documentos\\juegos\\Basedata Emulator\\Suyu-Windows_x64 (Nintendo switch)\\suyu-cmd.exe",
+"mtime": 1710935828.0
+},
+{
+"nombre": "suyu room",
+"ruta": "C:\\Users\\maxex\\OneDrive\\Documentos\\juegos\\Basedata Emulator\\Suyu-Windows_x64 (Nintendo switch)\\suyu-room.exe",
+"mtime": 1710935672.0
+},
+{
+"nombre": "testdisk win",
+"ruta": "C:\\Users\\maxex\\OneDrive\\Descargas\\testdisk-7.3-WIP\\testdisk_win.exe",
+"mtime": 1791257458.837914
+},
+{
+"nombre": "tests",
+"ruta": "C:\\Users\\maxex\\OneDrive\\Documentos\\juegos\\Basedata Emulator\\Suyu-Windows_x64 (Nintendo switch)\\tests.exe",
+"mtime": 1710935822.0
+},
+{
+"nombre": "ThrottleStop",
+"ruta": "C:\\Users\\maxex\\OneDrive\\Documentos\\ThrottleStop_9.7\\ThrottleStop.exe",
+"mtime": 1787223730.6300972
+},
+{
+"nombre": "tor",
+"ruta": "C:\\Users\\maxex\\OneDrive\\Escritorio\\Tor Browser\\Browser\\TorBrowser\\Tor\\tor.exe",
+"mtime": 1762945200.0
+},
+{
+"nombre": "uniconverter 64bit full14204",
+"ruta": "C:\\Users\\maxex\\OneDrive\\ESCUELA (USB BACKUP)\\CETI\\4°to semestre\\Wondershare UniConverter 17.1.1.457 (x64) Multilingual\\uniconverter_64bit_full14204.exe",
+"mtime": 1765333222.0
+},
+{
+"nombre": "uniconverter15 64bit full14204",
+"ruta": "C:\\Users\\maxex\\OneDrive\\Descargas\\Wondershare UniConverter 15.7.1.42 (x64)\\uniconverter15_64bit_full14204.exe",
+"mtime": 1725241215.0
+},
+{
+"nombre": "validacion",
+"ruta": "C:\\Users\\maxex\\OneDrive\\ESCUELA (USB BACKUP)\\CETI\\2°do semestre\\validacion.exe",
+"mtime": 1732821520.0
+},
+{
+"nombre": "validacion2",
+"ruta": "C:\\Users\\maxex\\OneDrive\\ESCUELA (USB BACKUP)\\CETI\\2°do semestre\\validacion2.exe",
+"mtime": 1732823352.0
+},
+{
+"nombre": "vbsp",
+"ruta": "C:\\Users\\maxex\\OneDrive\\Descargas\\Garrys Mod_2025.12.19_ElEnemigos\\bin\\vbsp.exe",
+"mtime": 1766520749.0
+},
+{
+"nombre": "vbspinfo",
+"ruta": "C:\\Users\\maxex\\OneDrive\\Descargas\\Garrys Mod_2025.12.19_ElEnemigos\\bin\\vbspinfo.exe",
+"mtime": 1766520749.0
+},
+{
+"nombre": "VideoConverterUltimate",
+"ruta": "C:\\Users\\maxex\\OneDrive\\Descargas\\Wondershare UniConverter 15.7.1.42 (x64)\\Medicina\\VideoConverterUltimate.exe",
+"mtime": 1725078838.0
+},
+{
+"nombre": "VirtualBox 7 0 10 158379 Win",
+"ruta": "C:\\Users\\maxex\\OneDrive\\Descargas\\Programas\\VirtualBox-7.0.10-158379-Win.exe",
+"mtime": 1778816271.0
+},
+{
+"nombre": "VirtualBox 7 2 6a 172322 Win",
+"ruta": "C:\\Users\\maxex\\OneDrive\\Revisar descargas\\VirtualBox-7.2.6a-172322-Win.exe",
+"mtime": 1773410151.0
+},
+{
+"nombre": "VMware Workstation Full 25H2u1 25219725",
+"ruta": "C:\\Users\\maxex\\OneDrive\\Revisar descargas\\VMware-Workstation-Full-25H2u1-25219725.exe",
+"mtime": 1773108133.0
+},
+{
+"nombre": "vpk",
+"ruta": "C:\\Users\\maxex\\OneDrive\\Descargas\\Garrys Mod_2025.12.19_ElEnemigos\\bin\\vpk.exe",
+"mtime": 1766520749.0
+},
+{
+"nombre": "vrad",
+"ruta": "C:\\Users\\maxex\\OneDrive\\Descargas\\Garrys Mod_2025.12.19_ElEnemigos\\bin\\vrad.exe",
+"mtime": 1766520749.0
+},
+{
+"nombre": "vs Community",
+"ruta": "C:\\Users\\maxex\\OneDrive\\Descargasaaaa\\vs_Community.exe",
+"mtime": 1759631754.0
+},
+{
+"nombre": "vulkaninfo 32",
+"ruta": "C:\\DRIVER\\Intel_Graphic\\VGA\\vulkaninfo-32.exe",
+"mtime": 1672845468.0
+},
+{
+"nombre": "vulkaninfo 64",
+"ruta": "C:\\DRIVER\\Intel_Graphic\\VGA\\vulkaninfo-64.exe",
+"mtime": 1672845470.0
+},
+{
+"nombre": "vvis",
+"ruta": "C:\\Users\\maxex\\OneDrive\\Descargas\\Garrys Mod_2025.12.19_ElEnemigos\\bin\\vvis.exe",
+"mtime": 1766520749.0
+},
+{
+"nombre": "wcmgr",
+"ruta": "C:\\Users\\maxex\\OneDrive\\Xampp\\webalizer\\wcmgr.exe",
+"mtime": 1301581296.0
+},
+{
+"nombre": "webalizer",
+"ruta": "C:\\Users\\maxex\\OneDrive\\Xampp\\webalizer\\webalizer.exe",
+"mtime": 1301581294.0
+},
+{
+"nombre": "WebBrowser",
+"ruta": "C:\\Users\\maxex\\OneDrive\\no se\\Wondershare Filmora.v14.2.9.11061.Portable.X64_DiarioPc2\\App\\Wondershare Filmora\\14.2.9.11061\\WebBrowser.exe",
+"mtime": 1735913188.0
+},
+{
+"nombre": "WiiBackupManager",
+"ruta": "C:\\Users\\maxex\\OneDrive\\Descargasaaaa\\WiiBackupManager_Build78\\WiiBackupManager_Win32.exe",
+"mtime": 1757895386.0
+},
+{
+"nombre": "WiimoteHook",
+"ruta": "C:\\Users\\maxex\\OneDrive\\Documentos\\juegos\\WiimoteHook\\WiimoteHook.exe",
+"mtime": 1711308685.0
+},
+{
+"nombre": "windowsdesktop runtime 10 0 2 win",
+"ruta": "C:\\Users\\maxex\\OneDrive\\Descargasaaaa\\Revisar\\windowsdesktop-runtime-10.0.2-win-x64.exe",
+"mtime": 1768672959.0
+},
+{
+"nombre": "windowsdesktop runtime 8 0 29 win",
+"ruta": "C:\\Users\\maxex\\OneDrive\\Descargas\\Programas\\windowsdesktop-runtime-8.0.29-win-x64.exe",
+"mtime": 1786244288.0
+},
+{
+"nombre": "windowsdesktop runtime 8 0 33 win",
+"ruta": "C:\\Users\\maxex\\OneDrive\\Descargas\\Programas\\windowsdesktop-runtime-8.0.33-win-x64.exe",
+"mtime": 1793464362.6344755
+},
+{
+"nombre": "winpm 32",
+"ruta": "C:\\Users\\maxex\\OneDrive\\Xampp\\MercuryMail\\winpm-32.exe",
+"mtime": 1324562280.0
+},
+{
+"nombre": "winrar x64 713es",
+"ruta": "C:\\Users\\maxex\\OneDrive\\Descargasaaaa\\winrar-x64-713es.exe",
+"mtime": 1760761835.0
+},
+{
+"nombre": "Winslop",
+"ruta": "C:\\Users\\maxex\\OneDrive\\Descargasaaaa\\Revisar\\Winslop-0.40\\Winslop.exe",
+"mtime": 1769050784.0
+},
+{
+"nombre": "Wondershare Filmora",
+"ruta": "C:\\Users\\maxex\\OneDrive\\no se\\Wondershare Filmora.v14.2.9.11061.Portable.X64_DiarioPc2\\Wondershare Filmora.exe",
+"mtime": 1736575683.0
+},
+{
+"nombre": "Wondershare Filmora Launcher",
+"ruta": "C:\\Users\\maxex\\OneDrive\\no se\\Wondershare Filmora.v14.2.9.11061.Portable.X64_DiarioPc2\\App\\Wondershare Filmora\\Wondershare Filmora Launcher.exe",
+"mtime": 1735913202.0
+},
+{
+"nombre": "Wondershare Filmora v14 9 3 14445",
+"ruta": "C:\\Users\\maxex\\OneDrive\\Descargas\\Wondershare Filmora v14.9.3.14445_ELENEMIGOS\\Wondershare Filmora v14.9.3.14445.exe",
+"mtime": 1787448852.7550397
+},
+{
+"nombre": "Wondershare NativePush",
+"ruta": "C:\\Users\\maxex\\OneDrive\\no se\\Wondershare Filmora.v14.2.9.11061.Portable.X64_DiarioPc2\\App\\Wondershare Filmora\\14.2.9.11061\\Wondershare NativePush.exe",
+"mtime": 1735912730.0
+},
+{
+"nombre": "wpmmapi",
+"ruta": "C:\\Users\\maxex\\OneDrive\\Xampp\\MercuryMail\\wpmmapi.exe",
+"mtime": 926169598.0
+},
+{
+"nombre": "WUC v15 x Patcher v1 0",
+"ruta": "C:\\Users\\maxex\\OneDrive\\Descargasaaaa\\WS.UniConverter.15.0.4.17 - XYZ\\WUC v15.x Patcher v1.0.exe",
+"mtime": 1690516446.0
+},
+{
+"nombre": "x360ce",
+"ruta": "C:\\Users\\maxex\\OneDrive\\Escritorio\\Programas\\x360ce.exe",
+"mtime": 1781319339.0
+},
+{
+"nombre": "xampp control",
+"ruta": "C:\\Users\\maxex\\OneDrive\\Xampp\\xampp-control.exe",
+"mtime": 1617709107.0
+}
+]
+}

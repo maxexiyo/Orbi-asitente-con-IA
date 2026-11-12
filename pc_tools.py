@@ -6,7 +6,7 @@ DOS alcances (scope):
   "agent" = lo que ve el agente (agent.py): además mouse, teclado, ventanas, cerrar/minimizar, copiar texto de una ventana...
 
 Los PERMISOS del asistente de configuración deciden qué tools existen:
-  siempre ........ obtener_hora, recordar, abrir_app (lista blanca), abrir_url, buscar_en_web, investigar_web, poner_recordatorio
+  siempre ........ obtener_hora, recordar, abrir_app (lista blanca + menú Inicio + portables detectados), listar_apps, abrir_url, buscar_en_web, investigar_web, poner_recordatorio
   ver_pantalla ... ver_pantalla
   controlar_pc ... tarea_pc (voz) · hacer_clic, scroll, escribir_texto, presionar_teclas, esperar, listar_ventanas,
                    enfocar_ventana, cerrar_ventana, minimizar_ventana, copiar_texto_de_ventana (agente) · volumen, multimedia
@@ -14,14 +14,16 @@ Los PERMISOS del asistente de configuración deciden qué tools existen:
                    crear_carpeta, mover_archivo, copiar_archivo, renombrar_archivo, organizar_carpeta, deshacer_organizacion,
                    escribir_archivo, redactar_documento (Word .docx directo, sin teclear),
                    crear_presentacion (PowerPoint .pptx) y crear_hoja_excel (Excel .xlsx), también directo, sin abrir el programa
+                   depurar proyectos: diagnosticar_proyecto, probar_endpoint (localhost), probar_proyecto (sintaxis / correr unos segundos con OK)
   casa ........... casa_listar, casa_estado, casa_controlar (Home Assistant)
   notificaciones . leer_notificaciones · historial_notificaciones
   audio_pc ....... escuchar_audio_pc (lo que suena en la PC: video, llamada...)
-  siempre ........ también: mover_bolita, senalar, set_emotion, modo_interprete
+  siempre ........ también: mover_bolita, senalar, set_emotion, modo_interprete, modo_tutorial
   agenda ......... avisos_calendario (cuándo te avisa de tus eventos) · ver_agenda (calendario ICS) · correo_no_leidos, correo_buscar, correo_leer (Gmail IMAP, solo lectura)
                    con la cuenta de Google conectada: también crear/editar/borrar_evento, correo_marcar_leido/archivar/papelera/enviar
 
-Seguridad (a propósito): no hay shell, NUNCA se borran ni sobrescriben archivos (mover/copiar/renombrar/organizar/escribir solo dentro de
+Seguridad (a propósito): no hay shell (la ÚNICA excepción es probar_proyecto/«correr»: solo node, python o php sobre un archivo de un
+proyecto dentro de las carpetas permitidas, con OK en pantalla que muestra el comando, sin llaves en el entorno y con límite de tiempo), NUNCA se borran ni sobrescriben archivos (mover/copiar/renombrar/organizar/escribir solo dentro de
 Documentos, Escritorio y Descargas, con registro para deshacer), no se abren ni crean ejecutables/scripts, el texto de la
 pantalla no da órdenes (system prompt). Las acciones normales NO piden OK; las DELICADAS (enviar mensajes, pagar, borrar,
 abrir cocheras) sí, y lo decide la IA (`delicada=true`) MÁS un respaldo propio que mira la ventana activa.
@@ -37,6 +39,7 @@ from urllib.parse import quote_plus, urlparse
 import docs_reader as DR
 import imagenes_ops as IO     # editar imágenes (Pillow)
 import archivos_edicion as AE   # editar archivos existentes (top-level para que PyInstaller lo incluya)
+import depurar as DEP            # depurar proyectos: diagnosticar, probar endpoints, sintaxis (top-level para PyInstaller)
 
 ROOT = Path(__file__).parent
 
@@ -52,7 +55,7 @@ APPS = {
 
 
 def load_apps() -> dict:
-    """APPS + las que agregues en apps.json, SIN las que el dueño bloqueó en Ajustes > Apps y límites (para Orbi no existen)."""
+    """APPS + las que agregues en apps.json, SIN las que el usuario bloqueó en Ajustes > Apps y límites (para Orbi no existen)."""
     import restricciones as RS
     return RS.filtrar_apps(load_apps_todas())
 
@@ -280,25 +283,36 @@ _tool("leer_memoria", "Lee tu memoria sobre el usuario. Sin `archivo` lista los 
       dict(archivo=S("Opcional: nombre del archivo, ej. 'gustos' o 'areas/escuela'")), [])
 _tool("set_emotion", "Cambia la expresión de la bolita para reflejar tu emoción.",
       dict(emocion={"type": "STRING", "enum": ["neutral", "happy", "love", "sad", "surprised", "thinking", "sleepy",
-                                               "angry", "excited"]}),
-      ["emocion"], scopes=("live",))
+                                               "angry", "excited", "confused", "curious"]}),
+      ["emocion"], scopes=("live",), flag="emo")          # (con el control total no existe: las caras las arma la IA con las perillas)
+import cuerpo as CU
+import pc_tools_cuerpo            # herramientas del cuerpo de Orbi (control total / animaciones programadas): declaración y manejo en su propio módulo
 _DESTINOS = {"centro": (500, 500), "arriba": (500, 90), "abajo": (500, 910), "izquierda": (90, 500), "derecha": (910, 500),
              "esquina_superior_izquierda": (90, 90), "esquina_superior_derecha": (910, 90),
              "esquina_inferior_izquierda": (90, 910), "esquina_inferior_derecha": (910, 910)}
 _tool("mover_bolita", "Mueve la bolita de Orbi por la pantalla (para jugar, quitarte de en medio o acompañar). "
                       "Pasa `destino` o coordenadas x,y de 0 a 1000 (0,0 = esquina superior izquierda).",
       dict(destino={"type": "STRING", "enum": list(_DESTINOS)}, x=N("0 a 1000"), y=N("0 a 1000")), scopes=("live",))
-_tool("senalar", "SEÑALA algo en la pantalla: la bolita se pone junto a ese punto, lo mira y le dibuja un anillo pulsante. "
-                 "Pasa SIEMPRE `que`: una descripción visual corta del elemento (p. ej. «botón Descargar», «ícono de la papelera», "
-                 "«barra de búsqueda»). Orbi toma una captura nueva y lo ubica con precisión por su cuenta: NO llames ver_pantalla "
-                 "antes ni adivines coordenadas. Si responde que no lo ve, díselo al usuario en vez de señalar otra cosa. "
-                 "Opcional: una frase corta para decir al señalar.",
-      dict(que=S("Qué elemento señalar, descrito como se ve en pantalla"), texto=S("Frase corta opcional"),
-           x=N("(no uses esto salvo que no puedas describir el elemento) 0 a 1000"), y=N("(ídem) 0 a 1000")),
+_tool("senalar", "SEÑALA algo en la pantalla: la bolita se pone junto a ese punto, lo mira y le dibuja un anillo pulsante. Formas, de la MEJOR a la peor: "
+                 "(1) `nombre`: el texto EXACTO del elemento como se lee en pantalla («Insertar», «Guardar», «Tabla dinámica»). Orbi lo busca en la ventana "
+                 "activa con la accesibilidad de Windows: posición EXACTA y al instante, sin IA. Es la que debes usar siempre que el elemento tenga texto. "
+                 "(2) x e y (0 a 1000, 0,0 arriba a la izquierda) tras llamar ver_pantalla: instantánea pero APROXIMADA (para íconos sin nombre); pasa también "
+                 "`nombre` si lo tiene, y si Orbi lo encuentra usa su posición exacta en vez de la tuya. "
+                 "(3) `que` (descripción visual): un modelo de visión lo ubica; muy lento, solo si no queda otra. "
+                 "Si responde que no lo encontró, díselo al usuario en vez de señalar otra cosa. Opcional: una frase corta para decir al señalar.",
+      dict(nombre=S("Texto exacto del elemento tal como se lee en pantalla, p. ej. «Insertar» (forma 1, la mejor)"),
+           que=S("(solo la forma lenta) qué elemento señalar, descrito como se ve en pantalla"), texto=S("Frase corta opcional"),
+           x=N("Posición horizontal del elemento en la captura, 0 a 1000 (forma rápida)"), y=N("Posición vertical, 0 a 1000 (forma rápida)"),
+           segundos=N("Cuántos segundos se queda el anillo (3 a 30). En un tutorial pon 12 a 20 para que le dé tiempo de hacerlo")),
       [], scopes=("live",))
+_tool("modo_tutorial", "Activa o termina el MODO TUTORIAL: guías a tu usuario paso a paso SEÑALANDO en su pantalla (con `senalar`) cómo usar un programa o una "
+                       "función (Word, Excel, cualquier app). Llámala con activar=true en cuanto te pidan «¿cómo hago X en…?» o «enséñame a…», y con "
+                       "activar=false cuando terminen o digan «ya, gracias».",
+      dict(activar=B("true para empezar el tutorial, false para terminarlo"), tema=S("Qué quiere aprender, ej. «tabla dinámica en Excel»")),
+      ["activar"], scopes=("live",))
 _tool("modo_interprete", "Activa o desactiva el MODO INTÉRPRETE: traduces en voz alta todo lo que oigas entre dos idiomas, "
                          "sin conversar. Úsala cuando pidan «sé mi intérprete», «traduce lo que digo/diga» o para terminarlo.",
-      dict(activar=B("true para activar, false para terminar"), idioma_a=S("Idioma de tu dueño, ej. español"),
+      dict(activar=B("true para activar, false para terminar"), idioma_a=S("Idioma de tu usuario, ej. español"),
            idioma_b=S("El otro idioma, ej. inglés")), ["activar"], scopes=("live",))
 _tool("traducir_pantalla", "Lee el CHAT o los mensajes que se ven en la pantalla y traduce a otro idioma los que te llegan "
                            "(WhatsApp, Discord, correo...). accion='una_vez' traduce lo que se ve ahora; 'seguir' vigila y "
@@ -319,12 +333,12 @@ _tool("poner_recordatorio", "Recordatorio por voz/pantalla (sin sonar). Pasa `ho
       "usa el reloj de la PC y elige la próxima vez que dé esa hora.",
       dict(texto=S("Qué recordar"), hora=S("Hora tal como la dijo el usuario"), minutos=N("Solo si dijo 'en X minutos'"),
            fecha=S("Opcional: 'mañana', un día de la semana o AAAA-MM-DD")), ["texto"])
-_tool("definir_regla", "Guarda una REGLA permanente del dueño («si llega un correo de Classroom con tarea, recuérdame 6 horas antes», "
+_tool("definir_regla", "Guarda una REGLA permanente del usuario («si llega un correo de Classroom con tarea, recuérdame 6 horas antes», "
       "«avísame un día antes de cualquier recordatorio de tarea», «cuando regrese a la PC recuérdame X», «avísame cuando haya una "
       "reunión de Meet/Zoom»). cuando=correo: `filtro` = palabras del remitente o asunto (ej. 'classroom'); antes_horas>0 busca la fecha de "
       "entrega dentro del correo y pone el recordatorio esa cantidad de horas antes (0 = solo avisar que llegó). cuando=recordatorio: "
       "`filtro` = palabras del texto del recordatorio (ej. 'tarea'; vacío = todos) y antes_horas = anticipación (un día = 24); también se "
-      "aplica a los que ya existen. cuando=sesion_activa: dice `texto` cuando el dueño vuelve a usar la PC. cuando=ventana: `filtro` = "
+      "aplica a los que ya existen. cuando=sesion_activa: dice `texto` cuando el usuario vuelve a usar la PC. cuando=ventana: `filtro` = "
       "título o programa de la ventana (Meet, Zoom, Teams…) y dice `texto` cuando aparece. NUNCA inventes datos: si falta la anticipación "
       "o qué decir, pregúntalo.",
       dict(cuando={"type": "STRING", "enum": ["correo", "recordatorio", "sesion_activa", "ventana"]},
@@ -356,10 +370,10 @@ _tool("definir_rutina", "Crea una RUTINA estilo Alexa: un disparador + una o var
                "required": ["tipo"]}, "description": "Lo que hace la rutina, en orden"},
            una_vez=B("true si solo debe pasar una vez")),
       ["cuando", "acciones"], scopes=("live",))
-_tool("ejecutar_rutina", "Ejecuta una rutina del dueño por su nombre o frase (activadores tipo «modo estudio», «buenas noches»). Llámala cuando "
+_tool("ejecutar_rutina", "Ejecuta una rutina del usuario por su nombre o frase (activadores tipo «modo estudio», «buenas noches»). Llámala cuando "
       "diga algo que parezca el nombre o la frase de una de sus rutinas; si no existe te lo dirá.",
       dict(nombre=S("Nombre o frase de la rutina")), ["nombre"], scopes=("live",))
-_tool("listar_reglas", "Lista las reglas y rutinas permanentes que el dueño definió.", scopes=("live",))
+_tool("listar_reglas", "Lista las reglas y rutinas permanentes que el usuario definió.", scopes=("live",))
 _tool("quitar_regla", "Borra una regla por su id, palabra clave o «todas».", dict(cual=S("id, palabra o 'todas'")), ["cual"], scopes=("live",))
 _tool("poner_alarma", "Pone una ALARMA que suena (Orbi hace de despertador) a la hora dicha. Pasa `hora` tal como la dijo el "
       "usuario (ej. '7:30 am', '6 de la mañana'); no calcules nada tú.",
@@ -370,7 +384,10 @@ _tool("tono_alarma", "Cambia el SONIDO de las alarmas o lista los tonos disponib
                      "Amanecer, Jingle alegre, Clásico…). Sin `nombre` solo los lista. Al elegir uno, suena unos segundos de muestra.",
       dict(nombre=S("Nombre del tono; vacío = listar")), [])
 _tool("listar_alarmas", "Lista las alarmas y recordatorios pendientes.")
-_tool("mini_ventana", "Abre la MINI VENTANA que se despliega junto a ti para mostrarle algo breve a tu dueño mientras se lo dices: "
+_tool("detener_todo", "Tu usuario te pidió PARAR lo que estás haciendo (detente, para, cancela, déjalo, ya no): corta de inmediato la tarea, la lectura "
+      "de pantalla y cualquier acción en curso. Llámala SIEMPRE que lo diga, antes de contestar; después avísale en una frase corta.",
+      scopes=("live",))
+_tool("mini_ventana", "Abre la MINI VENTANA que se despliega junto a ti para mostrarle algo breve a tu usuario mientras se lo dices: "
       "una lista, un resumen de 3 a 5 líneas, horarios, pasos. TÚ decides cuándo: la ventana NO se abre sola; úsala cuando te pregunten algo cuya respuesta se entienda mejor viéndola; no para charla ni respuestas cortas. "
       "Se cierra sola (accion='ocultar' la quita ya). Alarmas, timers, tareas, notificaciones y búsquedas ya se muestran solas: "
       "no las repitas. NUNCA la abras para correcciones de ortografía, errores que notaste en la pantalla ni comentarios sobre lo que el usuario está haciendo: eso se dice con voz y ya.",
@@ -402,6 +419,9 @@ _tool("detener_alarma", "Apaga la alarma que está sonando; con posponer_minutos
 _tool("abrir_app", "Abre CUALQUIER aplicación instalada (Word, Chrome, Discord, Spotify...) directo, sin buscar iconos ni ver la pantalla; "
       "si ya estaba abierta la pone al frente. Úsala SIEMPRE que pidan abrir una app: es un solo paso, no uses tarea_pc para eso.",
       dict(nombre=S("Nombre de la app")), ["nombre"])
+_tool("listar_apps", "Dice qué apps hay en la PC: las INSTALADAS y los programas PORTABLES (.exe sueltos en el disco). Úsala para «¿tengo X instalado?», "
+                     "«¿qué programas tengo?» o para buscar el nombre exacto antes de abrir_app. Con `filtro` busca por nombre.",
+      dict(filtro=S("Texto para buscar en el nombre (opcional)")))
 _tool("abrir_url", "Abre una página web (http/https) en el navegador.", dict(url=S()), ["url"])
 _tool("buscar_en_web", "Abre una búsqueda de Google en el navegador del USUARIO para que él la vea (tú NO lees los resultados). "
                        "Para saber algo tú, usa investigar_web.", dict(consulta=S()), ["consulta"])
@@ -593,7 +613,28 @@ _tool("extraer_de_html", "Saca el <script> (a un .js) o el <style> (a un .css) q
            numero=I("Si hay varios bloques, cuál (1 por defecto)")), ["ruta"], perm="archivos")
 _tool("restaurar_archivo", "Regresa un archivo que Orbi editó a su versión anterior (la del último respaldo). Sin ruta, el último que se editó.",
       dict(ruta=S("Opcional: nombre del archivo")), perm="archivos")
-_tool("crear_script_windows", "Crea un script NUEVO de Windows (.bat, .cmd, .ps1, .vbs, .reg...). Le muestra el código completo al dueño y "
+_tool("diagnosticar_proyecto", "DEPURA un proyecto de código (web, bot, app) cuando algo «no funciona», «no conecta con la BD», «sale error»: lee JUNTOS el front, "
+                               "las rutas, los controllers y el SQL, compara lo que manda cada lado (formato de la respuesta, nombres, rutas, status) y dice la "
+                               "causa más probable con archivo:línea y el arreglo exacto. Úsala ANTES de editar nada. Pasa `problema` con lo que ve el usuario y, si lo "
+                               "tiene, `error` con el texto de la terminal o la respuesta de la pestaña Network. Nunca lee .env. Para arreglar: editar_archivo (deja "
+                               "respaldo) y luego verifica con probar_endpoint o probar_proyecto; si no quedó bien, restaurar_archivo.",
+      dict(carpeta=S("Carpeta del proyecto (nombre o ruta), dentro de Documentos, Escritorio o Descargas"),
+           problema=S("Qué falla y cómo se ve, con las palabras del usuario"),
+           error=S("Opcional: error de la terminal, status/respuesta de Network o mensaje de la pantalla, copiado tal cual")),
+      ["carpeta", "problema"], perm="archivos")
+_tool("probar_endpoint", "Hace UNA petición a un servidor de la propia PC (localhost, sin sesión ni cookies, sin seguir redirecciones) y explica qué significa la "
+                         "respuesta: 404 = la ruta no existe o no está montada, 302/401 = pide sesión, 500 = truena por dentro, arreglo suelto = el front que espera "
+                         "{ok,...} no la entiende. Úsala para confirmar un arreglo. GET es libre; POST/PUT/PATCH/DELETE piden OK porque pueden cambiar la base de datos.",
+      dict(url=S("Ej. localhost:3000/api/admin/reportes"), metodo=S("GET (por defecto) | HEAD | POST | PUT | PATCH | DELETE"),
+           cuerpo=S("Opcional: JSON a mandar en POST/PUT/PATCH")), ["url"], perm="archivos")
+_tool("probar_proyecto", "Prueba el código de un proyecto. accion='sintaxis' (por defecto): revisa que los .js/.py/.php no tengan errores de sintaxis SIN ejecutar nada "
+                         "(todo el proyecto o un `archivo`). accion='correr': ejecuta un archivo (.js/.py/.php) unos segundos y devuelve lo que imprimió en la "
+                         "terminal (sirve para ver el error que truena al arrancar un servidor); SIEMPRE pide OK en pantalla. Si el servidor del usuario ya está "
+                         "encendido, no lo corras otra vez: usa probar_endpoint, o copiar_texto_de_ventana (vía tarea_pc) para leer SU terminal.",
+      dict(carpeta=S("Carpeta del proyecto (nombre o ruta)"), accion=S("sintaxis (por defecto) | correr"),
+           archivo=S("Archivo relativo a la carpeta, ej. 'backend/app.js' (obligatorio para correr)"),
+           segundos=I("Para correr: cuánto dejarlo (2 a 20, por defecto 6)")), ["carpeta"], perm="archivos")
+_tool("crear_script_windows", "Crea un script NUEVO de Windows (.bat, .cmd, .ps1, .vbs, .reg...). Le muestra el código completo al usuario y "
                               "solo se guarda si lo aprueba; NUNCA se ejecuta. Para .js, .py, .sh y demás código usa escribir_archivo.",
       dict(ruta=S("Nombre o ruta, ej. 'limpiar.bat'"), contenido=S("Código completo del script")), ["ruta", "contenido"], perm="archivos")
 _tool("editar_imagen", "EDITA una imagen (png, jpg, webp, bmp, gif) sin abrir ningún programa: recortar, redimensionar, rotar, voltear, "
@@ -873,10 +914,10 @@ def _google_tool(name: str, args: dict, ctx, g) -> dict:
 LIVE_TODO = False          # modo prueba: la voz (Live) hace TODO ella sola (mouse, teclado, ventanas) sin delegar a `tarea_pc`
 
 
-_tool("recursos", "Dice cuánto CPU y RAM usa la PC ahora y qué procesos consumen más. Úsala si el dueño dice que la compu va lenta "
+_tool("recursos", "Dice cuánto CPU y RAM usa la PC ahora y qué procesos consumen más. Úsala si el usuario dice que la compu va lenta "
                   "o pregunta qué está gastando recursos.", scopes=("live", "agent"))
 _tool("proceso_control", "Cierra un proceso o le baja la prioridad para aligerar la PC (por nombre, ej. 'chrome', 'onedrive'). "
-                         "SIEMPRE pide el OK del dueño; no toca procesos del sistema.",
+                         "SIEMPRE pide el OK del usuario; no toca procesos del sistema.",
       dict(accion={"type": "STRING", "enum": ["cerrar", "bajar_prioridad"]}, nombre=S("Nombre del proceso (de la lista de `recursos`)")),
       ["accion", "nombre"], scopes=("live", "agent"))
 
@@ -897,6 +938,12 @@ def build_tools(profile: dict, scope: str = "live", flags=()) -> list:
         if t["flag"] and t["flag"] not in flags:
             continue
         desc = t["desc"] + (f" Apps disponibles: {apps}." if t["name"] == "abrir_app" else "")
+        if t["name"] == "abrir_app":
+            try:
+                import apps_pc as AP
+                desc += AP.resumen()                         # lo que Orbi sabe que hay instalado (y portables)
+            except Exception:                                # noqa: BLE001
+                pass
         d = {"name": t["name"], "description": desc}
         if t["props"]:
             d["parameters"] = {"type": "OBJECT", "properties": t["props"], "required": t["required"]}
@@ -1101,6 +1148,8 @@ def _run(name: str, args: dict, ctx: ToolContext) -> dict:
     # ---------------- editar archivos existentes (archivos_edicion.py); los scripts de Windows piden OK en pantalla
     if name in ("editar_archivo", "reescribir_archivo", "extraer_de_html", "restaurar_archivo", "crear_script_windows"):
         return AE.ejecutar(name, args, ctx)
+    if name in ("diagnosticar_proyecto", "probar_endpoint", "probar_proyecto"):
+        return DEP.ejecutar(name, args, ctx)
     if name == "editar_imagen":
         return IO.ejecutar(name, args)
 
@@ -1108,14 +1157,29 @@ def _run(name: str, args: dict, ctx: ToolContext) -> dict:
     if name == "obtener_hora":
         n = datetime.now()
         return {"resultado": f"{_DIAS[n.weekday()]} {n.day} de {_MESES[n.month - 1]} de {n.year}, {n:%H:%M}"}
-    if name == "senalar" and str(args.get("que", "")).strip():
+    if name == "senalar" and str(args.get("nombre", "")).strip():
+        if not (ctx.get_profile().get("permisos") or {}).get("ver_pantalla"):
+            return {"error": "No tengo permiso para ver la pantalla; se activa en «Configurar a Orbi…»."}
+        try:
+            import uia_locate
+            ex = uia_locate.buscar(str(args["nombre"]).strip())
+        except Exception as e:                                       # noqa: BLE001
+            print(f"[señalar] accesibilidad falló: {type(e).__name__}: {str(e)[:100]}")
+            ex = None
+        if ex:                                                       # posición EXACTA (en píxeles de pantalla), sin IA
+            print(f"[señalar] «{args['nombre']}» -> exacto {ex}")
+            ctx.emit("orb_point", {"px": ex["px"], "py": ex["py"], "texto": str(args.get("texto", "") or "")[:120], "segundos": args.get("segundos")})
+            return {"resultado": f"Listo, ya lo señalé (posición exacta): {ex['etiqueta']}."}
+        if not ("x" in args and "y" in args) and not str(args.get("que", "")).strip():
+            return {"error": f"No encontré «{args['nombre']}» en la ventana activa. Llama ver_pantalla y señala con x,y, o dile al usuario dónde buscarlo."}
+    if name == "senalar" and str(args.get("que", "")).strip() and not ("x" in args and "y" in args):   # con x,y la voz ya lo ubicó: directo, sin modelo de visión
         if not (ctx.get_profile().get("permisos") or {}).get("ver_pantalla"):
             return {"error": "No tengo permiso para ver la pantalla; se activa en «Configurar a Orbi…»."}
         found = ctx.locate(str(args["que"]).strip())
         if "error" in found:
             return {"error": found["error"]}
         texto = str(args.get("texto", "") or "")[:120]
-        ctx.emit("orb_point", {"x": found["x"], "y": found["y"], "texto": texto})
+        ctx.emit("orb_point", {"x": found["x"], "y": found["y"], "texto": texto, "segundos": args.get("segundos")})
         return {"resultado": "Listo, ya lo señalé" + (f": {found['etiqueta']}." if found.get("etiqueta") else ".")}
     if name in ("mover_bolita", "senalar"):
         try:
@@ -1125,8 +1189,18 @@ def _run(name: str, args: dict, ctx: ToolContext) -> dict:
                 x, y = float(args["x"]), float(args["y"])
         except (KeyError, TypeError, ValueError):
             return {"error": "Dime un destino o las coordenadas x,y (0 a 1000)."}
-        ctx.emit("orb_move" if name == "mover_bolita" else "orb_point", {"x": x, "y": y, "texto": str(args.get("texto", ""))[:120]})
+        ctx.emit("orb_move" if name == "mover_bolita" else "orb_point", {"x": x, "y": y, "texto": str(args.get("texto", ""))[:120],
+                                                                          "segundos": args.get("segundos")})
         return {"resultado": "Listo."}
+    if name == "modo_tutorial":
+        activar = args.get("activar") is True or str(args.get("activar", "")).lower() in ("true", "1", "si", "sí")
+        ctx.emit("tutorial", {"activar": activar, "tema": str(args.get("tema", "") or "")[:80]})
+        if not activar:
+            return {"resultado": "Modo tutorial terminado."}
+        return {"resultado": "Modo tutorial activado. UN paso a la vez: llama `senalar` con `nombre` = el texto EXACTO del elemento («Insertar») + texto + segundos 12 a 20 "
+                             "(posición exacta, instantánea). Si no lo encuentra, llama ver_pantalla y señala con x,y. Di una frase corta; luego calla y espera a que lo haga («listo», «siguiente»). "
+                             "Antes de cada paso nuevo vuelve a mirar (la pantalla cambió). Si no ves el elemento, dile en palabras qué abrir primero. "
+                             "No hagas clics por él a menos que te pida «hazlo tú»."}
     if name == "modo_interprete":
         activar = args.get("activar") is True or str(args.get("activar", "")).lower() in ("true", "1", "si", "sí")
         ctx.emit("interprete", {"activar": activar, "a": str(args.get("idioma_a", "") or "español")[:30],
@@ -1144,6 +1218,11 @@ def _run(name: str, args: dict, ctx: ToolContext) -> dict:
     if name == "set_emotion":
         ctx.emit("emotion", args.get("emocion", "neutral"))
         return {"resultado": "ok"}
+    if name == "detener_todo":
+        ctx.emit("detener", None)
+        return {"resultado": "Detenido: todo lo que estaba haciendo se canceló. Avísale en una frase corta y no sigas con eso."}
+    if name in ("lenguaje_corporal", "cuerpo_libre"):
+        return pc_tools_cuerpo.manejar(name, args, ctx)
     if name == "fin_de_conversacion":
         ctx.emit("end_conversation", None)
         return {"resultado": "Ok, me quedo en espera."}
@@ -1273,7 +1352,7 @@ def _run(name: str, args: dict, ctx: ToolContext) -> dict:
             return {"error": err}
         if not ctx.confirm(f"Orbi quiere {'CERRAR' if acc == 'cerrar' else 'bajar la prioridad de'} «{procs[0].info['name']}» "
                            f"({len(procs)} proceso/s). Lo que no hayas guardado ahí se pierde."):
-            return {"error": "El dueño no lo autorizó."}
+            return {"error": "El usuario no lo autorizó."}
         return recursos.cerrar(nombre) if acc == "cerrar" else recursos.bajar_prioridad(nombre)
     if name == "tono_alarma":
         return ctx.alarm_tone(str(args.get("nombre", "") or "").strip())
@@ -1309,6 +1388,17 @@ def _run(name: str, args: dict, ctx: ToolContext) -> dict:
         target = apps.get(app) or find_start_app(app)   # lista segura, o cualquier app del menú Inicio
         if target and RS.app_bloqueada(target):          # lo pidió con otro nombre («el navegador») pero resuelve a una app bloqueada
             target = None
+        if not target:                                   # ¿un programa portable (.exe suelto) que Orbi encontró en el disco?
+            import apps_pc as AP
+            port = AP.resolver_portable(app)
+            if port and os.path.isfile(port["ruta"]) and not RS.app_bloqueada(app, port["ruta"]):
+                if AP.pedir_ok() and not AP.aprobada(port["ruta"]):
+                    if not ctx.confirm(f"Orbi quiere abrir el programa portable «{port['nombre']}»:\n{port['ruta']}\n\n"
+                                       "Solo se pregunta esta primera vez."):
+                        return {"error": "El usuario no autorizó abrir ese programa."}
+                    AP.aprobar(port["ruta"])
+                target = port["ruta"]
+                exe_hint = Path(port["ruta"]).stem.lower()
         if not target:
             return {"error": RS.mensaje_no_encontrada(app, apps)}
         antes = {w["hwnd"] for w in match_windows(exe_hint, "")}
@@ -1323,6 +1413,13 @@ def _run(name: str, args: dict, ctx: ToolContext) -> dict:
                                  "aún: usa esperar_listo o mira la captura y espera a que la interfaz termine de cargar.",
                     "ventana": w["title"], "cargando": True}
         return {"resultado": f"Lancé {app}; todavía no veo su ventana (puede tardar o abrir en la bandeja). Usa esperar_listo antes de escribir."}
+    if name == "listar_apps":
+        import apps_pc as AP
+        r = AP.buscar(str(args.get("filtro", "") or "")[:60])
+        if not r["total_instaladas"] and not r["total_portables"]:
+            n_i, n_p = AP.conteo()
+            return {"resultado": "No encontré nada con ese nombre." if (n_i or n_p) else "Todavía no termino de revisar las apps de la PC; intenta en un momento."}
+        return {"resultado": r}
     if name == "abrir_url":
         url = str(args.get("url", "")).strip()
         if not re.match(r"^https?://", url, re.I):
@@ -1501,7 +1598,7 @@ def _run(name: str, args: dict, ctx: ToolContext) -> dict:
 # --------------------------------------------------------------------------- planes (varios pasos en una llamada)
 LOADING_WORDS = ("cargando", "loading", "iniciando", "starting", "splash", "abriendo", "espere", "please wait", "un momento",
                  "no responde", "not responding")
-ESCRITO_RECIENTE = []       # [(t, texto, ventana)]: lo que Orbi tecleó hace poco (el modo compañero lo usa para no culpar al dueño)
+ESCRITO_RECIENTE = []       # [(t, texto, ventana)]: lo que Orbi tecleó hace poco (el modo compañero lo usa para no culpar al usuario)
 
 
 def escrito_reciente(max_s: float = 420.0) -> list:
@@ -2067,7 +2164,7 @@ def _files(name: str, args: dict, ctx: ToolContext) -> dict:
             return {"resultado": "No encontré nada parecido dentro de tus archivos. Si lo que recuerda es algo que se VE en una "
                                  "imagen del documento, prueba buscar_en_imagenes.", "notas": notas}
         return {"resultado": [{"ruta": str(f), "fragmento": frag} for f, frag in hits], "notas": notas,
-                "indicacion": "Dile al dueño la ruta exacta del mejor candidato y pregúntale si lo abres (`abrir_archivo` con esa ruta)."}
+                "indicacion": "Dile al usuario la ruta exacta del mejor candidato y pregúntale si lo abres (`abrir_archivo` con esa ruta)."}
 
     if name in ("abrir_carpeta", "listar_carpeta"):
         d, cands = DR.resolve_dir(str(args.get("carpeta", "")))

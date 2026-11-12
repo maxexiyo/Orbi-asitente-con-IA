@@ -202,50 +202,22 @@ class MicCleaner:
         return np.concatenate(frames).astype("<i2") if frames else np.zeros(0, dtype="<i2")
 
 
-class _RefCapture(threading.Thread):
-    """Escucha lo que sale por las bocinas (loopback WASAPI) a 16 kHz mono y se lo pasa al AEC."""
+class _RefCapture:
+    """Se suscribe a la captura loopback COMPARTIDA (loopback_hub.py) a 16 kHz mono y le pasa el audio de la PC al AEC.
+    Ya no abre su propio recorder: antes eran varios clientes de audio abiertos a la vez (eco + baile + llamada + escuchar PC)."""
+    _NOMBRE = "aec-ref"
 
     def __init__(self, push, on_error):
-        super().__init__(daemon=True, name="orbi-aec-ref")
-        self.push, self.on_error, self._stop_ev = push, on_error, threading.Event()
+        self.push, self.on_error = push, on_error
+
+    def start(self) -> None:
+        from loopback_hub import hub
+        hub().subscribe(self._NOMBRE, self.push, 16000,
+                        lambda m: self.on_error(m.replace("el audio de la PC", "el audio de la PC para cancelar el eco")))
 
     def stop(self) -> None:
-        self._stop_ev.set()
-
-    def run(self) -> None:
-        import warnings
-        warnings.filterwarnings("ignore", message="data discontinuity in recording")
-        errores = 0
-        while not self._stop_ev.is_set():
-            try:
-                import soundcard as sc
-                from pc_audio import loopback_mic
-                spk = sc.default_speaker()
-                mic = loopback_mic(sc)
-                rec_cm = mic.recorder(samplerate=RATE, channels=1, blocksize=RATE // 2)
-                rec = rec_cm.__enter__()
-                try:
-                    errores, t_chk = 0, time.monotonic()
-                    while not self._stop_ev.is_set():
-                        d = rec.record(numframes=REF_BLOCK)
-                        self.push(d[:, 0] if getattr(d, "ndim", 1) > 1 else d)
-                        if time.monotonic() - t_chk > 5.0:               # ¿cambiaste de bocinas/audífonos? reabrir
-                            t_chk = time.monotonic()
-                            if sc.default_speaker().id != spk.id:
-                                break
-                finally:
-                    try:
-                        rec_cm.__exit__(None, None, None)
-                    except Exception:                                    # noqa: BLE001
-                        pass                                             # S_FALSE al cerrar un flujo ya detenido: no es un fallo real
-            except Exception as e:                                       # noqa: BLE001
-                errores += 1
-                if errores == 1:
-                    self.on_error(f"No pude escuchar el audio de la PC para cancelar el eco ({type(e).__name__}: {str(e)[:100]}).")
-                if errores >= 3:
-                    self.on_error("Dejo el cancelador de eco apagado (el micrófono sigue normal).")
-                    return
-                self._stop_ev.wait(2.0 * errores)
+        from loopback_hub import hub
+        hub().unsubscribe(self._NOMBRE)
 
 
 def crear_limpiador(cfg: dict, headphones: bool = False, on_error=None) -> MicCleaner | None:

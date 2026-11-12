@@ -198,19 +198,56 @@ def focus_window(hwnd: int) -> bool:
     return bool(u.SetForegroundWindow(h))
 
 
-def force_topmost(hwnd: int) -> None:
-    """Re-afirma 'siempre encima' sin robar el foco (Windows a veces lo pierde al abrir otras apps).
+_IGNORAR_ENCIMA = ("Shell_TrayWnd", "Shell_SecondaryTrayWnd", "NotifyIconOverflowWindow", "TopLevelWindowForOverflowXamlIsland",
+                   "Windows.UI.Core.CoreWindow", "XamlExplorerHostIslandWindow", "Progman", "WorkerW")
 
-    Solo toca la ventana si de verdad perdió el «siempre encima»: antes se llamaba a SetWindowPos cada 1.5 s aunque no hiciera falta
-    (y con SWP_SHOWWINDOW), y eso hace que Windows revise el cursor y la pila de ventanas una y otra vez (parpadeo del puntero, #47)."""
+
+def _tapada_por_otra_topmost(hwnd: int) -> bool:
+    """True si hay una ventana AJENA, visible y grande, también «siempre encima», por delante de la nuestra. Solo otra ventana topmost puede
+    tapar a una topmost, así que basta mirar las que están justo arriba en la pila (GW_HWNDPREV); la barra de tareas y lo nuestro no cuentan."""
+    ctypes, wintypes, u, _k = _api()
+    u.GetWindow.argtypes = [wintypes.HWND, wintypes.UINT]
+    u.GetWindow.restype = wintypes.HWND
+    u.GetWindowRect.argtypes = [wintypes.HWND, ctypes.POINTER(wintypes.RECT)]
+    mio = os.getpid()
+    h = wintypes.HWND(hwnd)
+    for _ in range(40):
+        h = u.GetWindow(h, 3)                                    # GW_HWNDPREV: la ventana inmediatamente por encima
+        if not h:
+            return False
+        if not u.IsWindowVisible(h) or u.IsIconic(h):
+            continue
+        pid = wintypes.DWORD(0)
+        u.GetWindowThreadProcessId(h, ctypes.byref(pid))
+        if pid.value == mio:
+            continue
+        if not (u.GetWindowLongW(h, -20) & 0x00000008):          # no es topmost: ya no puede estar por encima de nosotros
+            return False
+        buf = ctypes.create_unicode_buffer(64)
+        u.GetClassNameW(h, buf, 64)
+        if buf.value in _IGNORAR_ENCIMA:
+            continue
+        r = wintypes.RECT()
+        if u.GetWindowRect(h, ctypes.byref(r)) and (r.right - r.left) > 80 and (r.bottom - r.top) > 80:
+            return True
+    return False
+
+
+def force_topmost(hwnd: int) -> None:
+    """Re-afirma 'siempre encima' sin robar el foco (Windows a veces lo pierde al abrir otras apps, y otra ventana «siempre encima» puede
+    quedar POR DELANTE aunque la nuestra siga marcada topmost).
+
+    Solo toca la ventana si hace falta: si perdió el bit topmost, o si otra ventana ajena también topmost la tapa. Antes se llamaba a
+    SetWindowPos cada 1.5 s aunque no hiciera falta (y con SWP_SHOWWINDOW), y eso hace que Windows revise el cursor y la pila de ventanas
+    una y otra vez (parpadeo del puntero, #47)."""
     if sys.platform != "win32":
         return
     try:
         ctypes, wintypes, u, _k = _api()
         u.GetWindowLongW.argtypes = [wintypes.HWND, ctypes.c_int]
         u.GetWindowLongW.restype = ctypes.c_long
-        if u.GetWindowLongW(wintypes.HWND(hwnd), -20) & 0x00000008:          # WS_EX_TOPMOST: sigue encima, no hace falta nada
-            return
+        if (u.GetWindowLongW(wintypes.HWND(hwnd), -20) & 0x00000008) and not _tapada_por_otra_topmost(hwnd):
+            return                                                # sigue encima de todo: no hace falta nada
         # HWND_TOPMOST = -1 ; SWP_NOSIZE|NOMOVE|NOACTIVATE = 0x0001|0x0002|0x0010
         u.SetWindowPos.argtypes = [wintypes.HWND, wintypes.HWND, ctypes.c_int, ctypes.c_int, ctypes.c_int,
                                    ctypes.c_int, wintypes.UINT]

@@ -270,6 +270,15 @@ class MiniPanel(QWidget):
                 break
         self.refresh()
 
+    def act_cancel_all(self) -> None:
+        """Marca como terminadas (canceladas) las actividades en curso: si tu dueño le pidió que se detuviera, el panel no sigue contando."""
+        ahora = time.time()
+        for a in self.acts:
+            if a["t1"] is None:
+                a["t1"], a["ok"] = ahora, False
+        self.tarea = None
+        self.refresh()
+
     def act_running(self) -> bool:
         return any(a["t1"] is None for a in self.acts)
 

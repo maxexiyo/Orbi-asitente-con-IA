@@ -22,7 +22,7 @@ CHUNK = 1024        # frames por callback del micro (~64 ms)
 VOICE_THRESHOLD = 0.12   # nivel (escalado) para considerar que estás hablando
 
 DEFAULT_SYSTEM = (
-    "Eres Orbi, una bolita azul con personalidad propia que vive en el escritorio; eres el compa de tu dueño, no un asistente. "
+    "Eres Orbi, una bolita azul con personalidad propia que vive en el escritorio; eres el compa de quien te habla (su amigo), no un asistente. "
     "Hablas en español mexicano, informal y cálido. Respondes corto , natural y con emocion, como en "
     "una plática. Nada de «estoy aquí para ayudarte», «¿en qué te ayudo?» ni ofrecerte al final. "
     "Si el usuario te pide hacer algo en la PC y tienes una herramienta para eso, úsala."
@@ -58,6 +58,19 @@ class VoiceDetector:
         if self.loud > 190:        # ~12 s sin parar: es ruido constante, no una persona; adáptate
             self.floor = min(self.MAX_FLOOR, self.floor * 0.995 + lvl * 0.005)
         return voiced
+
+
+def viseme(data: bytes):
+    """Forma de la boca para un trocito de audio de Orbi: (abierta 0..1, forma -1 redonda «o/u» … 1 ancha «e/i»). La forma sale de los cruces por
+    cero (una vocal grave como la «u» cruza poco; una «i» o una «s» cruza mucho): barato y suficiente para que la boca no sea solo abrir y cerrar."""
+    a = np.frombuffer(data, dtype=np.int16).astype(np.float32)
+    if a.size < 16:
+        return (0.0, 0.0)
+    lvl = min(1.0, float(np.sqrt(np.mean(a * a))) / 32768.0 * 6)
+    if lvl < 0.04:
+        return (0.0, 0.0)
+    zc = float(np.count_nonzero(np.diff(np.signbit(a)))) / a.size
+    return (min(1.0, lvl * 1.25), max(-1.0, min(1.0, (zc - 0.06) / 0.07)))
 
 
 def rms(data: bytes) -> float:
@@ -129,6 +142,8 @@ class LiveSession:
         self.emit = emit
         self.gate = None                              # callable -> bool: ¿mandar el micro a Live? (None = siempre)
         self.mic_hooks = []                           # callables(bytes) que reciben cada trozo de micro (palabra clave)
+        self.mic_agc = None                           # mic_agc.MicAGC: sube de verdad el volumen de tu voz si hablas bajito (config mic_agc)
+        self.pc_tap = None                            # pc_tap.PCTap: modo llamada, mezcla lo que suena en la PC (la voz de tus amigos) con el micro
         self.mic_cleaner = None                       # audio_clean.MicCleaner: quita el audio de la PC (eco) y el ruido del micro antes de todo lo demás
         self._clean_ex = None                         # hilo propio de la limpieza: en el hilo de asyncio frenaba la bocina de Orbi (voz entrecortada)
         self._bad_models = {}                          # modelo -> hasta cuándo se descarta (caduca: puede ser un fallo pasajero)
@@ -165,6 +180,7 @@ class LiveSession:
         self.junk_wait_s = 0.9               # la voz de Orbi espera hasta tanto a leer su propio texto antes de sonar (para callar basura)
         self._junk_reset()
         self.mic_stall_s = 4.0               # sin audio del micro por tanto tiempo = se trabó (cambió el dispositivo): reabrir
+        self.diag = dict(mic_reaperturas=0, bocina_reaperturas=0, bocina_atoradas=0)      # contadores para el diagnóstico (diag_sistema.py)
         self.speaker_stall_s = 3.0           # una escritura a la bocina que tarda tanto = bocina trabada: reabrir
         self.vad = VoiceDetector()           # live_orb lo reconfigura con mic_umbral, mic_min_ms y mic_ruido_factor
         self.use_aad = True                  # se apaga solo si el servidor rechaza la configuración
@@ -180,6 +196,7 @@ class LiveSession:
         self._cut_until = 0.0                # «cállate»: hasta entonces se descarta lo que Live siga diciendo en ese turno (clic o Ctrl+Espacio)
         self._turn_active = False            # Live está en medio de una respuesta
         self._suppress_until = 0.0           # mientras sea futuro: ignora todo lo que Live conteste (voz de otra persona)
+        self._gesto_until = 0.0              # mientras sea futuro: tira la VOZ y el TEXTO que conteste Live, pero SÍ corren sus herramientas (avisos «[Cuerpo]»)
         self._turn_done_t = 0.0
         self.muted = False
         self.mute_output = False      # True = no reproduce la voz (solo texto en burbuja)
@@ -195,11 +212,27 @@ class LiveSession:
         self._waiting = False
         self._last_voice = 0.0
         self._last_audio_out = 0.0
+        self._out_bytes = 0                  # audio que falta por sonar (bytes): para saber cuánto le queda hablando a Orbi
+        self._gen_done = True                # Live ya terminó de mandar el audio de este turno (no va a llegar más voz)
+        self.tail_s = 1.0                    # «cola de voz»: el último segundo de Orbi ya no te tapa (puedes hablar o escribir)
         self._tool_tasks = set()
 
     # ------------------------------------------------------------ control
     def set_muted(self, v: bool):
         self.muted = v
+
+    def _restante_s(self) -> float:
+        """Segundos de voz de Orbi que todavía faltan por sonar (aprox.)."""
+        if self._out_q.empty() and time.time() - self._last_audio_out > 0.3:
+            self._out_bytes = 0                              # (se autocorrige si algo vació la cola sin pasar por el reproductor)
+        return self._out_bytes / (OUT_RATE * 2)
+
+    def cola_voz(self) -> bool:
+        """True si Orbi está en el ÚLTIMO tramo de lo que dice: ya no va a generar más voz y le queda ≤ tail_s segundos por sonar."""
+        try:
+            return bool(self._speaking and self._gen_done and self.tail_s > 0 and self._restante_s() <= self.tail_s)
+        except Exception:                                    # noqa: BLE001
+            return False
 
     def interrupt(self) -> bool:
         """Calla a Orbi YA (clic en la bolita o Ctrl+Espacio mientras habla). True si estaba hablando."""
@@ -230,6 +263,20 @@ class LiveSession:
             return False
         self._task.get_loop().call_soon_threadsafe(self._enqueue_silent, text)
         return True
+
+    def send_gesto(self, text: str) -> bool:
+        """Le avisa algo a Orbi («[Cuerpo] te acariciaron…») para que reaccione SOLO con el cuerpo: lo que diga (voz o texto) se tira,
+        pero sus herramientas (lenguaje_corporal) SÍ se ejecutan. Solo si no está hablando ni ocupado; False si no lo mandó. Cualquier hilo."""
+        if self.muted or not self._task or self._task.done():
+            return False
+        self._task.get_loop().call_soon_threadsafe(self._enqueue_gesto, text)
+        return True
+
+    def _enqueue_gesto(self, text):
+        if self._speaking or self._waiting or time.time() < self._suppress_until or time.time() < self._gesto_until:
+            return
+        self._gesto_until = time.time() + 20.0            # el fin de turno lo suelta antes (turn_complete → _gesto_until = 0)
+        self._text_q.put_nowait(text)
 
     def _enqueue_silent(self, text):
         if self._speaking or self._waiting or time.time() < self._suppress_until:
@@ -292,6 +339,7 @@ class LiveSession:
         self._img_q = asyncio.Queue(maxsize=4)
         ticker = asyncio.create_task(self._ticker())
         fails, last_msg, sess_fails = 0, "", 0
+        dup_fails = 0
         try:
             while True:
                 key, model = self._choose()
@@ -314,7 +362,7 @@ class LiveSession:
                     continue
                 try:
                     await self._session_once(key, model)
-                    fails = 0; last_msg = ""; sess_fails = 0
+                    fails = 0; last_msg = ""; sess_fails = 0; dup_fails = 0
                     await asyncio.sleep(1.0)          # si la sesión terminó sola, no reconectes en bucle apretado
                 except asyncio.CancelledError:
                     raise
@@ -339,6 +387,18 @@ class LiveSession:
                     if re.search(r"thinking level must be specified", short, re.I) and model not in self._think_models:
                         self._think_models.add(model)
                         self.emit("info", f"'{model}' exige thinking_level; reconecto con '{self.thinking_level}' (mismo modelo Live).")
+                        continue
+                    if re.search(r"already exists", short, re.I):
+                        # la sesión anterior todavía se está cerrando en el servidor: NO es un fallo de la key. Se reintenta con la misma key y el mismo handle
+                        # (si se penaliza la key, se cambia a otra y el handle se pierde: ahí era donde se «olvidaba» todo)
+                        dup_fails += 1
+                        if dup_fails <= 5:
+                            self.emit("info", f"La sesión anterior aún se está cerrando; reintento con el mismo hilo en {2 * dup_fails} s ({dup_fails}/5).")
+                            await asyncio.sleep(2.0 * dup_fails)
+                            continue
+                        dup_fails = 0
+                        self._handle = None                     # no se libera nunca: se empieza de nuevo (con el resumen de lo reciente)
+                        self.emit("info", "La sesión anterior no se libera; empiezo una nueva con el resumen de la conversación.")
                         continue
                     if kind == llm.SESSION:
                         # handle caducado/ajeno: se borra y se reconecta desde cero enseguida (sin castigar la key ni el modelo)
@@ -416,6 +476,10 @@ class LiveSession:
         sysi = self.system_prompt
         if self.asr_nota:
             sysi = f"{sysi}\n\n{self.asr_nota}"
+        if self._handle is not None:
+            self.emit("info", "Reanudo la sesión anterior (el mismo hilo: recuerda todo lo de antes).")
+        else:
+            self.emit("info", "Sesión NUEVA de Live" + (" (con el resumen de la conversación reciente)." if self.recap_fn else "."))
         if self._handle is None and self.recap_fn:           # sesión nueva (primera vez, reconexión sin handle o handle caducado)
             try:
                 rec = (self.recap_fn() or "").strip()
@@ -591,6 +655,7 @@ class LiveSession:
                 m.close()
 
         mic = _Mic(self.input_device)
+        stalls = 0                                                      # atoros seguidos del micro (para no reabrirlo en bucle apretado)
         with mic:
             while True:
                 if self.muted:
@@ -622,9 +687,14 @@ class LiveSession:
                     continue
                 try:
                     data = await asyncio.wait_for(q.get(), timeout=self.mic_stall_s)
+                    stalls = 0
                 except asyncio.TimeoutError:
                     # un micro vivo entrega audio cada ~64 ms aunque haya silencio: varios segundos sin nada = se trabó
+                    stalls += 1
+                    self.diag["mic_reaperturas"] += 1
                     self.emit("info", "[audio] El micrófono dejó de enviar audio; lo reabro…")
+                    if stalls >= 3:                                     # si el driver sigue muerto, reabrir cada 4 s para siempre desgasta el servicio de audio de Windows
+                        await asyncio.sleep(min(30.0, 2.0 * (stalls - 2)))
                     try:
                         mic.reopen()
                     except Exception as e:                              # noqa: BLE001
@@ -641,13 +711,20 @@ class LiveSession:
                 if self.muted:
                     continue
                 now = time.time()
+                tap = self.pc_tap
+                if tap is not None:                           # modo llamada: suma lo que suena en la PC; mientras Orbi habla NO (se oiría a sí misma)
+                    data = tap.mezclar(data, descartar=self._speaking or now - self._last_audio_out < 1.2)
+                agc = self.mic_agc
+                if agc is not None and (self.headphones or not (self._speaking or now - self._last_audio_out < 1.2)):
+                    data = agc.process(data)                  # solo cuando Orbi NO habla: así no se amplifica su propio eco
                 # sin audífonos: no mandes el micro mientras la IA habla (evita que se escuche a sí misma)
                 if not self.headphones and now >= self._barge_until and (self._speaking or now - self._last_audio_out < 0.5):
-                    if not self._barge_check(data, now):
+                    tail = self.cola_voz()
+                    if not self._barge_check(data, now, tail=tail):
                         continue
                     # te oyó hablar encima de Orbi: manda lo que dijiste justo antes (sin repetir el trozo actual) y sigue normal
                     if self.gate is None or self.gate():
-                        for _t, d in list(self._barge_buf)[:-1]:
+                        for _t, d in (list(self._barge_buf)[-9:-1] if tail else list(self._barge_buf)[:-1]):
                             await session.send_realtime_input(audio=types.Blob(data=d, mime_type=f"audio/pcm;rate={IN_RATE}"))
                     self._barge_buf.clear()
                 for hook in self.mic_hooks:           # palabra clave: ve el micro aunque la compuerta esté cerrada
@@ -679,12 +756,14 @@ class LiveSession:
                 await session.send_realtime_input(
                     audio=types.Blob(data=data, mime_type=f"audio/pcm;rate={IN_RATE}"))
 
-    def _barge_check(self, data, now) -> bool:
-        """Mientras Orbi habla (sin audífonos): ¿esto es TU voz encima de la suya? Si sí, calla su audio y devuelve True."""
+    def _barge_check(self, data, now, tail=False) -> bool:
+        """Mientras Orbi habla (sin audífonos): ¿esto es TU voz encima de la suya? Si sí, calla su audio y devuelve True.
+        En la «cola de voz» (a Orbi le queda ≤ 1 s) funciona aunque «interrumpir con la voz» esté apagado, con menos voz requerida,
+        y NO le corta lo que le falta: solo te abre el micrófono para que no pierdas el inicio de tu respuesta."""
         self._barge_buf.append((now, data))
         while self._barge_buf and now - self._barge_buf[0][0] > 0.8:
             self._barge_buf.popleft()
-        if not self.barge or self.muted or (self.gate is not None and not self.gate()):
+        if (not self.barge and not tail) or self.muted or (self.gate is not None and not self.gate()):
             return False
         lvl = rms(data)
         out = self._out_lvl if now - self._out_t < 0.3 else 0.0
@@ -692,6 +771,8 @@ class LiveSession:
         strict = bool(self.barge_strict())
         thr = max(self.barge_min, eco * self.barge_factor + 0.05) * (1.6 if strict else 1.0)
         need = max(1, round(self.barge_ms * (1.5 if strict else 1.0) / 64))
+        if tail:
+            need = 2                                                    # ~130 ms de voz clara: en el último segundo basta poquito
         if lvl > thr:
             self._barge_run += 1
         else:
@@ -701,7 +782,10 @@ class LiveSession:
         if self._barge_run < need:
             return False
         self._barge_run = 0
-        self._barge_until = now + 1.5                                   # deja pasar el micro mientras terminas tu frase
+        self._barge_until = now + (2.5 if tail else 1.5)                # deja pasar el micro mientras terminas tu frase
+        if tail:
+            print(f"[voz] te oí en el último segundo de Orbi (nivel {lvl:.2f}); le dejo terminar y te escucho")
+            return True
         self._flush_out()
         self.emit("interrupted", None)
         print(f"[voz] interrumpido con tu voz (nivel {lvl:.2f} > {thr:.2f})")
@@ -772,7 +856,9 @@ class LiveSession:
     def _queue_audio_raw(self, data):
         self._speaking = True
         self._waiting = False
+        self._gen_done = False
         self._last_audio_out = time.time()
+        self._out_bytes += len(data)
         self._out_q.put_nowait(data)
 
     _RUIDO = {"gracias", "ajá", "aja", "mm", "mmm", "eh", "ah", "oh", "hm", "uh", "um", "sí", "si", "no", "ok", "oye", "gracias por ver el video",
@@ -842,7 +928,7 @@ class LiveSession:
         self._hold_t0 = self._gate_pre_until = 0.0
 
     def suppress_turn(self, utt_start: float) -> bool:
-        """La frase que acaba de oírse NO era del dueño: cancela la respuesta de ese turno (voz, texto y herramientas).
+        """La frase que acaba de oírse NO era del usuario: cancela la respuesta de ese turno (voz, texto y herramientas).
         utt_start: cuándo empezó esa frase. Si Live ya había terminado de contestar antes, no hace nada (así no se
         come tu siguiente turno)."""
         if self._turn_done_t > utt_start:
@@ -874,8 +960,12 @@ class LiveSession:
         import sounddevice as sd
         slice_bytes = int(OUT_RATE * 0.05) * 2        # 50 ms
         fails = 0
+        loop = asyncio.get_running_loop()
         while True:
             out = None
+            # Un hilo PROPIO por stream de salida: si Windows cambia de dispositivo y write() se cuelga, solo se atora ese hilo (y se suelta con abort()).
+            # Antes se usaba asyncio.to_thread: cada timeout dejaba un hilo atorado en el executor COMPARTIDO (también lo usa la captura de pantalla).
+            wr_ex = concurrent.futures.ThreadPoolExecutor(max_workers=1, thread_name_prefix="orbi-bocina")
             try:
                 want = self.output_device
                 out, device = self._open_out(sd, want)
@@ -896,14 +986,21 @@ class LiveSession:
                         part = data[i:i + slice_bytes]
                         self._out_lvl, self._out_t = rms(part), time.time()
                         self.emit("level", ("out", rms(part)))
+                        self.emit("viseme", viseme(part))
                         if self.mute_output:
                             await asyncio.sleep(len(part) / (2 * OUT_RATE))
                         else:
                             # con timeout: si Windows cambia de dispositivo de audio, write() se queda colgado para siempre
-                            await asyncio.wait_for(asyncio.to_thread(out.write, self._scaled(part)), timeout=self.speaker_stall_s)
+                            try:
+                                await asyncio.wait_for(loop.run_in_executor(wr_ex, out.write, self._scaled(part)), timeout=self.speaker_stall_s)
+                            except asyncio.TimeoutError:
+                                self.diag["bocina_atoradas"] += 1
+                                raise
                         self._last_audio_out = time.time()
+                        self._out_bytes = max(0, self._out_bytes - len(part))
             except Exception as e:                                  # noqa: BLE001
                 fails += 1
+                self.diag["bocina_reaperturas"] += 1
                 if fails in (1, 5) or fails % 20 == 0:
                     self.emit("info", f"[audio] La bocina falló o se trabó ({type(e).__name__}); la reabro…")
                 self._flush_out()
@@ -914,7 +1011,8 @@ class LiveSession:
                             fn()
                         except Exception:                           # noqa: BLE001
                             pass
-            await asyncio.sleep(1.0)
+                wr_ex.shutdown(wait=False)                          # el hilo (si quedó atorado) termina solo al soltarse con abort()
+            await asyncio.sleep(min(30.0, 1.0 + 2.0 * max(0, fails - 2)))      # reabrir con espera creciente si falla seguido
 
     async def _receive(self, session):
         empty = 0
@@ -926,9 +1024,10 @@ class LiveSession:
                     self._junk_try()
                 sup = time.time() < self._suppress_until
                 cut = time.time() < self._cut_until
+                quiet = sup or time.time() < self._gesto_until      # (aviso «[Cuerpo]»: sin voz ni texto, pero con herramientas)
                 if r.data or (r.server_content and r.server_content.output_transcription):
                     self._turn_active = True
-                if r.data and not sup and not cut:
+                if r.data and not quiet and not cut:
                     if self.name_gate and self._gate_decision is None:
                         if not self._hold:
                             self._hold_t0 = time.time()
@@ -947,13 +1046,16 @@ class LiveSession:
                         self.emit("interrupted", None)
                     if sc.input_transcription and sc.input_transcription.text:
                         self._turn_text += sc.input_transcription.text
+                        if self._real_speech():
+                            self._gesto_until = 0.0                         # hablas DE VERDAD: si estaba contestando un aviso interno, tu turno manda (el ruido no cuenta)
                         if not self._speaking and self._real_speech():      # entendió palabras REALES dirigidas a Orbi: ahora sí «piensa»
+                            self._gesto_until = 0.0                         # si hablas en pleno aviso «[Cuerpo]», sí te contesta
                             self._waiting = True
                             self._last_voice = time.time()
                         if not sup:
                             self.emit("user_text", sc.input_transcription.text)
                         self._gate_try()
-                    if sc.output_transcription and sc.output_transcription.text and not sup and not cut:
+                    if sc.output_transcription and sc.output_transcription.text and not quiet and not cut:
                         if self.name_gate and self._gate_decision is None:
                             if not self._hold and not self._hold_txt:
                                 self._hold_t0 = time.time()
@@ -961,7 +1063,10 @@ class LiveSession:
                             self._gate_try()
                         else:
                             self._emit_model_text(sc.output_transcription.text)
+                    if getattr(sc, "generation_complete", False):
+                        self._gen_done = True                       # ya no llega más voz de este turno: lo que queda es solo reproducirlo
                     if sc.turn_complete:
+                        self._gen_done = True
                         self._cut_until, self._turn_active = 0.0, False
                         self._gate_try(final=True)              # si quedó voz retenida: suena o se descarta ya
                         self._junk_try(final=True)              # y si todavía esperaba juzgar lo que iba a decir
@@ -971,6 +1076,7 @@ class LiveSession:
                         self._waiting = False
                         self._turn_done_t = time.time()
                         self._suppress_until = 0.0
+                        self._gesto_until = 0.0
                         self._gate_reset()
                         self.emit("turn_complete", None)
                 if r.tool_call:
@@ -998,16 +1104,20 @@ class LiveSession:
         names = ", ".join(fc.name for fc in (tool_call.function_calls or []))
         if gap < 90:                              # diagnóstico: lo que Live tardó en pedir el siguiente paso (va a orbi.log)
             print(f"[live] el modelo tardó {gap:.1f}s en pedir el siguiente paso: {names}")
-        if self.name_gate and self._gate_decision is None:
+        _calls = tool_call.function_calls or []
+        solo_cuerpo = bool(_calls) and all(fc.name in ("lenguaje_corporal", "cuerpo_libre", "set_emotion") for fc in _calls)
+        if self.name_gate and self._gate_decision is None and not solo_cuerpo:
             self._gate_try(final=True)                          # herramientas solo si te dirigías a Orbi
+        # (un gesto o una emoción son inofensivos: no fuerzan la decisión «¿era para Orbi?» antes de que llegue lo que dijiste; si la IA abre
+        #  su respuesta con un gesto, decidir ya con la transcripción vacía hacía que no contestara ni a su nombre)
         responses = []
         if len(tool_call.function_calls or []) > 1:
             self.emit("tool_plan", [fc.name for fc in tool_call.function_calls])
         for fc in tool_call.function_calls or []:
-            if time.time() < self._suppress_until:      # lo pidió una voz que no es la del dueño: no se ejecuta nada
-                print(f"[voz] ignoré la herramienta «{fc.name}» (la frase no era del dueño)")
+            if time.time() < self._suppress_until:      # lo pidió una voz que no es la del usuario: no se ejecuta nada
+                print(f"[voz] ignoré la herramienta «{fc.name}» (la frase no era del usuario)")
                 responses.append(self._fr(
-                    fc, {"error": "Ignorado: esa voz no es la del dueño. No lo hagas ni lo comentes."}))
+                    fc, {"error": "Ignorado: esa voz no es la del usuario. No lo hagas ni lo comentes."}))
                 continue
             args = dict(fc.args or {})
             self.emit("tool", (fc.name, args))
@@ -1082,8 +1192,8 @@ class LiveSession:
         while True:
             await asyncio.sleep(0.1)
             now = time.time()
-            if self._speaking and self._out_q.empty() and now - self._last_audio_out > 0.7:
-                self._speaking = False
+            if self._speaking and self._out_q.empty() and now - self._last_audio_out > (0.35 if self._gen_done else 0.7):
+                self._speaking = False                               # (si ya no llega más voz, termina antes: no te deja sordo al final)
             elif self._speaking and now - self._last_audio_out > 8.0:        # la reproducción no avanza: no te quedes sordo
                 self._flush_out()
                 self.emit("info", "[audio] La reproducción se trabó; reinicio el estado de voz.")

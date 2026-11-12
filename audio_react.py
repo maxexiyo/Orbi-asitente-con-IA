@@ -18,11 +18,11 @@ baila a la mitad de velocidad. Si la música no tiene un pulso claro, vuelve al 
 import math, threading, time
 from collections import deque
 
-RATE = 44100
+RATE = 48000                       # lo entrega la captura compartida (loopback_hub.py); antes 44100
 BLOCK = 1024                       # ~23 ms por bloque que se analiza
 BUFFER = 16384                     # ~370 ms de colchón de WASAPI. soundcard usa blocksize/samplerate como duración del buffer:
                                    # con 1024 eran 23 ms y cualquier tironcito de la CPU perdía audio («data discontinuity»)
-BASS = (30.0, 180.0)               # banda donde viven el bombo y el bajo
+BASS = (30.0, 195.0)               # banda donde viven el bombo y el bajo (a 48 kHz cada bin de FFT es ~9 % más ancho: 195 Hz deja los mismos 4 bins que 180 Hz a 44.1 kHz)
 SILENCE_RMS = 0.0015               # por debajo de esto no hay nada sonando
 
 
@@ -41,19 +41,44 @@ class AudioReact:
         self.ratio = max(1.1, float(sensibilidad) * 0.8); self.debug = debug
         self.min_golpes = max(4, int(min_golpes) - 2); self.hold = max(0.0, float(mantener_s))   # golpes mínimos y segundos seguidos de «parece música»
         self.voz_pausas = max(0.2, float(voz_pausas))
-        self._stop = threading.Event(); self._th = None
+        self._acc = None; self._t0 = time.monotonic(); self._frames = 0
         self._reset()
 
     # ------------------------------------------------------------------ control
     def start(self):
-        if self._th and self._th.is_alive():
+        """Se suscribe a la captura loopback COMPARTIDA (loopback_hub.py): ya no abre su propio recorder."""
+        from loopback_hub import hub
+        if hub().is_subscribed(self._NOMBRE):
             return
-        self._stop.clear()
-        self._th = threading.Thread(target=self._run, name="orbi-audio-react", daemon=True)
-        self._th.start()
+        self._reset()
+        self._acc = None
+        self._t0, self._frames = time.monotonic(), 0
+        hub().subscribe(self._NOMBRE, self._on_raw, RATE, self._hub_error)
 
     def stop(self):
-        self._stop.set()
+        from loopback_hub import hub
+        hub().unsubscribe(self._NOMBRE)
+        self._apagar_baile()
+
+    _NOMBRE = "audio-react"
+
+    def _apagar_baile(self):
+        if self.dancing:
+            self.dancing = False; self.on_dance(False)
+
+    def _hub_error(self, msg):
+        self.on_error(msg)
+        self._apagar_baile()
+
+    def _on_raw(self, x):
+        """Recibe bloques de 960 muestras (48 kHz) de la captura compartida y los junta en bloques de BLOCK para analizarlos."""
+        import numpy as np
+        self._acc = x if self._acc is None else np.concatenate((self._acc, x))
+        while len(self._acc) >= BLOCK:
+            blk, self._acc = self._acc[:BLOCK], self._acc[BLOCK:]
+            self._frames += BLOCK
+            # reloj por muestras: si el hilo se atrasa y recupera de golpe, los golpes no se «apelotonan»
+            self.process(blk, now=self._t0 + self._frames / RATE)
 
     # ------------------------------------------------------------------ análisis (se puede probar sin soundcard)
     LEAD_S = 0.055                             # la detección llega ~60 ms tarde: el metrónomo se adelanta ese poco
@@ -302,7 +327,7 @@ class AudioReact:
     def _fase(self, now, per) -> float:
         """Próximo instante de golpe, alineado con donde caen los ataques de los últimos ~4 s."""
         import numpy as np
-        k = min(len(self._ons), int(4.0 / 0.0232))
+        k = min(len(self._ons), int(4.0 / (BLOCK / RATE)))      # ~4 s de bloques (antes fijo en 0.0232 s = 1024 a 44.1 kHz)
         ts = np.fromiter(list(self._ons_t)[-k:], dtype="float64")
         os_ = np.fromiter(list(self._ons)[-k:], dtype="float64")
         phis = np.linspace(0.0, per, 48, endpoint=False)
@@ -433,55 +458,3 @@ class AudioReact:
             except Exception:                                   # noqa: BLE001
                 pass
             if self.debug: print(f"[baile] estilo: {est} ({bpm:.0f} BPM, graves {self._frac_avg:.2f}, volumen {self._rms_avg:.3f})")
-
-    # ------------------------------------------------------------------ hilo de captura
-    def _run(self):
-        import warnings
-        # Aviso inofensivo de soundcard (pierde unos paquetes) que, además, llenaba la consola y empeoraba el atasco
-        warnings.filterwarnings("ignore", message="data discontinuity in recording")
-        errores = 0
-        while not self._stop.is_set():
-            try:
-                import soundcard as sc
-                from pc_audio import loopback_mic
-                spk = sc.default_speaker()
-                mic = loopback_mic(sc)
-                self._reset()
-                chequeo = time.monotonic()
-                rec_cm = mic.recorder(samplerate=RATE, channels=1, blocksize=BUFFER)
-                rec = rec_cm.__enter__()
-                try:
-                    errores = 0
-                    t0, frames = time.monotonic(), 0
-                    while not self._stop.is_set():
-                        data = rec.record(numframes=BLOCK)
-                        frames += BLOCK
-                        # reloj por muestras: si el hilo se atrasa y recupera de golpe, los golpes no se «apelotonan»
-                        self.process(data[:, 0] if getattr(data, "ndim", 1) > 1 else data, now=t0 + frames / RATE)
-                        if time.monotonic() - chequeo > self.CHECK_S:      # ¿cambiaste de bocinas/audífonos? reabrir
-                            chequeo = time.monotonic()
-                            if sc.default_speaker().id != spk.id:
-                                break
-                finally:
-                    try:
-                        rec_cm.__exit__(None, None, None)
-                    except Exception:                                 # noqa: BLE001
-                        # Stop() devuelve S_FALSE (=1) si el flujo ya estaba detenido (cambió el dispositivo) y soundcard
-                        # lo toma por error: «Error 0x100000001». No es un fallo real, no cuenta.
-                        pass
-            except ImportError as e:
-                import sys
-                self.on_error(f"No se pudo importar ({e}). Orbi corre con: {sys.executable}  → instala ahí: "
-                              f"\"{sys.executable.replace('pythonw', 'python')}\" -m pip install -U soundcard numpy cffi")
-                return
-            except Exception as e:                                # noqa: BLE001
-                errores += 1
-                if errores == 1:
-                    self.on_error(f"No pude escuchar el audio de la PC ({type(e).__name__}: {str(e)[:120]}).")
-                if errores >= 3:     # insistir abriendo el loopback una y otra vez puede estorbar al micrófono de Orbi: mejor rendirse
-                    self.on_error("Apagué el baile tras varios fallos para no estorbar al micrófono. Vuelve a activarlo "
-                                  "desde el menú cuando quieras.")
-                    break
-                self._stop.wait(2.0 * errores)
-        if self.dancing:
-            self.dancing = False; self.on_dance(False)

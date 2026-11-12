@@ -418,6 +418,19 @@ class AjustesDialog(QDialog):
                              "videos. No afecta al modo intérprete ni a los traductores. Se aplica en la siguiente conexión (o al reiniciar Orbi).")
         nota_idioma.setWordWrap(True); nota_idioma.setObjectName("nota")
         f.addRow("Idioma con el que te oye:", self.au_idioma); f.addRow("", nota_idioma)
+        self.au_llamada = QCheckBox("Permitir que Orbi responda a conversaciones en línea (llamadas): oír también la voz de los demás que sale por la PC")
+        self.au_llamada.setChecked(bool(aj.get("llamada", cfg.get("llamada", False))))
+        nota_llamada = QLabel("Para llamadas de Discord, Meet, etc. Orbi oye lo que suena en la PC además de tu micrófono, así tus amigos le pueden hablar si ven a Orbi "
+                              "en tu pantalla compartida. En este modo solo contesta si alguien dice «Orbi» (tú también); mientras habla ella no te oye por las bocinas. "
+                              "El audio se usa igual que el del micrófono (se manda a Gemini cuando la ventana de conversación está abierta). Se aplica al momento.")
+        nota_llamada.setWordWrap(True); nota_llamada.setObjectName("nota")
+        f.addRow("", self.au_llamada); f.addRow("", nota_llamada)
+        self.au_llamada_vol = QSlider(Qt.Horizontal); self.au_llamada_vol.setRange(20, 300)
+        self.au_llamada_vol.setValue(max(20, min(300, int(aj.get("llamada_vol", round(float(cfg.get("llamada_ganancia", 1.0)) * 100))))))
+        self.au_llamada_vol_txt = QLabel(f"{self.au_llamada_vol.value()}%")
+        self.au_llamada_vol.valueChanged.connect(lambda v: self.au_llamada_vol_txt.setText(f"{v}%"))
+        lvr = QHBoxLayout(); lvr.addWidget(self.au_llamada_vol, 1); lvr.addWidget(self.au_llamada_vol_txt)
+        f.addRow("Volumen de las voces de la llamada:", lvr)
         self.au_vol = QSlider(Qt.Horizontal); self.au_vol.setRange(10, 150)
         self.au_vol.setValue(max(10, min(150, round(float(cfg.get("volumen_voz", 1.0) or 1.0) * 100))))
         self.au_vol_txt = QLabel(f"{self.au_vol.value()}%")
@@ -860,7 +873,8 @@ class AjustesDialog(QDialog):
                              "confirmar_acciones": modo_d != "permitir"},       # compatibilidad con el asistente de configuración
                 "ajustes": {"mini": mini, "internet_lento": self.i_lento.currentData(), "busqueda_navegador": self.i_nav.isChecked(),
                             "memoria_larga": self.mem.isChecked(), "alarma_tono": self.a_tono.currentData(),
-                            "tema": self.t_tema.currentData(), "idioma_oido": self.au_idioma.currentData()}}
+                            "tema": self.t_tema.currentData(), "idioma_oido": self.au_idioma.currentData(),
+                            "llamada": self.au_llamada.isChecked(), "llamada_vol": self.au_llamada_vol.value()}}
 
     def _tema_desc(self) -> None:
         self.t_desc.setText(temas.get(self.t_tema.currentData()).desc)

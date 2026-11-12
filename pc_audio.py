@@ -23,23 +23,36 @@ def loopback_mic(sc=None):
 
 
 def record_wav(seconds: float = 10.0, rate: int = 16000):
-    """-> (bytes_wav, info{segundos, silencio}). Bloquea `seconds` s (3 a 30): llamarlo desde un hilo de tool."""
+    """-> (bytes_wav, info{segundos, silencio}). Bloquea `seconds` s (3 a 30): llamarlo desde un hilo de tool.
+
+    A 16 kHz (lo que usa todo Orbi) reutiliza la captura loopback compartida (loopback_hub.py) en vez de abrir y cerrar una nueva cada vez:
+    «escuchar la PC» llegaba a hacerlo ~700 veces en 8 horas."""
     try:
         seconds = max(3.0, min(30.0, float(seconds or 10)))
     except (TypeError, ValueError):
         seconds = 10.0
     try:
         import numpy as np
-        import soundcard as sc
     except ImportError:
         raise AudioError("Falta instalar la librería 'soundcard' (pip install soundcard) para oír el audio de la PC.")
-    try:
-        mic = loopback_mic(sc)
-        with mic.recorder(samplerate=rate, channels=1) as rec:
-            data = rec.record(numframes=int(rate * seconds))
-    except Exception as e:                                   # noqa: BLE001
-        raise AudioError(f"No pude capturar el audio de la PC ({type(e).__name__}: {str(e)[:100]}).")
-    mono = data[:, 0] if getattr(data, "ndim", 1) > 1 else data
+    if rate == 16000:
+        try:
+            from loopback_hub import hub
+            mono = hub().capturar(seconds, 16000)
+        except Exception as e:                               # noqa: BLE001
+            raise AudioError(f"No pude capturar el audio de la PC ({type(e).__name__}: {str(e)[:100]}).")
+    else:                                                    # otra velocidad: captura propia (no la usa nadie hoy)
+        try:
+            import soundcard as sc
+        except ImportError:
+            raise AudioError("Falta instalar la librería 'soundcard' (pip install soundcard) para oír el audio de la PC.")
+        try:
+            mic = loopback_mic(sc)
+            with mic.recorder(samplerate=rate, channels=1) as rec:
+                data = rec.record(numframes=int(rate * seconds))
+        except Exception as e:                               # noqa: BLE001
+            raise AudioError(f"No pude capturar el audio de la PC ({type(e).__name__}: {str(e)[:100]}).")
+        mono = data[:, 0] if getattr(data, "ndim", 1) > 1 else data
     peak = float(np.max(np.abs(mono))) if mono.size else 0.0
     pcm = (np.clip(mono, -1.0, 1.0) * 32767).astype("<i2")
     buf = io.BytesIO()

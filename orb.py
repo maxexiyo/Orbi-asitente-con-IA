@@ -1,306 +1,23 @@
-"""La bolita: widget PySide6 con estados, emociones, burbuja y esconderse en el borde."""
+"""Orbi: la bolita. La clase Orb junta el estado, el ratón y los menús; el dibujo vive en orb_dibujo.py, el cuerpo controlado por la IA en
+orb_cuerpo.py, los gestos predefinidos en orb_gestos.py, las ventanitas en orb_widgets.py y las tablas en orb_consts.py."""
 import json, math, os, random, re, sys, time
 from pathlib import Path
 
-from PySide6.QtCore import Qt, QTimer, QPointF, QRectF, Signal, QPropertyAnimation, QEasingCurve, QPoint
-from PySide6.QtGui import (QPainter, QRadialGradient, QLinearGradient, QColor, QBrush, QPen,
-                           QPainterPath, QCursor, QFont, QGuiApplication)
+from PySide6.QtCore import Qt, QTimer, QPointF, QRectF, Signal, QPropertyAnimation, QEasingCurve, QPoint, QRect
+from PySide6.QtGui import QPainter, QRadialGradient, QLinearGradient, QColor, QBrush, QPen, QPainterPath, QFont, QCursor, QGuiApplication
 from PySide6.QtWidgets import QApplication, QWidget, QMenu, QLabel, QVBoxLayout
 import orb_dodge
+import cuerpo as _cu
+from orb_consts import *                       # (re-exporta las tablas: otros módulos hacen `from orb import FACES, R0…`)
+from orb_consts import _cfg_val, _cfg_value, _mix
+from orb_gestos import *
+from orb_gestos import _env, _hold, _G0, _LOOK_DIR
+from orb_widgets import Bubble, Pointer
+from orb_cuerpo import CuerpoMixin
+from orb_dibujo import DibujoMixin
 
 
-def _cfg_val(clave: str, defecto):
-    """Valor de config.json / orbi_config_ventana.json (el segundo manda). Sirve para interruptores de diagnóstico de la bolita."""
-    val = defecto
-    for nombre in ("config.json", "orbi_config_ventana.json"):
-        try:
-            d = json.loads((Path(__file__).resolve().parent / nombre).read_text(encoding="utf-8"))
-            if isinstance(d, dict) and clave in d:
-                val = d[clave]
-        except Exception:                                           # noqa: BLE001
-            pass
-    return val
-
-def _cfg_value(key, default):
-    """ORBI_<KEY> en el entorno/.env o la clave en config.json (así se ajusta sin tocar el código)."""
-    v = os.environ.get("ORBI_" + key.upper())
-    if v is None:
-        try:
-            v = json.loads((Path(__file__).parent / "config.json").read_text(encoding="utf-8")).get(key)
-        except Exception:
-            v = None
-    return default if v is None else v
-
-
-try:
-    SCALE = max(0.4, min(1.5, float(_cfg_value("orb_scale", 0.72))))     # 1.0 = tamaño original
-except (TypeError, ValueError):
-    SCALE = 0.72
-try:
-    SLEEP_AFTER = float(_cfg_value("sleep_after_s", 900))                # 0 = nunca se duerme
-except (TypeError, ValueError):
-    SLEEP_AFTER = 900.0
-
-W = H = round(280 * SCALE)          # tamaño de la ventana
-R0 = round(52 * SCALE)              # radio base de la bolita
-VIS = round(42 * SCALE)             # px de bolita visibles cuando está escondida en el borde
-EDGE_SNAP = 70                      # distancia al borde para que se esconda al soltarla
-STANDBY_COLOR = (60, 115, 210)      # un poco más apagada cuando espera la palabra «Orbi»
-
-# ---- Colores base por estado (la emoción los tiñe un poco) ----
-STATE_COLORS = {
-    "idle": (70, 150, 255),
-    "listening": (80, 205, 255),
-    "thinking": (140, 120, 255),
-    "speaking": (70, 150, 255),
-    "sleeping": (55, 85, 150),
-}
-# pulse = amplitud de la "respiración", speed = rapidez
-# cómo baila según el estilo (lo elige live_orb.py por el género de la canción o por el tempo): dx/dy = empuje en cada golpe
-# (dy > 0 baja, dy < 0 salta), sway/sw = balanceo entre golpes, decay = qué tan rápido se calma, pulse = cuánto late el cuerpo
-COLOR_KEYS = ("er", "eg", "eb", "ew", "tr", "tg", "tb")   # claves de FACES que son COLOR (no forma de la cara)
-FACE_SNAP = True            # True: la carita cambia AL INSTANTE cuando cambia la emoción (el color sí se funde con transición); False: todo se funde
-DANCE_FACE_SNAP = FACE_SNAP
-COLOR_LERP = 0.06           # qué tan rápido se funde el COLOR de la emoción (≈1 s de transición); la carita usa 0.14 y salta por FACE_SNAP
-MOOD_HALF_S = 150.0         # el «ánimo» (cómo ha estado últimamente) se va apagando solo, a la mitad cada tantos segundos
-EMO_AFTER_S = 5.0           # cuánto se queda en el «eco» de una emoción antes de volver a neutral (feliz → contento → neutral, no de golpe)
-try:
-    DANCE_SMOOTH = max(0.0, min(1.0, float(_cfg_value("baile_suavidad", 0.65))))   # 0 = brinca seco como antes · 1 = muy suave
-    DANCE_GAIN = max(0.2, min(1.5, float(_cfg_value("baile_intensidad", 1.2))))   # qué tan grandes son los movimientos del baile
-except (TypeError, ValueError):
-    DANCE_SMOOTH, DANCE_GAIN = 0.65, 1.2
-
-DANCE_STYLES = {
-    # hx/hsway = la carita se corre de lado, nod = cabeceo (+ baja, - sube), tilt/tsway = inclina la cabeza (grados), caras = expresiones
-    "pop":         dict(dx=13, dy=-16, sway=3,  sw=3.0, decay=0.88, pulse=0.08, hx=0.06, hsway=0.03, nod=-0.05, tilt=4, tsway=3, caras=("excited", "happy")),
-    "salsa":       dict(dx=16, dy=-7,  sway=5,  sw=4.2, decay=0.90, pulse=0.06, hx=0.10, hsway=0.05, nod=0.02,  tilt=6, tsway=4, caras=("party", "happy", "love")),
-    "cumbia":      dict(dx=11, dy=-9,  sway=6,  sw=2.6, decay=0.90, pulse=0.05, hx=0.06, hsway=0.06, nod=0.03,  tilt=4, tsway=5, caras=("happy", "party")),
-    "bachata":     dict(dx=9,  dy=-5,  sway=8,  sw=2.0, decay=0.92, pulse=0.04, hx=0.04, hsway=0.08, nod=0.01,  tilt=3, tsway=7, caras=("love", "dreamy")),
-    "reggaeton":   dict(dx=5,  dy=14,  sway=2,  sw=3.2, decay=0.90, pulse=0.12, hx=0.02, hsway=0.02, nod=0.08,  tilt=2, tsway=1, caras=("cool", "happy")),
-    "hiphop":      dict(dx=4,  dy=11,  sway=2,  sw=1.8, decay=0.91, pulse=0.07, hx=0.02, hsway=0.02, nod=0.07,  tilt=3, tsway=1, caras=("cool",)),
-    "rock":        dict(dx=3,  dy=-22, sway=1,  sw=3.0, decay=0.83, pulse=0.12, hx=0.02, hsway=0.01, nod=0.14,  tilt=2, tsway=1, caras=("rocker", "excited")),
-    "metal":       dict(dx=2,  dy=-26, sway=1,  sw=4.0, decay=0.80, pulse=0.15, hx=0.01, hsway=0.01, nod=0.17,  tilt=1, tsway=1, caras=("rocker",)),
-    "electronica": dict(dx=3,  dy=-24, sway=1,  sw=3.0, decay=0.86, pulse=0.16, hx=0.02, hsway=0.02, nod=-0.10, tilt=2, tsway=2, caras=("party", "surprised", "excited")),
-    "regional":    dict(dx=12, dy=-12, sway=2,  sw=3.5, decay=0.84, pulse=0.07, hx=0.07, hsway=0.02, nod=-0.05, tilt=5, tsway=2, caras=("happy", "excited")),
-    "disco":       dict(dx=14, dy=-13, sway=4,  sw=3.4, decay=0.88, pulse=0.10, hx=0.08, hsway=0.04, nod=-0.04, tilt=8, tsway=3, caras=("party", "love", "cool")),
-    "suave":       dict(dx=4,  dy=-5,  sway=14, sw=1.4, decay=0.93, pulse=0.03, hx=0.02, hsway=0.10, nod=0.01,  tilt=2, tsway=8, caras=("dreamy", "happy")),
-}
-
-
-STATE_MOTION = {
-    "idle": (0.03, 1.5), "listening": (0.06, 2.6), "thinking": (0.05, 5.0),
-    "speaking": (0.035, 3.0), "sleeping": (0.018, 0.8),
-}
-
-# ---- Caras. arc: ojos tipo ^ ^ | curve: sonrisa(+)/tristeza(-) | open: boca abierta
-# brow: + preocupada (cejas inclinadas hacia adentro-arriba), - enojada | lx/ly: hacia dónde mira
-# tr/tg/tb: tinte de color sumado al color del estado
-FACES = {
-    "neutral":   dict(eye_h=1.0, eye_w=1.0, arc=0, curve=0.45, open=0, blush=0, brow=0, lx=0, ly=0, tr=0, tg=0, tb=0),
-    "attentive": dict(eye_h=1.2, eye_w=1.05, arc=0, curve=0.30, open=0, blush=0, brow=0, lx=0, ly=0, tr=0, tg=0, tb=0),
-    "happy":     dict(eye_h=1.0, eye_w=1.1, arc=1, curve=1.25, open=0, blush=0.5, brow=0, lx=0, ly=0, tr=25, tg=35, tb=-25),
-    "love":      dict(eye_h=1.0, eye_w=1.1, arc=1, curve=0.9, open=0, blush=1.0, brow=0, lx=0, ly=0, tr=100, tg=-50, tb=-60),
-    "sad":       dict(eye_h=0.9, eye_w=1.0, arc=0, curve=-0.8, open=0, blush=0, brow=0.9, lx=0, ly=0.6, tr=-45, tg=-40, tb=-5),
-    "surprised": dict(eye_h=1.6, eye_w=1.3, arc=0, curve=0, open=0.75, blush=0, brow=0, lx=0, ly=0, tr=35, tg=35, tb=-15),
-    "thinking":  dict(eye_h=0.95, eye_w=1.0, arc=0, curve=0.0, open=0, blush=0, brow=0.35, lx=0.9, ly=-0.8, tr=0, tg=0, tb=0),
-    "angry":     dict(eye_h=0.8, eye_w=1.05, arc=0, curve=-0.5, open=0, blush=0, brow=-0.9, lx=0, ly=0, tr=130, tg=-85, tb=-100),
-    "excited":   dict(eye_h=1.3, eye_w=1.2, arc=1, curve=1.3, open=0.35, blush=0.3, brow=0, lx=0, ly=0, tr=95, tg=45, tb=-95),
-    "sleepy":    dict(eye_h=0.06, eye_w=1.3, arc=0, curve=0.25, open=0, blush=0, brow=0, lx=0, ly=0.3, tr=-10, tg=-10, tb=0),
-    # trabajando: ojos entrecerrados, cejas concentradas y mirada que va y viene como leyendo (ver _face_target)
-    "working":   dict(eye_h=0.95, eye_w=1.05, arc=0, curve=0.55, open=0, blush=0.05, brow=0, lx=0, ly=0.30, tr=0, tg=0, tb=0),
-    # caras por TIPO de chamba (las elige live_orb.py según la herramienta; el movimiento de los ojos está en WORK_MOTION).
-    # Todas con sonrisita y SIN cejas (las cejas inclinadas se leían como preocupación/sufrimiento): concentrado, no agobiado.
-    "writing":    dict(eye_h=0.9, eye_w=1.05, arc=0, curve=0.60, open=0, blush=0.10, brow=0, lx=0, ly=0.55, tr=0, tg=0, tb=0),     # mirando la hoja, siguiendo el renglón
-    "searching":  dict(eye_h=1.2, eye_w=1.10, arc=0, curve=0.40, open=0, blush=0, brow=0, lx=0, ly=0, tr=0, tg=0, tb=0),            # ojos atentos: lupa que recorre la pantalla
-    "waiting":    dict(eye_h=1.0, eye_w=1.0, arc=0, curve=0.35, open=0, blush=0, brow=0, lx=0, ly=-0.40, tr=0, tg=0, tb=0),        # mirando hacia arriba, tranquilo, esperando que cargue
-    "organizing": dict(eye_h=0.95, eye_w=1.1, arc=0, curve=0.75, open=0, blush=0.20, brow=0, lx=0, ly=0.1, tr=0, tg=0, tb=0),     # sonrisita, ojos que reparten de lado a lado
-    # emociones «de transición»: lo que queda un rato después de otra emoción (ver EMO_AFTER) y la duda
-    "content":   dict(eye_h=0.9, eye_w=1.05, arc=0, curve=0.85, open=0, blush=0.25, brow=0, lx=0, ly=0, tr=0, tg=0, tb=0),         # contento, relajado
-    "down":      dict(eye_h=0.85, eye_w=1.0, arc=0, curve=-0.30, open=0, blush=0, brow=0.35, lx=0, ly=0.35, tr=0, tg=0, tb=0),    # un poco bajoneado
-    "confused":  dict(eye_h=1.05, eye_w=1.0, arc=0, curve=-0.10, open=0, blush=0, brow=0.20, lx=0.6, ly=-0.5, tr=0, tg=0, tb=0), # duda (sale un «?» a un lado)
-    # caras de baile (las elige DANCE_STYLES según el estilo de la música)
-    "party":     dict(eye_h=1.2, eye_w=1.2, arc=1, curve=1.2, open=0.55, blush=0.4, brow=0, lx=0, ly=0, tr=0, tg=0, tb=0),     # ojos ^ ^ y boca abierta cantando
-    "cool":      dict(eye_h=0.45, eye_w=1.2, arc=0, curve=0.95, open=0, blush=0, brow=-0.2, lx=0, ly=0.15, tr=0, tg=0, tb=0),  # ojos de lado, sonrisa de medio lado
-    "rocker":    dict(eye_h=0.75, eye_w=1.1, arc=0, curve=-0.3, open=0.5, blush=0, brow=-0.75, lx=0, ly=0, tr=0, tg=0, tb=0),  # ceño y grito
-    "dreamy":    dict(eye_h=0.3, eye_w=1.2, arc=1, curve=1.0, open=0, blush=0.65, brow=0, lx=0, ly=0.1, tr=0, tg=0, tb=0),     # ojitos cerrados, mejillas rosas
-}
-# Color propio de CADA emoción (r, g, b, peso 0-1): se mezcla con el color del estado. Antes solo se sumaba un tinte
-# pequeño y varias caras (thinking, surprised, sleepy, attentive, working) casi no cambiaban de color.
-EMO_COLOR = {
-    "neutral":   (0, 0, 0, 0.0),
-    "attentive": (120, 215, 255, 0.35),
-    "happy":     (110, 220, 130, 0.55),
-    "love":      (255, 100, 160, 0.72),
-    "sad":       (60, 80, 150, 0.65),
-    "surprised": (255, 225, 80, 0.62),
-    "thinking":  (165, 120, 255, 0.58),
-    "angry":     (240, 45, 40, 0.78),
-    "excited":   (255, 130, 40, 0.68),
-    "sleepy":    (70, 70, 120, 0.55),
-    "working":   (60, 200, 190, 0.45),
-    "writing":    (125, 150, 255, 0.55),
-    "searching":  (255, 215, 80, 0.58),
-    "waiting":    (255, 150, 70, 0.55),
-    "organizing": (90, 230, 170, 0.55),
-    "content":   (150, 225, 160, 0.40),
-    "down":      (80, 100, 160, 0.45),
-    "confused":  (190, 150, 255, 0.50),
-    "party":     (255, 105, 70, 0.65),
-    "cool":      (150, 95, 255, 0.55),
-    "rocker":    (235, 40, 60, 0.72),
-    "dreamy":    (255, 150, 205, 0.55),
-}
-# emociones de «chamba» y cómo se mueven los ojos en cada una (lx/ly de -1 a 1)
-WORK_EMOS = ("working", "writing", "searching", "waiting", "organizing")
-WORK_MOTION = {
-    "working":    lambda t: dict(lx=math.sin(t * 2.4) * 0.85),                                   # va y viene como leyendo
-    "writing":    lambda t: dict(lx=((t * 1.5) % 1.0) * 1.5 - 0.75),                             # recorre un renglón y salta al siguiente
-    "searching":  lambda t: dict(lx=math.cos(t * 2.3) * 0.8, ly=math.sin(t * 2.3) * 0.6),        # círculos, como una lupa
-    "waiting":    lambda t: dict(lx=math.sin(t * 0.9) * 0.3),                                    # mirada arriba, casi quieta
-    "organizing": lambda t: dict(lx=0.8 if math.sin(t * 4.5) > 0 else -0.8),                     # reparte a izquierda y derecha
-}
-for _n, _f in FACES.items():
-    _c = EMO_COLOR.get(_n, (0, 0, 0, 0.0))
-    _f.update(er=_c[0], eg=_c[1], eb=_c[2], ew=_c[3], tr=0, tg=0, tb=0)
-# sinónimos: si la IA manda una emoción que no existe, se usa la más parecida (antes caía en neutral = sin color)
-EMO_ALIAS = {"curious": "attentive", "curioso": "attentive", "focused": "working", "concentrated": "working",
-             "proud": "happy", "grateful": "love", "affectionate": "love", "tired": "sleepy", "bored": "sleepy",
-             "worried": "sad", "disappointed": "sad", "confused": "confused", "dudoso": "confused", "duda": "confused", "doubt": "confused", "unsure": "confused", "puzzled": "confused", "confundido": "confused", "embarrassed": "surprised",
-             "shocked": "surprised", "playful": "excited", "joyful": "happy", "calm": "attentive", "mad": "angry",
-             "frustrated": "angry", "scared": "surprised", "nervous": "surprised", "alegre": "happy", "triste": "sad",
-             "enojado": "angry", "emocionado": "excited", "sorprendido": "surprised", "pensando": "thinking",
-             "cansado": "sleepy", "amor": "love", "feliz": "happy"}
-
-
-def _mix(a, b, t):
-    return tuple(int(a[i] + (b[i] - a[i]) * t) for i in range(3))
-
-
-COLOR_PRESETS = {
-    "Azul (clásico)": (70, 150, 255), "Verde": (60, 200, 150), "Rosa": (255, 130, 190), "Morado": (170, 110, 255),
-    "Naranja": (255, 170, 60), "Rojo": (255, 90, 70), "Turquesa": (90, 190, 200), "Blanco": (225, 232, 245),
-}
-EMOTIONS = ["neutral", "happy", "love", "sad", "surprised", "thinking", "sleepy", "angry", "excited", "confused"]
-# lo que queda DESPUÉS de una emoción (en vez de saltar a neutral de golpe): las emociones se apagan poco a poco, como en una persona
-EMO_AFTER = {"excited": "happy", "happy": "content", "love": "content", "dreamy": "content", "surprised": "attentive",
-             "sad": "down", "angry": "down", "party": "happy"}
-# cuánto sube o baja el «ánimo» cada emoción nueva (el ánimo tiñe la cara neutral: sonrisita si ha ido bien, más serio si ha ido mal)
-MOOD_VALENCE = {"happy": 0.12, "love": 0.20, "excited": 0.15, "content": 0.05, "party": 0.08, "dreamy": 0.10, "cool": 0.04,
-                "sad": -0.20, "angry": -0.20, "down": -0.05, "confused": -0.04}
-# objeto que sostiene (con una mano invisible) según lo que está haciendo; None = nada
-PROP_FOR = {"writing": "pen", "searching": "lupa", "working": "gear", "organizing": "folder", "waiting": "hourglass", "confused": "question"}
-
-LERP_KEYS = list(FACES["neutral"].keys())
-
-
-EMOTION_RULES = [  # (emoción, puntos, patrón)
-    ("love", 3, r"❤|💙|💕|😍|🥰"), ("love", 2, r"te quiero|te amo|con cariño"),
-    ("sad", 3, r"😢|😔|😞|🥲|😭"),
-    ("sad", 2, r"lo siento|perdón|disculpa|qué mal|lamentablemente|lamento"),
-    ("sad", 1, r"no pude|no puedo|\berror\b|no encontré"),          # solo suman, no bastan solos
-    ("surprised", 3, r"😮|😲|🤯"),
-    ("surprised", 2, r"\bwow\b|no manches|órale|increíble|no lo puedo creer"),
-    ("surprised", 1, r"\bvaya\b|en serio\?"),
-    ("thinking", 2, r"🤔|hmm+|déjame pensar|veamos|a ver\b|dame un segundo"),
-    ("confused", 2, r"no entend|no estoy segur|a qué te refieres|no me queda claro|me confund|no sé si|puedes (repetir|aclarar|explicar)|\bperdona\?"),
-    ("angry", 3, r"😠|😡|🤬"), ("angry", 2, r"qué coraje|me molesta|qué molesto|qué enojo"),
-    ("excited", 3, r"🤩|🥳|🚀"), ("excited", 2, r"qué emoción|emocionad|vamos con todo|no puedo esperar"),
-    ("sleepy", 3, r"😴"), ("sleepy", 2, r"buenas noches|descansa|tengo sueño"),
-    ("happy", 3, r"😊|😄|😁|😀|🎉|✨|😎"),
-    ("happy", 2, r"jaja|jeje|\bxd\b|genial|excelente|buen[ií]simo|perfecto|con gusto|de nada|claro que sí"),
-    ("happy", 1, r"\blisto\b|\bclaro\b"),
-]
-EMOTION_THRESHOLD = 2
-
-
-def emotion_from_text(text: str) -> str:
-    """Adivina la emoción de una respuesta por puntos (emojis y palabras clave)."""
-    t = text.lower()
-    score = {}
-    for emo, pts, pat in EMOTION_RULES:
-        if re.search(pat, t):
-            score[emo] = score.get(emo, 0) + pts
-    if not score:
-        return "neutral"
-    best = max(score, key=score.get)
-    return best if score[best] >= EMOTION_THRESHOLD else "neutral"
-
-
-class Bubble(QWidget):
-    """Burbuja de texto que flota sobre la bolita."""
-    def __init__(self):
-        super().__init__()
-        self.setWindowFlags(Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint | Qt.Tool
-                            | Qt.WindowDoesNotAcceptFocus | Qt.WindowTransparentForInput)
-        self.setAttribute(Qt.WA_TranslucentBackground)
-        self.setAttribute(Qt.WA_ShowWithoutActivating)
-        lay = QVBoxLayout(self); lay.setContentsMargins(0, 0, 0, 0)
-        self.label = QLabel(); self.label.setWordWrap(True); self.label.setMaximumWidth(340)
-        self.label.setStyleSheet(
-            "background: rgba(18,28,58,235); color: #eaf2ff; border: 1px solid rgba(120,170,255,120);"
-            "border-radius: 16px; padding: 10px 14px; font-size: 14px; font-family: 'Segoe UI';")
-        lay.addWidget(self.label)
-        self.hide_timer = QTimer(self); self.hide_timer.setSingleShot(True)
-        self.hide_timer.timeout.connect(self.hide)
-
-    def show_text(self, text, anchor: QPoint, orb_radius, seconds=None):
-        self.label.setText(text)
-        self.label.adjustSize(); self.adjustSize()
-        self.place(anchor, orb_radius)
-        self.show()
-        seconds = seconds if seconds is not None else max(3.5, min(14, len(text) * 0.07))
-        self.hide_timer.start(int(seconds * 1000))
-
-    def place(self, anchor: QPoint, orb_radius):
-        screen = QGuiApplication.screenAt(anchor) or QGuiApplication.primaryScreen()
-        g = screen.availableGeometry()
-        x = anchor.x() - self.width() // 2
-        y = anchor.y() - orb_radius - 18 - self.height()
-        if y < g.top() + 4:                      # no cabe arriba -> abajo
-            y = anchor.y() + orb_radius + 18
-        x = max(g.left() + 4, min(x, g.right() - self.width() - 4))
-        self.move(x, y)
-
-
-class Pointer(QWidget):
-    """Anillo pulsante transparente al ratón para SEÑALAR algo en la pantalla."""
-
-    def __init__(self):
-        super().__init__()
-        self.setWindowFlags(Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint | Qt.Tool
-                            | Qt.WindowDoesNotAcceptFocus | Qt.WindowTransparentForInput)
-        self.setAttribute(Qt.WA_TranslucentBackground)
-        self.setAttribute(Qt.WA_ShowWithoutActivating)
-        self.resize(170, 170)
-        self._t0 = 0.0; self._until = 0.0
-        self._timer = QTimer(self); self._timer.timeout.connect(self._tick)
-
-    def show_at(self, gx, gy, seconds=5.0):
-        self.move(int(gx - 85), int(gy - 85))
-        self._t0 = time.time(); self._until = self._t0 + seconds
-        self.show(); self.raise_(); self._timer.start(16)
-
-    def _tick(self):
-        if time.time() > self._until:
-            self._timer.stop(); self.hide(); return
-        self.update()
-
-    def paintEvent(self, _):
-        p = QPainter(self); p.setRenderHint(QPainter.Antialiasing)
-        now = time.time(); t = now - self._t0
-        fade = max(0.0, min(1.0, (self._until - now) / 0.6))
-        c = QPointF(85, 85)
-        for k in (0.0, 0.5):
-            ph = (t * 1.2 + k) % 1.0
-            col = QColor(255, 190, 60, int(230 * (1 - ph) * fade))
-            p.setBrush(Qt.NoBrush); p.setPen(QPen(col, 4))
-            rr = 14 + ph * 58
-            p.drawEllipse(c, rr, rr)
-        p.setPen(Qt.NoPen); p.setBrush(QColor(255, 120, 40, int(230 * fade)))
-        p.drawEllipse(c, 6, 6)
-
-
-class Orb(QWidget):
+class Orb(CuerpoMixin, DibujoMixin, QWidget):
     clicked = Signal()
     petted = Signal()
 
@@ -337,7 +54,23 @@ class Orb(QWidget):
         self.dance_style = "pop"                        # cómo baila (DANCE_STYLES)
         self._hx = self._hy = self._rot = 0.0           # cabeza: la carita se corre, cabecea y se inclina al bailar
         self._dface = "excited"; self._dface_next = 0.0  # cara de baile actual y cuándo cambia
+        self.trabajando_hasta = 0.0                      # mientras sea futuro está CHAMBEANDO: el baile no le cambia la cara (solo brinca)
         self._dx = 0.0; self._dy = 0.0
+        self._g = dict(_G0); self._gestos = []          # lenguaje corporal libre: desplazamientos de los gestos activos [(t0, dur, nombre, k)]
+        self._seq_id = 0                                # cada secuencia nueva de la IA cancela los pasos pendientes de la anterior
+        # rig: cada parámetro es un resorte [valor, velocidad] hacia un objetivo que fija la IA (pose); vuelve solo a 0 al vencer su tiempo
+        self._rig = {n: [_cu.POSE_DEFAULTS.get(n, 0.0), 0.0] for n in _cu.POSE_PARAMS}
+        self._rig_obj = {n: _cu.POSE_DEFAULTS.get(n, 0.0) for n in _cu.POSE_PARAMS}; self._rig_hasta = {n: 0.0 for n in _cu.POSE_PARAMS}
+        self._rig_vel = {n: 1.0 for n in _cu.POSE_PARAMS}
+        self._jel = [0.0, 0.0, 0.0, 0.0]                # gelatina: [estiramiento x, velocidad, estiramiento y, velocidad] (resortes sueltos)
+        self._pos_ant = None; self._vc = [0.0, 0.0]     # posición anterior y velocidad suavizada del cuerpo (px/s) para la gelatina
+        self._sq = (1.0, 1.0)                           # escala final del cuerpo (aplastar + gelatina)
+        self._rodar = None                              # (t0, duración, grados totales): al rodar por la pantalla la carita da vueltas
+        self._salto_id = 0                              # cada «saltar» nuevo cancela los brincos pendientes del anterior
+        self._lip_t = [0.0, 0.0]; self._lip = [0.0, 0.0]   # boca al hablar: [abierta, forma] (forma: -1 redonda «o/u» … 1 ancha «e/i»), objetivo y suavizado
+        self.ia_control = True                          # el cuerpo lo maneja SOLO la IA: sin mirada que divaga al azar (interruptor de Ajustes > Funciones)
+        # --- VIDA CONTINUA (siempre en local, sin IA ni avisos): deriva suave de cabeza/cuerpo/mirada, asentir mientras le hablas
+        self._vida_voz = 0.0; self._vida_pausa = 0.0; self._vida_nod_t = 0.0
         self._intro_t0 = None                           # animación de aparecer (play_intro)
         self._outro_t0 = None; self._outro_done = False  # animación de despedirse (quit_animated)
         self._pet_acc = 0.0; self._pet_last = None; self._pet_t = 0.0; self._pet_cool = 0.0
@@ -425,6 +158,8 @@ class Orb(QWidget):
     def set_state(self, s):
         if s not in STATE_COLORS: return
         if self.sleep_lock and s != "sleeping": return      # en modo dormir ningún evento le cambia el estado
+        if s == "listening" and self.state != "listening" and self.emotion == "curious":
+            self.emotion = "neutral"; self._emotion_until = None      # le estás contestando: ya no hace falta la cara de pregunta
         self.state = s
         if s != "idle": self.last_active = time.time()
 
@@ -434,7 +169,7 @@ class Orb(QWidget):
 
     def set_prop(self, name):
         """Fuerza el objeto que sostiene («pen», «lupa», «gear», «folder», «hourglass», «question») o None = el que toque por su emoción."""
-        self._prop_force = name if name in ("pen", "lupa", "gear", "folder", "hourglass", "question") else None
+        self._prop_force = name if name in ("pen", "lupa", "gear", "folder", "hourglass", "question", "nube") else None
 
     def set_emotion(self, name, hold=4.0):
         if self.sleep_lock: return
@@ -449,13 +184,22 @@ class Orb(QWidget):
     def set_level(self, x):
         self._level_target = max(0.0, min(1.0, x))
 
+    def _dance_emote(self, snap=False):
+        """Cara de baile. Si está chambeando se queda la cara de chamba: el baile solo la hace brincar con la música (antes se peleaban y la cara
+        cambiaba al azar entre baile y trabajo)."""
+        if time.time() < self.trabajando_hasta:
+            return
+        self.set_emotion(self._dface, 3.0)
+        if snap:
+            self._snap_face()
+
     def set_dancing(self, on):
         """Empieza/termina el baile (la música se detecta en audio_react.py)."""
         if self.sleep_lock: on = False
         self.dancing = bool(on)
         if self.dancing:
             self.last_active = time.time()
-            if self.state == "idle": self.set_emotion(self._dface, 3.0); self._snap_face()
+            if self.state == "idle": self._dance_emote(True)
 
     def _snap_face(self):
         """Pone la carita (ojos, cejas, boca, mejillas) en la objetivo AL INSTANTE, sin pasar por caras intermedias."""
@@ -472,7 +216,7 @@ class Orb(QWidget):
             self.dance_style = name
             self._dface = DANCE_STYLES[name]["caras"][0]; self._dface_next = time.time() + random.uniform(4.0, 8.0)
             if self.dancing and self.state in ("idle", "listening") and not self.edge:
-                self.set_emotion(self._dface, 3.0); self._snap_face()
+                self._dance_emote(True)
 
     def beat(self, strength=1.0):
         """Un golpe de ritmo: rebote hacia arriba y se carga al otro lado."""
@@ -488,7 +232,7 @@ class Orb(QWidget):
         self._bv = peak * self._omega / 0.55          # velocidad inicial: con amortiguación ~0.5 el pico llega a ≈ `peak`
         self._dance_dir = -self._dance_dir
         self.last_active = time.time()
-        if self.state in ("idle", "listening"): self.set_emotion(self._dface, 3.0)
+        if self.state in ("idle", "listening"): self._dance_emote(False)
 
     def say(self, text, seconds=None, force=False):
         if self.sleep_lock and not force: return          # dormida: ni burbujas (force=True solo para sus propios avisos de dormir/despertar)
@@ -529,8 +273,17 @@ class Orb(QWidget):
         self.set_emotion("happy", 2); self.say("¡Aquí estoy! 👋", 2.5)
 
     def _on_a_screen(self):
+        """¿Se ve al menos un pedacito de la bolita en alguna pantalla? (Antes se miraba solo el CENTRO de la ventana: al acurrucarse en el borde el centro
+        queda FUERA de la pantalla a propósito, así que el «cuidador» creía que se había perdido y la teletransportaba a la esquina.)"""
+        if self.edge or self._drag is not None or self._anim.state() == QPropertyAnimation.Running or self._move_anim.state() == QPropertyAnimation.Running:
+            return True                                  # acurrucada en el borde, arrastrándola o caminando: no se toca
         c = self._center_global()
-        return any(sc.geometry().contains(c) for sc in QGuiApplication.screens())
+        r = QRect(c.x() - R0, c.y() - R0, 2 * R0, 2 * R0)
+        for sc in QGuiApplication.screens():
+            i = sc.geometry().intersected(r)
+            if i.width() >= 12 and i.height() >= 12:
+                return True
+        return False
 
     def _to_safe_place(self):
         g = QGuiApplication.primaryScreen().availableGeometry()
@@ -604,6 +357,37 @@ class Orb(QWidget):
             return self._mood_face(base)
         return base
 
+    # ------------------------------------------------------------------ VIDA CONTINUA
+    @staticmethod
+    def _ruido(t: float, semilla: float) -> float:
+        """Ruido suave y continuo en [-1, 1] (suma de senos con frecuencias que no coinciden: no se repite nunca de forma visible)."""
+        return (math.sin(t * 0.37 + semilla * 1.7) + 0.6 * math.sin(t * 0.91 + semilla * 4.3) + 0.35 * math.sin(t * 1.73 + semilla * 7.1)) / 1.95
+
+    def _vida_paso(self, dt: float, now: float, g: dict) -> None:
+        """Capa de vida PROCEDURAL: movimiento continuo y suave (nunca a ratos) que se SUMA a los gestos y a la pose de la IA. Local, sin cuota.
+        Config: `vida_continua` (true), `vida_amp` (1.0 = normal; 0.5 más discreta), `vida_asentir` (true)."""
+        if not _cfg_val("vida_continua", True) or self.sleep_lock or self.state == "sleeping" or self.dancing or self.edge:
+            return
+        t = self.t
+        amp = float(_cfg_val("vida_amp", 1.0))
+        en = {"speaking": 1.25, "listening": 1.1, "thinking": 0.9}.get(self.state, 1.0) * (0.78 + 0.22 * self._ruido(t * 0.2, 9.0))   # energía que sube y baja sola
+        a = amp * en
+        rn = self._ruido
+        g["ghx"] += a * 0.050 * R0 * rn(t, 1.0); g["ghy"] += a * 0.040 * R0 * rn(t, 2.0); g["grot"] += a * 2.2 * rn(t, 3.0)       # cabeza
+        g["gdx"] += a * 0.040 * R0 * rn(t * 0.8, 4.0); g["gdy"] += a * 0.035 * R0 * rn(t * 0.7, 5.0); g["gsc"] += a * 0.010 * rn(t * 0.6, 6.0)   # flota
+        lx, ly = 0.40 * rn(t * 1.2, 7.0), 0.22 * rn(t * 1.1, 8.0)                                                               # mirada que divaga
+        g["glx"] += lx; g["gly"] += ly
+        # asentir mientras le hablas: cuando haces una pausa después de hablar un rato, a veces cabecea («te sigo»)
+        if _cfg_val("vida_asentir", True):
+            if self.state == "listening" and self.level > 0.12:
+                self._vida_voz += dt; self._vida_pausa = 0.0
+            elif self._vida_voz > 0:
+                self._vida_pausa += dt
+                if self._vida_pausa > 0.35:
+                    if self._vida_voz > 1.5 and now - self._vida_nod_t > 6.0 and random.random() < 0.6 and "asentir" in GESTO_FN:
+                        self._gestos.append((now, 1.1, "asentir", 0.7)); self._vida_nod_t = now
+                    self._vida_voz = 0.0
+
     def _tick(self):
         dt = 0.016
         self.t += dt
@@ -628,10 +412,10 @@ class Orb(QWidget):
         self.level += (self._level_target - self.level) * 0.35
         self._level_target *= 0.90
 
-        # parpadeo
-        if self.t >= self._next_blink:
+        # parpadeo (con el control total es una perilla de la IA: `parpadeo_auto`; si la apaga, parpadea ella)
+        if self.t >= self._next_blink and (not self.ia_control or self._rig["parpadeo_auto"][0] > 0.5):
             self.blink = min(1.0, self.blink + 0.4)
-            if self.blink >= 1.0: self._next_blink = self.t + random.uniform(2.5, 5.5)
+            if self.blink >= 1.0: self._next_blink = self.t + (random.uniform(0.16, 0.30) if random.random() < 0.14 else random.uniform(2.2, 6.2))   # a veces parpadea doble
         else:
             self.blink = max(0.0, self.blink - 0.25)
 
@@ -682,302 +466,152 @@ class Orb(QWidget):
         if active and now >= self._dface_next:                      # cada 4-8 s cambia de expresión (dentro de las del estilo)
             opciones = [x for x in ds["caras"] if x != self._dface] or list(ds["caras"])
             self._dface = random.choice(opciones); self._dface_next = now + random.uniform(4.0, 8.0)
-            self.set_emotion(self._dface, 3.0); self._snap_face()
+            self._dance_emote(True)
+
+        # lenguaje corporal libre: suma los gestos que la IA tiene en marcha (cada tick se arma de cero; nada se mueve solo)
+        g = dict(_G0)
+        if self.sleep_lock or self.state == "sleeping":
+            self._gestos = []
+        elif self._gestos:
+            keep = []
+            for (t0, dur, nm, k) in self._gestos:
+                u = (now - t0) / dur
+                if u >= 1.0:
+                    continue
+                keep.append((t0, dur, nm, k))
+                for kk, v in GESTO_FN[nm](u, k).items():
+                    g[kk] += v
+            self._gestos = keep
+        self._vida_paso(dt, now, g)                                 # vida continua (suma a lo de la IA; no depende de ningún reloj de avisos)
+        aplastar = 0.0
+        if self.sleep_lock or self.state == "sleeping" or not self.ia_control:
+            for n, st in self._rig.items():
+                st[0] = self._rig_obj[n] = _cu.POSE_DEFAULTS.get(n, 0.0); st[1] = 0.0
+        else:                                                       # rig: las perillas de la pose libre se SUMAN a los gestos
+            self._rig_paso(dt, now)
+            R = {n: st[0] for n, st in self._rig.items()}
+            g["ghx"] += R["cabeza_x"] * R0 * 0.45; g["ghy"] -= R["cabeza_y"] * R0 * 0.35; g["grot"] += R["cabeza_giro"] * 30
+            g["gdx"] += R["cuerpo_x"] * R0 * 0.60; g["gdy"] -= R["cuerpo_y"] * R0 * 0.60; g["gsc"] += R["tamano"] * 0.22
+            g["gel"] += R["ojo_izq"]; g["ger"] += R["ojo_der"]; g["gpup"] += R["pupila"]
+            g["gbl"] += R["ceja_izq"]; g["gbr"] += R["ceja_der"]
+            g["glx"] += R["mirada_x"] * 1.6; g["gly"] -= R["mirada_y"] * 1.0
+            g["gmo"] += R["boca_abierta"]; g["gsm"] += R["sonrisa"]; g["gmw"] += R["boca_ancho"]
+            g["grub"] += R["rubor"]; g["gglow"] += R["brillo"]
+            g["gancho"] += R["ancho"]; g["galto"] += R["alto"]; g["garc"] += R["ojos_arco"]
+            aplastar = R["aplastar"]
+        if self._rodar:                                             # rodando: la carita gira (vueltas completas, así no «salta» al terminar)
+            t0r, dur_r, tot = self._rodar
+            u_r = (now - t0r) / dur_r
+            if u_r >= 1.0:
+                self._rodar = None
+            else:
+                g["grot"] += tot * (u_r * u_r * (3 - 2 * u_r))
+        self._g = g
+        self._gelatina_paso(dt, aplastar)
+        tl = self._lip_t if self.state == "speaking" else (0.0, 0.0)              # boca: sigue el audio mientras habla
+        self._lip[0] += (tl[0] - self._lip[0]) * 0.55; self._lip[1] += (tl[1] - self._lip[1]) * 0.35
 
         self.update()
 
     # ----------------------------------------------------------------- dibujo
-    def _color(self):
-        w = max(0.0, min(1.0, self.p.get("ew", 0.0)))
-        tgt = (self.p.get("er", 0), self.p.get("eg", 0), self.p.get("eb", 0))
-        return QColor(*[int(max(0, min(255, self.col[i] + (tgt[i] - self.col[i]) * w))) for i in range(3)])
-
-    def paintEvent(self, _):
-        p = QPainter(self)
-        p.setRenderHint(QPainter.Antialiasing)
-        _s, _o = self._appear_factors(time.time())
-        if _s != 1.0 or _o != 1.0:                       # entrada/salida: escala y opacidad alrededor del centro
-            p.translate(W / 2, H / 2); p.scale(_s, _s); p.translate(-W / 2, -H / 2)
-            p.setOpacity(max(0.0, min(1.0, _o)))
-        c = QPointF(W / 2 + self._dx, H / 2 + self._dy)
-        pulse, speed = STATE_MOTION[self.state]
-        r = R0 * (1 + pulse * math.sin(self.t * speed) + self.level * 0.16 + self._beat * DANCE_GAIN * DANCE_STYLES.get(self.dance_style, DANCE_STYLES["pop"])["pulse"])
-        col = self._color()
-        sleeping = self.state == "sleeping"
-
-        # --- glow
-        glow = QRadialGradient(c, r * 2.5)
-        g0 = QColor(col); g0.setAlpha(int((70 if sleeping else 150) * (0.85 + self.level * 0.5)))
-        g1 = QColor(col); g1.setAlpha(0)
-        glow.setColorAt(0.30, g0); glow.setColorAt(1.0, g1)
-        p.setPen(Qt.NoPen); p.setBrush(QBrush(glow))
-        p.drawEllipse(c, r * 2.5, r * 2.5)
-
-        # --- ondas
-        for born in self.ripples:
-            age = (self.t - born) / 1.3
-            rc = QColor(col.lighter(150)); rc.setAlpha(int(130 * (1 - age)))
-            p.setBrush(Qt.NoBrush); p.setPen(QPen(rc, 2))
-            rr = r * (1.05 + age * 0.9)
-            p.drawEllipse(c, rr, rr)
-
-        # --- cuerpo
-        body = QRadialGradient(c, r, QPointF(c.x() - r * 0.35, c.y() - r * 0.40))
-        body.setColorAt(0.0, col.lighter(175)); body.setColorAt(0.55, col); body.setColorAt(1.0, col.darker(160))
-        p.setPen(Qt.NoPen); p.setBrush(QBrush(body))
-        p.drawEllipse(c, r, r)
-
-        # --- brillo interno que se mueve (recortado a la bolita)
-        clip = QPainterPath(); clip.addEllipse(c, r, r)
-        p.save(); p.setClipPath(clip)
-        sc = QPointF(c.x() + math.cos(self.t * 0.7) * r * 0.35, c.y() + math.sin(self.t * 0.9) * r * 0.30 + r * 0.2)
-        sh = QRadialGradient(sc, r * 0.8)
-        s0 = QColor(255, 255, 255, 55); s1 = QColor(255, 255, 255, 0)
-        sh.setColorAt(0, s0); sh.setColorAt(1, s1)
-        p.setBrush(QBrush(sh)); p.drawEllipse(sc, r * 0.8, r * 0.8)
-        p.restore()
-
-        # --- borde tipo cristal + destello
-        rim = QColor(255, 255, 255, 70)
-        p.setBrush(Qt.NoBrush); p.setPen(QPen(rim, 1.6)); p.drawEllipse(c, r - 1, r - 1)
-        p.save(); p.translate(c.x() - r * 0.32, c.y() - r * 0.50); p.rotate(-28)
-        hl = QLinearGradient(0, -r * 0.1, 0, r * 0.1)
-        hl.setColorAt(0, QColor(255, 255, 255, 190)); hl.setColorAt(1, QColor(255, 255, 255, 0))
-        p.setPen(Qt.NoPen); p.setBrush(QBrush(hl)); p.drawEllipse(QPointF(0, 0), r * 0.26, r * 0.12)
-        p.restore()
-
-        self._draw_face(p, c, r)
-        self._draw_prop(p, c, r)                         # el objeto que «sostiene» (pluma, lupa, engranaje, ?...)
-
-        # --- pensando: puntitos orbitando
-        if self.state == "thinking":
-            for i in range(3):
-                a = self.t * 3.2 + i * 2.094
-                pos = QPointF(c.x() + math.cos(a) * r * 1.4, c.y() + math.sin(a) * r * 1.4 * 0.45 - r * 0.9)
-                p.setPen(Qt.NoPen); p.setBrush(QColor(255, 255, 255, 220))
-                p.drawEllipse(pos, 3.6, 3.6)
-
-        # --- corazones de la caricia
-        self.hearts = [h for h in self.hearts if self.t - h[0] < 1.6]
-        if self.hearts:
-            p.setFont(QFont("Segoe UI", max(9, round(14 * SCALE / 0.72)), QFont.Bold))
-            for born, dx in self.hearts:
-                age = (self.t - born) / 1.6
-                p.setPen(QColor(255, 105, 150, int(230 * (1 - age))))
-                p.drawText(QPointF(c.x() + dx * r, c.y() - r * (0.9 + age * 1.0)), "♥")
-
-        # --- durmiendo: zzz
-        if sleeping:
-            f = QFont("Segoe UI", 14, QFont.Bold); p.setFont(f)
-            for i in range(3):
-                ph = (self.t * 0.5 + i / 3) % 1.0
-                p.setPen(QColor(220, 235, 255, int(200 * (1 - ph))))
-                p.drawText(QPointF(c.x() + r * (0.7 + ph * 0.4), c.y() - r * (0.5 + ph * 0.9)), "z")
-
-    def _draw_face(self, p, c, r):
-        p.save()
-        if abs(self._rot) > 0.05:                                # cabeza inclinada: gira la carita alrededor del centro del cuerpo
-            p.translate(c); p.rotate(self._rot); p.translate(-c)
-        c = QPointF(c.x() + self._hx, c.y() + self._hy)          # y se corre / cabecea respecto al cuerpo
-        f = self.p
-        ink = QColor(14, 28, 70)
-        lx = (f["lx"] + self._eye_wander[0] * (1 if self.state in ("idle", "listening") else 0.2)) * r * 0.10
-        ly = (f["ly"] + self._eye_wander[1] * (1 if self.state in ("idle", "listening") else 0.2)) * r * 0.08
-        if self.edge and not self.revealed:                      # asomada: mira hacia la pantalla
-            lx += (-1 if self.edge == "right" else 1) * r * 0.12
-        ey = c.y() - r * 0.08 + ly
-
-        # mejillas
-        if f["blush"] > 0.03:
-            bc = QColor(255, 120, 150, int(120 * min(1, f["blush"])))
-            p.setPen(Qt.NoPen); p.setBrush(bc)
-            for dx in (-0.55, 0.55):
-                p.drawEllipse(QPointF(c.x() + r * dx + lx * 0.5, c.y() + r * 0.22), r * 0.13, r * 0.075)
-
-        for dx in (-0.33, 0.33):
-            ex = c.x() + r * dx + lx
-            # ojos redondos (se desvanecen cuando arc -> 1)
-            a_round = 1 - max(0.0, min(1.0, f["arc"]))
-            if a_round > 0.02:
-                rx = r * 0.10 * f["eye_w"]
-                ry = max(1.6, r * 0.20 * f["eye_h"] * (1 - self.blink * 0.92))
-                col = QColor(ink); col.setAlpha(int(255 * a_round))
-                p.setPen(Qt.NoPen); p.setBrush(col); p.drawEllipse(QPointF(ex, ey), rx, ry)
-                if ry > 5:                                    # brillito en el ojo
-                    wc = QColor(255, 255, 255, int(230 * a_round))
-                    p.setBrush(wc); p.drawEllipse(QPointF(ex - rx * 0.3, ey - ry * 0.35), rx * 0.32, rx * 0.32)
-            # ojos felices ^ ^
-            if f["arc"] > 0.02:
-                ac = QColor(ink); ac.setAlpha(int(255 * min(1, f["arc"])))
-                p.setBrush(Qt.NoBrush); p.setPen(QPen(ac, 3.8, Qt.SolidLine, Qt.RoundCap))
-                p.drawArc(QRectF(ex - r * 0.14, ey - r * 0.08, r * 0.28, r * 0.22), 25 * 16, 130 * 16)
-
-        # cejas
-        if abs(f["brow"]) > 0.05:
-            bc = QColor(ink); bc.setAlpha(int(200 * min(1, abs(f["brow"]))))
-            p.setPen(QPen(bc, 3, Qt.SolidLine, Qt.RoundCap))
-            by = ey - r * 0.28
-            tilt = f["brow"] * r * 0.09
-            for sign in (-1, 1):
-                x0 = c.x() + sign * r * 0.33 + lx
-                inner = x0 - sign * r * 0.10; outer = x0 + sign * r * 0.10
-                p.drawLine(QPointF(inner, by - tilt), QPointF(outer, by + tilt))
-
-        # boca
-        my = c.y() + r * 0.36 + ly * 0.5
-        mx = c.x() + lx * 0.6
-        talk = self.level * 1.25 if self.state == "speaking" else 0.0
-        opened = max(f["open"], min(1.0, talk))
-        if opened > 0.06:
-            p.setPen(Qt.NoPen); p.setBrush(ink)
-            p.drawEllipse(QPointF(mx, my), r * (0.12 + 0.05 * opened), 2.5 + opened * r * 0.30)
-        else:
-            path = QPainterPath()
-            w = r * 0.36
-            path.moveTo(mx - w / 2, my)
-            path.quadTo(mx, my + f["curve"] * r * 0.42, mx + w / 2, my)
-            p.setBrush(Qt.NoBrush); p.setPen(QPen(ink, 3.2, Qt.SolidLine, Qt.RoundCap))
-            p.drawPath(path)
-        p.restore()
-
-    # ------------------------------------------------------------ objetos (los sostiene una mano invisible: Orbi no tiene manos)
-    def _prop_update(self, dt):
-        want = self._prop_force or PROP_FOR.get(self.emotion)
-        if self.state == "sleeping" or (self.edge and not self.revealed):
-            want = None
-        if want != self._prop_name:                                 # primero se guarda el anterior (se encoge) y luego sale el nuevo
-            self._prop_k = max(0.0, self._prop_k - dt * 7.0)
-            if self._prop_k <= 0.0:
-                self._prop_name = want; self._prop_t0 = self.t
-        elif self._prop_name:
-            self._prop_k = min(1.0, self._prop_k + dt * 4.0)         # aparece con un «pop» que se pasa tantito y regresa (easeOutBack)
-
-    def _draw_prop(self, p, c, r):
-        if not self._prop_name or self._prop_k <= 0.01:
-            return
-        k = self._prop_k
-        s = 1 + 2.70158 * (k - 1) ** 3 + 1.70158 * (k - 1) ** 2
-        tt = self.t - self._prop_t0
-        name = self._prop_name
-        u = r * 0.52
-        ink = QColor(14, 28, 70, 225)
-        pen = QPen(ink, max(1.4, r * 0.05), Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin)
-        if name == "question":                                      # «?» a un lado de la cabeza, rebotando (como en Animal Crossing)
-            ax = c.x() + r * 0.98 + self._hx
-            ay = c.y() - r * 1.12 - abs(math.sin(tt * 3.2)) * r * 0.10 + self._hy
-            tilt = math.sin(tt * 2.1) * 7
-        else:                                                       # el resto flota a la derecha, un poco abajo, con vaivén (como sostenido)
-            ax = c.x() + r * 1.34 + math.sin(tt * 1.7) * r * 0.04
-            ay = c.y() + r * 0.30 + math.sin(tt * 2.3) * r * 0.06
-            tilt = math.sin(tt * 1.3) * 5
-        p.save()
-        p.translate(ax, ay); p.rotate(tilt); p.scale(s, s)
-        p.setPen(pen)
-        if name == "question":
-            bub = QPainterPath(); bub.addRoundedRect(QRectF(-u * 0.95, -u * 1.05, u * 1.9, u * 2.1), u * 0.9, u * 0.9)
-            tail = QPainterPath(); tail.moveTo(-u * 0.55, u * 0.85); tail.lineTo(-u * 0.95, u * 1.35); tail.lineTo(-u * 0.05, u * 0.98); tail.closeSubpath()
-            p.setBrush(QColor(255, 255, 255, 240)); p.drawPath(bub.united(tail))
-            f = QFont("Segoe UI", 10, QFont.Bold); f.setPixelSize(max(10, int(u * 1.9))); p.setFont(f)
-            p.setPen(QColor(120, 90, 255)); p.drawText(QRectF(-u, -u * 1.1, u * 2, u * 2.2), Qt.AlignCenter, "?")
-        elif name == "pen":                                         # pluma que escribe un renglón (mismo ritmo que los ojos)
-            prog = (tt * 1.5) % 1.0
-            p.setPen(QPen(QColor(60, 80, 200, 200), max(1.4, r * 0.045), Qt.SolidLine, Qt.RoundCap))
-            wave = QPainterPath(); wave.moveTo(-u * 1.7, u * 1.30)
-            for i in range(1, 13):
-                x = -u * 1.7 + (u * 1.5 * prog) * i / 12
-                wave.lineTo(x, u * 1.30 + math.sin(i * 1.7) * u * 0.07)
-            p.drawPath(wave)
-            p.rotate(32 + math.sin(tt * 11) * 2.5)
-            p.setPen(pen)
-            body = QPainterPath(); body.addRoundedRect(QRectF(-u * 0.24, -u * 1.45, u * 0.48, u * 1.95), u * 0.16, u * 0.16)
-            p.setBrush(QColor(255, 214, 102)); p.drawPath(body)
-            p.setBrush(QColor(255, 140, 170)); p.drawRoundedRect(QRectF(-u * 0.24, -u * 1.45, u * 0.48, u * 0.32), u * 0.12, u * 0.12)
-            nib = QPainterPath(); nib.moveTo(-u * 0.24, u * 0.5); nib.lineTo(u * 0.24, u * 0.5); nib.lineTo(0, u * 1.05); nib.closeSubpath()
-            p.setBrush(QColor(236, 236, 246)); p.drawPath(nib)
-            p.setBrush(ink); p.drawEllipse(QPointF(0, u * 1.0), u * 0.07, u * 0.07)
-        elif name == "lupa":                                        # lupa que da vueltas, igual que los ojos al buscar
-            ox, oy = math.cos(tt * 2.3) * u * 0.20, math.sin(tt * 2.3) * u * 0.16
-            p.translate(ox, oy)
-            p.setPen(QPen(QColor(140, 95, 55), max(2.0, r * 0.11), Qt.SolidLine, Qt.RoundCap)); p.drawLine(QPointF(u * 0.55, u * 0.55), QPointF(u * 1.45, u * 1.45))
-            p.setPen(pen); p.setBrush(QColor(205, 238, 255, 120)); p.drawEllipse(QPointF(0, 0), u * 0.88, u * 0.88)
-            p.setBrush(Qt.NoBrush); p.setPen(QPen(QColor(255, 190, 60), max(2.2, r * 0.09))); p.drawEllipse(QPointF(0, 0), u * 0.88, u * 0.88)
-            p.setPen(QPen(QColor(255, 255, 255, 210), max(1.6, r * 0.05), Qt.SolidLine, Qt.RoundCap)); p.drawArc(QRectF(-u * 0.55, -u * 0.55, u * 1.1, u * 1.1), 110 * 16, 60 * 16)
-        elif name == "gear":                                        # engranaje girando
-            path = QPainterPath(); n = 8
-            for i in range(n * 4):
-                a = (i / (n * 4)) * 6.2832 + tt * 1.2
-                rad = u * (1.0 if (i % 4) in (0, 1) else 0.74)
-                (path.moveTo if i == 0 else path.lineTo)(QPointF(math.cos(a) * rad, math.sin(a) * rad))
-            path.closeSubpath()
-            hole = QPainterPath(); hole.addEllipse(QPointF(0, 0), u * 0.32, u * 0.32)
-            p.setBrush(QColor(176, 188, 210)); p.drawPath(path.subtracted(hole)); p.setBrush(Qt.NoBrush); p.drawPath(hole)
-        elif name == "folder":                                      # carpeta con una hoja que sube y baja
-            p.setBrush(QColor(255, 196, 90)); p.drawRoundedRect(QRectF(-u * 1.1, -u * 0.55, u * 2.2, u * 1.3), u * 0.15, u * 0.15)
-            p.drawRoundedRect(QRectF(-u * 1.1, -u * 0.82, u * 0.95, u * 0.34), u * 0.12, u * 0.12)
-            p.setBrush(QColor(255, 255, 255)); p.drawRoundedRect(QRectF(-u * 0.8, -u * 0.8 + math.sin(tt * 4.5) * u * 0.14, u * 1.6, u * 1.0), u * 0.08, u * 0.08)
-            p.setBrush(QColor(255, 214, 120)); p.drawRoundedRect(QRectF(-u * 1.1, -u * 0.18, u * 2.2, u * 0.93), u * 0.15, u * 0.15)
-        elif name == "hourglass":                                   # reloj de arena: se vacía, se voltea y vuelve a empezar
-            cyc = tt % 4.4
-            ph = min(1.0, cyc / 4.0)
-            if cyc > 4.0:
-                x = (cyc - 4.0) / 0.4
-                p.rotate(180 * (x * x * (3 - 2 * x)))
-            p.setBrush(QColor(220, 240, 255, 130))
-            glass = QPainterPath(); glass.moveTo(-u * 0.62, -u * 0.98); glass.lineTo(u * 0.62, -u * 0.98); glass.lineTo(u * 0.07, 0); glass.lineTo(u * 0.62, u * 0.98)
-            glass.lineTo(-u * 0.62, u * 0.98); glass.lineTo(-u * 0.07, 0); glass.closeSubpath()
-            p.drawPath(glass)
-            p.setPen(Qt.NoPen); p.setBrush(QColor(255, 214, 102))
-            top = (1 - ph) * 0.9; bot = ph * 0.9
-            if top > 0.02:
-                p.drawPolygon([QPointF(-u * 0.55 * top, -u * 0.05 - u * 0.85 * top), QPointF(u * 0.55 * top, -u * 0.05 - u * 0.85 * top), QPointF(0, -u * 0.05)])
-            if bot > 0.02:
-                p.drawPolygon([QPointF(-u * 0.55 * bot, u * 0.93), QPointF(u * 0.55 * bot, u * 0.93), QPointF(0, u * 0.93 - u * 0.85 * bot)])
-            if ph < 1.0:
-                p.setPen(QPen(QColor(255, 214, 102), max(1.2, r * 0.03))); p.drawLine(QPointF(0, 0), QPointF(0, u * 0.9 - u * 0.85 * bot))
-            p.setPen(pen); p.setBrush(QColor(190, 130, 80))
-            p.drawRoundedRect(QRectF(-u * 0.78, -u * 1.12, u * 1.56, u * 0.16), u * 0.06, u * 0.06)
-            p.drawRoundedRect(QRectF(-u * 0.78, u * 0.96, u * 1.56, u * 0.16), u * 0.06, u * 0.06)
-        p.restore()
-
-    # --------------------------------------------------------------- el halo no estorba
     def _hit_tick(self):
         """La ventana de Orbi es grande (el brillo ocupa mucho) y un clic en el brillo se lo quedaba ella sin hacer nada.
-        Solo la bolita es «sólida»: con el mouse fuera de ella la ventana se vuelve transparente a los clics (WS_EX_TRANSPARENT),
-        y en cuanto el mouse entra en la bolita vuelve a recibirlos (clic, arrastre, caricias)."""
+        Solo la bolita es «sólida»: con el mouse fuera de ella la ventana se vuelve transparente a los clics y, en cuanto el mouse entra en la
+        bolita, vuelve a recibirlos (clic, arrastre, caricias).
+
+        Se hace con el mecanismo de Qt (`Qt.WindowTransparentForInput` sobre la ventana nativa), NO escribiendo a mano el estilo de Windows: Qt
+        guarda su propia copia de las banderas y la reescribe cuando re-muestra la ventana o re-afirma «siempre encima», y eso borraba el bit
+        manual dejando el brillo bloqueando clics. Cada tick compara con lo que Qt tiene y solo cambia si hace falta (no más de ~8 por segundo:
+        cada cambio hace que Windows revise el cursor)."""
         if sys.platform != "win32" or not self.halo_clickthrough or not self.isVisible():
             return
         try:
-            import ctypes
-            from ctypes import wintypes
             from PySide6.QtGui import QCursor
+            wh = self.windowHandle()
+            if wh is None:
+                return
+            g = self._g
+            cx = W / 2 + self._dx + g["gdx"] + (self.width() - W) / 2        # centro REAL del cuerpo (con sus desplazamientos)
+            cy = H / 2 + self._dy + g["gdy"] + (self.height() - H) / 2
+            esc = max(self._sq[0], self._sq[1], 1.0) * (1 + max(0.0, g["gsc"]))
             p = self.mapFromGlobal(QCursor.pos())
-            dx, dy = p.x() - W / 2, p.y() - H / 2
-            dentro = (dx * dx + dy * dy) ** 0.5 <= R0 * 1.15 or self._drag is not None
+            dentro = ((p.x() - cx) ** 2 + (p.y() - cy) ** 2) ** 0.5 <= R0 * 1.15 * esc + 6 or self._drag is not None
             through = not dentro
-            if through == self._hit_clickthrough:
+            self._estorba_tick(p, dentro, esc)
+            actual = self._ex_transparent()                         # estado REAL de la ventana de Windows (la copia de Qt puede mentir si Windows/Qt le borran el bit)
+            self._hit_clickthrough = actual
+            if actual == through:
                 return
             ahora = time.time()
-            if self._hit_clickthrough is not None and ahora - self._hit_t < 0.15:
-                return                                              # cada cambio hace que Windows revise el cursor: no más de ~6 por segundo
+            if through and ahora - self._hit_t < 0.12:      # el anti-parpadeo solo frena volverse transparente; sólida es al instante para poder agarrarla
+                return
             self._hit_t = ahora
-            u = ctypes.windll.user32
-            u.GetWindowLongW.argtypes = [wintypes.HWND, ctypes.c_int]
-            u.GetWindowLongW.restype = ctypes.c_long
-            u.SetWindowLongW.argtypes = [wintypes.HWND, ctypes.c_int, ctypes.c_long]
-            hwnd = wintypes.HWND(int(self.winId()))
-            ex = u.GetWindowLongW(hwnd, -20)                       # GWL_EXSTYLE
-            ex = (ex | 0x20) if through else (ex & ~0x20)           # WS_EX_TRANSPARENT
-            u.SetWindowLongW(hwnd, -20, ex)
-            self._hit_clickthrough = through
-        except Exception:                                           # noqa: BLE001
+            wh.setFlag(Qt.WindowTransparentForInput, through)       # que Qt también lo sepa
+            if self._ex_transparent() != through:                   # Qt no lo aplicó (o lo reescribió): se pone directo en la ventana
+                self._ex_transparent(through)
+            self._hit_clickthrough = self._ex_transparent()
+            if getattr(self, "_hit_log", 0) < 4:                    # unas pocas líneas de diagnóstico para saber qué hace esta PC
+                self._hit_log = getattr(self, "_hit_log", 0) + 1
+                print(f"[halo] clic a través del brillo: quería {through}, quedó {self._hit_clickthrough}")
+        except Exception as e:                                      # noqa: BLE001
+            print(f"[halo] clic a través del brillo desactivado: {type(e).__name__}: {e}")
             self.halo_clickthrough = False                          # algo no cuadra en esta PC: se apaga y queda como antes
+
+    def _estorba_tick(self, p, dentro, esc):
+        """Detecta que Orbi le tapa algo al mouse y se aparta: el mouse se queda quieto ~1 s en el brillo cerca de la bolita
+        (sin haber estado sobre ella hace poco: eso sería querer agarrarla)."""
+        now = time.time()
+        cx = W / 2 + self._dx + self._g["gdx"] + (self.width() - W) / 2
+        cy = H / 2 + self._dy + self._g["gdy"] + (self.height() - H) / 2
+        d = ((p.x() - cx) ** 2 + (p.y() - cy) ** 2) ** 0.5
+        en_halo = (not dentro and self._drag is None and self.state != "sleeping"
+                   and 0 <= p.x() < self.width() and 0 <= p.y() < self.height() and d <= R0 * 2.8 * esc)
+        if dentro:
+            self._ultimo_dentro = now
+        if not en_halo or now - getattr(self, "_ultimo_dentro", 0.0) < 1.5:
+            self._est_t = None; return
+        gp = QCursor.pos()
+        ref = getattr(self, "_est_ref", None)
+        if getattr(self, "_est_t", None) is None or ref is None or abs(gp.x() - ref.x()) + abs(gp.y() - ref.y()) > 40:
+            self._est_t = now; self._est_ref = gp; return
+        if now - self._est_t > 1.0:
+            self._est_t = None
+            self._apartarse(gp)
+
+    def _apartarse(self, gp):
+        """Se mueve a otro lugar para dejar libre la zona donde está el mouse."""
+        m = int(R0 * 1.2)
+        self.dodge((gp.x() - m, gp.y() - m, gp.x() + m, gp.y() + m), force=True)
+
+    def _ex_transparent(self, through=None):
+        """Lee (o pone, si `through` no es None) el bit WS_EX_TRANSPARENT directo en la ventana de Windows. Devuelve cómo quedó."""
+        import ctypes
+        u = ctypes.windll.user32
+        u.GetWindowLongW.argtypes = [ctypes.c_void_p, ctypes.c_int]; u.GetWindowLongW.restype = ctypes.c_long
+        u.SetWindowLongW.argtypes = [ctypes.c_void_p, ctypes.c_int, ctypes.c_long]; u.SetWindowLongW.restype = ctypes.c_long
+        hwnd = int(self.winId())
+        ex = u.GetWindowLongW(hwnd, -20) & 0xFFFFFFFF
+        if through is not None:
+            nuevo = (ex | 0x20 | 0x80000) if through else (ex & ~0x20)
+            if nuevo != ex:
+                u.SetWindowLongW(hwnd, -20, ctypes.c_long(nuevo - (1 << 32) if nuevo >= (1 << 31) else nuevo).value)
+                ex = u.GetWindowLongW(hwnd, -20) & 0xFFFFFFFF
+        return bool(ex & 0x20)
 
     # --------------------------------------------------------------- ratón
     def mousePressEvent(self, e):
         if e.button() == Qt.LeftButton:
-            dx, dy = e.position().x() - W / 2, e.position().y() - H / 2
-            if (dx * dx + dy * dy) ** 0.5 > R0 * 1.15:      # clic en el halo (el brillo de alrededor): se ignora
-                self._drag = None; e.ignore(); return
+            g = self._g                                     # mismo centro REAL del cuerpo que usa _hit_tick (con sus desplazamientos)
+            cx = W / 2 + self._dx + g["gdx"] + (self.width() - W) / 2
+            cy = H / 2 + self._dy + g["gdy"] + (self.height() - H) / 2
+            esc = max(self._sq[0], self._sq[1], 1.0) * (1 + max(0.0, g["gsc"]))
+            dx, dy = e.position().x() - cx, e.position().y() - cy
+            dist = (dx * dx + dy * dy) ** 0.5
+            if dist > R0 * 1.15 * esc + 6:                  # clic en el halo (el brillo de alrededor): se ignora
+                self._drag = None; e.ignore()
+                if dist > R0 * 1.5 * esc + 20:              # claramente fuera de la bolita: el clic era para lo de abajo, se aparta
+                    self._apartarse(e.globalPosition().toPoint())
+                return
             self._anim.stop()
             self._drag = e.globalPosition().toPoint() - self.frameGeometry().topLeft()
             self._press_pos = e.globalPosition().toPoint(); self._moved = False
@@ -1028,12 +662,12 @@ class Orb(QWidget):
         self._move_anim.setEndValue(QPoint(cx - W // 2, cy - H // 2))
         self._move_anim.start()
 
-    def dodge(self, danger) -> bool:
+    def dodge(self, danger, force=False) -> bool:
         """Se aparta (esquina o borde) si estorba en la zona `danger` (x0,y0,x1,y1 globales); no se mueve si no hace falta."""
         now = time.time()
         if danger is None or self.state == "sleeping" or self.edge or self._drag is not None:
             return False
-        if now < getattr(self, "_no_dodge_until", 0.0) or now - getattr(self, "_last_dodge", 0.0) < 3.0:
+        if now < getattr(self, "_no_dodge_until", 0.0) or now - getattr(self, "_last_dodge", 0.0) < (1.0 if force else 3.0):
             return False
         c = self._center_global()
         center = (c.x(), c.y())
@@ -1055,6 +689,7 @@ class Orb(QWidget):
         self.move_to_global(sx, sy, 800)
         return True
 
+    # ------------------------------------------------------------------ lenguaje corporal libre (lo dispara la IA, cuerpo.py)
     def wander(self):
         """Se pasea a otro lugar de la pantalla (esquinas o mitad de los bordes), lejos de donde está ahora."""
         if self.sleep_lock: return
